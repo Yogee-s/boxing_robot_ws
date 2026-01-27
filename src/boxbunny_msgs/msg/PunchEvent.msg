@@ -1,0 +1,10 @@
+builtin_interfaces/Time stamp
+string glove
+string punch_type
+float32 distance_m
+float32 approach_velocity_mps
+float32 confidence
+string method
+bool is_punch
+bool imu_confirmed
+string source

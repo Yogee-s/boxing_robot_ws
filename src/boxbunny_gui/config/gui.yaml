@@ -1,0 +1,4 @@
+boxbunny_gui:
+  ros__parameters:
+    punch_topic: punch_events
+    color_topic: /camera/color/image_raw

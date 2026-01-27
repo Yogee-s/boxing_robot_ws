@@ -1,0 +1,6 @@
+punch_stats_node:
+  ros__parameters:
+    punch_topic: punch_events
+    output_topic: punch_stats
+    window_s: 30.0
+    publish_period_s: 2.0

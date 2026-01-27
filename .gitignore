@@ -1,0 +1,8 @@
+models/
+build/
+logs/
+install/
+*.log
+*.tmp
+.DS_Store
+/notebooks/assets/

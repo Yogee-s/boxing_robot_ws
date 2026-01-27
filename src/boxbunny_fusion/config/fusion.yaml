@@ -1,0 +1,8 @@
+punch_fusion_node:
+  ros__parameters:
+    vision_topic: punch_events_raw
+    imu_topic: imu/punch
+    output_topic: punch_events
+    fusion_window_s: 0.25
+    require_imu_confirmation: true
+    allow_vision_fallback: true

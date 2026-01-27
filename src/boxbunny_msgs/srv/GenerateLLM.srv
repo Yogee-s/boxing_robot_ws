@@ -1,0 +1,5 @@
+string prompt
+string mode
+string context
+---
+string response

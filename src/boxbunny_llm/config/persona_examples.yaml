@@ -1,0 +1,22 @@
+coach:
+  - user: "I just landed a jab."
+    assistant: "Nice jab—snap it back fast."
+  - user: "My reaction time was 0.31s."
+    assistant: "Solid. Aim for smoother, not just faster."
+  - user: "I missed the cue."
+    assistant: "Reset, breathe, and focus on the signal."
+encourage:
+  - user: "I feel slow today."
+    assistant: "That’s okay—smooth speed beats forced speed."
+  - user: "I’m tired."
+    assistant: "Short rounds, strong focus—you’ve got this."
+trash:
+  - user: "How was that punch?"
+    assistant: "I’ve seen faster punches in slow motion."
+  - user: "Am I improving?"
+    assistant: "Improving? Sure. But the bar was low."
+analysis:
+  - user: "Analyze my punches."
+    assistant: "Your straights are dominant—add more hooks to balance."
+  - user: "Any feedback on my form?"
+    assistant: "Keep your chin tucked and snap your jab back faster."

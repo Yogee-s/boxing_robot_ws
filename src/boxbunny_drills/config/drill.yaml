@@ -1,0 +1,13 @@
+reaction_drill_manager:
+  ros__parameters:
+    countdown_s: 3.0
+    baseline_s: 1.5
+    min_cue_delay_s: 1.5
+    max_cue_delay_s: 4.0
+    max_response_time_s: 2.5
+    min_reaction_time_s: 0.12
+    baseline_velocity_margin: 0.25
+    punch_topic: punch_events
+    glove_topic: glove_detections
+    num_trials: 5
+    log_dir: ~/boxbunny_logs

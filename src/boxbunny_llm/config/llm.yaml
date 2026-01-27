@@ -1,0 +1,12 @@
+trash_talk_node:
+  ros__parameters:
+    use_llm_if_available: true
+    model_path: "/home/boxbunny/Desktop/doomsday_integration/boxbunny_ws/models/llm/qwen2.5-3b-instruct-q4_k_m.gguf"
+    max_tokens: 32
+    temperature: 0.7
+    mode: "coach"
+    persona_examples_path: "/home/boxbunny/Desktop/doomsday_integration/boxbunny_ws/src/boxbunny_llm/config/persona_examples.yaml"
+    dataset_path: "/home/boxbunny/Desktop/doomsday_integration/boxbunny_ws/src/boxbunny_llm/config/coach_dataset.yaml"
+    use_stats_context: true
+    n_ctx: 512
+    n_threads: 6
