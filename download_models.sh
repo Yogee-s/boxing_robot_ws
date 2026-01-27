@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="/home/boxbunny/Desktop/doomsday_integration/boxbunny_ws"
+ROOT_DIR="/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws"
 MODEL_DIR="$ROOT_DIR/models"
 LLM_DIR="$MODEL_DIR/llm"
 POSE_DIR="$MODEL_DIR/pose"

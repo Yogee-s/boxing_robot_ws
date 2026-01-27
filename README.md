@@ -30,7 +30,7 @@ This workspace provides:
 ## Quick Start (Humble)
 
 ```bash
-cd /home/boxbunny/Desktop/doomsday_integration/boxbunny_ws
+cd /home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws
 source /opt/ros/humble/setup.bash
 colcon build --symlink-install
 source install/setup.bash

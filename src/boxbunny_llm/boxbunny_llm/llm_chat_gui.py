@@ -30,18 +30,22 @@ except Exception:
     yaml = None
 
 
+SENTENCE_ENDINGS = (".", "!", "?")
+
+
 class LlmWorker(QtCore.QThread):
     token = QtCore.Signal(str)
     done = QtCore.Signal(str)
     error = QtCore.Signal(str)
 
-    def __init__(self, llm, prompt: str, max_tokens: int, temperature: float):
+    def __init__(self, llm, prompt: str, max_tokens: int, temperature: float, complete_sentence: bool):
         super().__init__()
         self._llm = llm
         self._prompt = prompt
         self._max_tokens = max_tokens
         self._temperature = temperature
         self._buffer = []
+        self._complete_sentence = complete_sentence
 
     def run(self) -> None:
         try:
@@ -56,6 +60,27 @@ class LlmWorker(QtCore.QThread):
                 if text:
                     self._buffer.append(text)
                     self.token.emit(text)
+
+            text = "".join(self._buffer).strip()
+            if self._complete_sentence and text and not text.endswith(SENTENCE_ENDINGS):
+                # Try a short continuation to finish the sentence.
+                follow_prompt = f"{self._prompt}{text}"
+                follow = self._llm(
+                    follow_prompt,
+                    max_tokens=min(32, max(8, self._max_tokens // 4)),
+                    temperature=self._temperature,
+                    stop=["\n"],
+                )
+                extra = follow["choices"][0]["text"].strip()
+                if extra:
+                    self._buffer.append(" " + extra)
+                    self.token.emit(" " + extra)
+                    text = (text + " " + extra).strip()
+
+                if text and not text.endswith(SENTENCE_ENDINGS):
+                    self._buffer.append(".")
+                    self.token.emit(".")
+
             self.done.emit("".join(self._buffer))
         except Exception as exc:  # pragma: no cover
             self.error.emit(str(exc))
@@ -69,19 +94,19 @@ class LlmChatGui(QtWidgets.QMainWindow):
 
         self.model_path = os.environ.get(
             "BOXBUNNY_LLM_MODEL",
-            "/home/boxbunny/Desktop/doomsday_integration/boxbunny_ws/models/llm/qwen2.5-3b-instruct-q4_k_m.gguf",
+            "/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws/models/llm/qwen2.5-3b-instruct-q4_k_m.gguf",
         )
         self.system_path = os.environ.get(
             "BOXBUNNY_LLM_SYSTEM",
-            "/home/boxbunny/Desktop/doomsday_integration/boxbunny_ws/src/boxbunny_llm/config/system_prompt.txt",
+            "/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws/src/boxbunny_llm/config/system_prompt.txt",
         )
         self.models_path = os.environ.get(
             "BOXBUNNY_LLM_MODELS",
-            "/home/boxbunny/Desktop/doomsday_integration/boxbunny_ws/src/boxbunny_llm/config/models.yaml",
+            "/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws/src/boxbunny_llm/config/models.yaml",
         )
         self.singlish_path = os.environ.get(
             "BOXBUNNY_LLM_SINGLISH",
-            "/home/boxbunny/Desktop/doomsday_integration/boxbunny_ws/src/boxbunny_llm/config/singlish_prompt.txt",
+            "/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws/src/boxbunny_llm/config/singlish_prompt.txt",
         )
 
         self._llm = None
@@ -122,6 +147,8 @@ class LlmChatGui(QtWidgets.QMainWindow):
         self.send_btn.clicked.connect(self._send)
         self.stop_btn = QtWidgets.QPushButton("Stop")
         self.stop_btn.clicked.connect(self._stop_generation)
+        self.clear_btn = QtWidgets.QPushButton("Clear")
+        self.clear_btn.clicked.connect(self._clear_history)
 
         self.singlish_toggle = QtWidgets.QCheckBox("Singlish")
         self.singlish_toggle.setToolTip("Adds Singlish tone (lah/leh/lor) to replies")
@@ -129,12 +156,17 @@ class LlmChatGui(QtWidgets.QMainWindow):
         self.advice_toggle = QtWidgets.QCheckBox("Advice")
         self.advice_toggle.setToolTip("Bias replies toward practical boxing advice")
         self.advice_toggle.toggled.connect(lambda v: self._log_setting(f"Advice {'ON' if v else 'OFF'}"))
+        self.memory_toggle = QtWidgets.QCheckBox("Remember")
+        self.memory_toggle.setToolTip("Include recent chat history in prompts")
+        self.memory_toggle.toggled.connect(lambda v: self._log_setting(f"Memory {'ON' if v else 'OFF'}"))
 
         input_row.addWidget(self.user_input)
         input_row.addWidget(self.send_btn)
         input_row.addWidget(self.stop_btn)
+        input_row.addWidget(self.clear_btn)
         input_row.addWidget(self.singlish_toggle)
         input_row.addWidget(self.advice_toggle)
+        input_row.addWidget(self.memory_toggle)
 
         # Presets row
         presets_row = QtWidgets.QHBoxLayout()
@@ -199,6 +231,11 @@ class LlmChatGui(QtWidgets.QMainWindow):
         self.batch_slider.valueChanged.connect(lambda v: self.batch_label.setText(str(v)))
         self.batch_slider.sliderReleased.connect(lambda: self._log_setting(f"Batch {self.batch_label.text()}"))
 
+        self.history_spin = QtWidgets.QSpinBox()
+        self.history_spin.setRange(0, 12)
+        self.history_spin.setValue(4)
+        self.history_spin.valueChanged.connect(lambda v: self._log_setting(f"History turns {v}"))
+
         self.reload_model_btn = QtWidgets.QPushButton("Reload Model")
         self.reload_model_btn.clicked.connect(self._load_llm)
 
@@ -222,6 +259,8 @@ class LlmChatGui(QtWidgets.QMainWindow):
         adv_layout.addWidget(QtWidgets.QLabel("Batch"), 6, 0)
         adv_layout.addWidget(self.batch_slider, 6, 1)
         adv_layout.addWidget(self.batch_label, 6, 2)
+        adv_layout.addWidget(QtWidgets.QLabel("History turns"), 7, 0)
+        adv_layout.addWidget(self.history_spin, 7, 1)
 
         self.advanced_group.setVisible(False)
 
@@ -249,12 +288,9 @@ class LlmChatGui(QtWidgets.QMainWindow):
         self.status_label = QtWidgets.QLabel("Ready")
         self.export_btn = QtWidgets.QPushButton("Export")
         self.export_btn.clicked.connect(self._export_history)
-        self.clear_btn = QtWidgets.QPushButton("Clear")
-        self.clear_btn.clicked.connect(self._clear_history)
         footer.addWidget(self.status_label)
         footer.addStretch(1)
         footer.addWidget(self.export_btn)
-        footer.addWidget(self.clear_btn)
 
         root.addWidget(header)
         root.addWidget(self.chat_view, 1)
@@ -323,6 +359,7 @@ class LlmChatGui(QtWidgets.QMainWindow):
             return
         if not Path(self.model_path).exists():
             self.status_label.setText(f"Model not found: {self.model_path}")
+            self._log_setting("Model not found - check path")
             return
         try:
             self._llm = Llama(
@@ -352,6 +389,30 @@ class LlmChatGui(QtWidgets.QMainWindow):
         self.status_label.setText(f"Saved: {path}")
         self._log_setting("System prompt saved")
 
+    def _build_prompt(self, user_text: str) -> str:
+        system = self.system_editor.toPlainText().strip()
+        if self.singlish_toggle.isChecked():
+            system += f"\n{self._singlish_prompt}"
+        if self.advice_toggle.isChecked():
+            system += (
+                "\nProvide practical boxing advice and training tips."
+                " If unsure, say so and suggest safe practice."
+                " Avoid medical or injury diagnosis."
+            )
+
+        if not self.memory_toggle.isChecked():
+            return f"{system}\nUser: {user_text}\nCoach:"
+
+        turns = int(self.history_spin.value())
+        history = []
+        # take last N pairs from history
+        for item in self._history[-turns * 2 :]:
+            role = "User" if item["role"] == "user" else "Coach"
+            history.append(f"{role}: {item['text']}")
+
+        history_text = "\n".join(history)
+        return f"{system}\n{history_text}\nUser: {user_text}\nCoach:"
+
     def _send(self) -> None:
         text = self.user_input.text().strip()
         if not text:
@@ -365,17 +426,7 @@ class LlmChatGui(QtWidgets.QMainWindow):
             self._append_chat("Coach", "Model not loaded.")
             return
 
-        system = self.system_editor.toPlainText().strip()
-        if self.singlish_toggle.isChecked():
-            system += f"\n{self._singlish_prompt}"
-        if self.advice_toggle.isChecked():
-            system += (
-                "\nProvide practical boxing advice and training tips."
-                " If unsure, say so and suggest safe practice."
-                " Avoid medical or injury diagnosis."
-            )
-
-        prompt = f"{system}\nUser: {text}\nCoach:"
+        prompt = self._build_prompt(text)
 
         self._current_reply_cursor = self.chat_view.textCursor()
         self._current_reply_cursor.movePosition(QtGui.QTextCursor.End)
@@ -386,6 +437,7 @@ class LlmChatGui(QtWidgets.QMainWindow):
             prompt,
             max_tokens=int(self.tokens_slider.value()),
             temperature=float(self.temp_slider.value()) / 100.0,
+            complete_sentence=True,
         )
         self._worker.token.connect(self._append_stream)
         self._worker.done.connect(self._finish_stream)
@@ -429,9 +481,10 @@ class LlmChatGui(QtWidgets.QMainWindow):
         if index <= 0:
             return
         prompt = self.presets_combo.currentText()
-        self.user_input.setText(prompt)
         self.presets_combo.setCurrentIndex(0)
         self._log_setting(f"Preset selected: {prompt}")
+        self.user_input.setText(prompt)
+        self._send()
 
     def _export_history(self) -> None:
         if not self._history:
@@ -449,6 +502,7 @@ class LlmChatGui(QtWidgets.QMainWindow):
         self._history = []
         self.chat_view.clear()
         self.status_label.setText("Cleared")
+        self._log_setting("Chat cleared")
 
     def _load_settings(self) -> None:
         if not self._settings_path.exists():
@@ -464,11 +518,18 @@ class LlmChatGui(QtWidgets.QMainWindow):
         self.batch_slider.setValue(int(data.get("batch", self.batch_slider.value())))
         self.singlish_toggle.setChecked(bool(data.get("singlish", False)))
         self.advice_toggle.setChecked(bool(data.get("advice", False)))
+        self.memory_toggle.setChecked(bool(data.get("memory", False)))
+        self.history_spin.setValue(int(data.get("history_turns", 4)))
         model_path = data.get("model_path")
         if model_path:
             self.model_path = model_path
             self.model_path_label.setText(self.model_path)
         self.model_combo.setCurrentIndex(data.get("model_index", 0))
+
+        if not Path(self.model_path).exists():
+            self.model_path = "/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws/models/llm/qwen2.5-3b-instruct-q4_k_m.gguf"
+            self.model_path_label.setText(self.model_path)
+            self._log_setting("Model path reset to new workspace")
 
     def _save_settings(self) -> None:
         payload = {
@@ -479,6 +540,8 @@ class LlmChatGui(QtWidgets.QMainWindow):
             "batch": self.batch_slider.value(),
             "singlish": self.singlish_toggle.isChecked(),
             "advice": self.advice_toggle.isChecked(),
+            "memory": self.memory_toggle.isChecked(),
+            "history_turns": self.history_spin.value(),
             "model_index": self.model_combo.currentIndex(),
             "model_path": self.model_path,
         }

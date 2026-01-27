@@ -26,6 +26,6 @@ realsense_glove_tracker:
     process_every_n: 1
 
     use_pose_verification: false
-    pose_model_path: "/home/boxbunny/Desktop/doomsday_integration/boxbunny_ws/models/pose/yolo26n-pose.pt"
+    pose_model_path: "/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws/models/pose/yolo26n-pose.pt"
     pose_min_conf: 0.25
     pose_process_every_n: 8
