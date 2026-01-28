@@ -32,6 +32,21 @@ except Exception:
 
 SENTENCE_ENDINGS = (".", "!", "?")
 
+APP_STYLESHEET = """
+QWidget { background-color: #111317; color: #E6E6E6; font-family: 'DejaVu Sans'; }
+QGroupBox { border: 1px solid #2A2E36; border-radius: 8px; margin-top: 8px; padding: 10px; }
+QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; color: #C0C4CC; }
+QPushButton { background-color: #2B3240; border: 1px solid #394151; padding: 6px 10px; border-radius: 6px; }
+QPushButton:hover { background-color: #394151; }
+QPushButton:pressed { background-color: #202633; }
+QLineEdit, QTextEdit, QPlainTextEdit, QComboBox { background-color: #1A1E25; border: 1px solid #2A2E36; padding: 4px 6px; border-radius: 6px; }
+QLabel { color: #E6E6E6; }
+"""
+
+
+def _apply_theme(app: QtWidgets.QApplication) -> None:
+    app.setStyleSheet(APP_STYLESHEET)
+
 
 class LlmWorker(QtCore.QThread):
     token = QtCore.Signal(str)
@@ -558,6 +573,7 @@ class LlmChatGui(QtWidgets.QMainWindow):
 
 def main() -> None:
     app = QtWidgets.QApplication([])
+    _apply_theme(app)
     gui = LlmChatGui()
     gui.show()
     app.exec()

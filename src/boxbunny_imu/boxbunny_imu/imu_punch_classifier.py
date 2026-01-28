@@ -11,7 +11,8 @@ from boxbunny_msgs.msg import ImuPunch
 from boxbunny_msgs.srv import CalibrateImuPunch
 
 
-PUNCH_TYPES = ("jab_or_cross", "hook", "uppercut")
+PUNCH_TYPES = ("straight", "hook", "uppercut")
+PUNCH_TYPE_ALIASES = {"jab_or_cross": "straight"}
 
 
 class ImuPunchClassifier(Node):
@@ -23,6 +24,9 @@ class ImuPunchClassifier(Node):
         self.declare_parameter("cooldown_s", 0.5)
         self.declare_parameter("gyro_threshold", 2.5)
         self.declare_parameter("accel_threshold", 6.0)
+        self.declare_parameter("accel_peak_ratio", 2.0)
+        self.declare_parameter("gyro_peak_ratio", 2.0)
+        self.declare_parameter("axis_dominance_ratio", 1.3)
         self.declare_parameter("imu_hand", "right")
         self.declare_parameter("calibration_path", os.path.expanduser("~/.boxbunny/imu_calibration.json"))
         self.declare_parameter("use_calibration", True)
@@ -48,7 +52,12 @@ class ImuPunchClassifier(Node):
             return {}
         try:
             with open(path, "r") as f:
-                return json.load(f)
+                raw = json.load(f)
+            templates = {}
+            for key, value in raw.items():
+                canonical = PUNCH_TYPE_ALIASES.get(key, key)
+                templates[canonical] = value
+            return templates
         except Exception:
             return {}
 
@@ -61,7 +70,7 @@ class ImuPunchClassifier(Node):
             json.dump(self._templates, f, indent=2)
 
     def _on_calibrate(self, request, response):
-        punch_type = request.punch_type
+        punch_type = PUNCH_TYPE_ALIASES.get(request.punch_type, request.punch_type)
         duration_s = max(0.5, float(request.duration_s or 2.5))
         if punch_type not in PUNCH_TYPES:
             response.accepted = False
@@ -110,7 +119,12 @@ class ImuPunchClassifier(Node):
         accel_thresh = float(self.get_parameter("accel_threshold").value)
 
         peaks = self._window_peaks()
-        punch_type = self._classify(gyro_thresh, accel_thresh)
+        rms = self._window_rms()
+        axis_peaks = self._axis_peaks()
+        if not self._passes_filters(peaks, rms, axis_peaks):
+            return
+
+        punch_type = self._classify(gyro_thresh, accel_thresh, axis_peaks)
         if punch_type is None:
             return
 
@@ -135,19 +149,18 @@ class ImuPunchClassifier(Node):
             peak_gyro = max(peak_gyro, self._gyro_magnitude(h))
         return peak_accel, peak_gyro
 
-    def _classify(self, gyro_thresh: float, accel_thresh: float) -> Optional[str]:
-        gx = max(abs(h.angular_velocity.x) for h in self._history)
-        gy = max(abs(h.angular_velocity.y) for h in self._history)
-        gz = max(abs(h.angular_velocity.z) for h in self._history)
-
-        ax = max(abs(h.linear_acceleration.x) for h in self._history)
-        ay = max(abs(h.linear_acceleration.y) for h in self._history)
-        az = max(abs(h.linear_acceleration.z) for h in self._history)
+    def _classify(
+        self,
+        gyro_thresh: float,
+        accel_thresh: float,
+        axis_peaks: Tuple[Tuple[float, float, float], Tuple[float, float, float]],
+    ) -> Optional[str]:
+        (ax, ay, az), (gx, gy, gz) = axis_peaks
 
         if gz > gyro_thresh and ay > accel_thresh:
             return "hook"
         if gy > gyro_thresh and ax > accel_thresh:
-            return "jab_or_cross"
+            return "straight"
         if az > accel_thresh and gx > gyro_thresh:
             return "uppercut"
         return None
@@ -161,6 +174,53 @@ class ImuPunchClassifier(Node):
         accel_ratio = peaks[0] / max(0.01, template.get("peak_accel", 1.0))
         gyro_ratio = peaks[1] / max(0.01, template.get("peak_gyro", 1.0))
         return float(min(1.0, 0.5 * accel_ratio + 0.5 * gyro_ratio))
+
+    def _window_rms(self) -> Tuple[float, float]:
+        if not self._history:
+            return 0.0, 0.0
+        accel_sum = 0.0
+        gyro_sum = 0.0
+        for h in self._history:
+            accel = self._accel_magnitude(h)
+            gyro = self._gyro_magnitude(h)
+            accel_sum += accel * accel
+            gyro_sum += gyro * gyro
+        n = float(len(self._history))
+        return (accel_sum / n) ** 0.5, (gyro_sum / n) ** 0.5
+
+    def _axis_peaks(self) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+        ax = max(abs(h.linear_acceleration.x) for h in self._history)
+        ay = max(abs(h.linear_acceleration.y) for h in self._history)
+        az = max(abs(h.linear_acceleration.z) for h in self._history)
+        gx = max(abs(h.angular_velocity.x) for h in self._history)
+        gy = max(abs(h.angular_velocity.y) for h in self._history)
+        gz = max(abs(h.angular_velocity.z) for h in self._history)
+        return (ax, ay, az), (gx, gy, gz)
+
+    def _passes_filters(
+        self,
+        peaks: Tuple[float, float],
+        rms: Tuple[float, float],
+        axis_peaks: Tuple[Tuple[float, float, float], Tuple[float, float, float]],
+    ) -> bool:
+        accel_peak, gyro_peak = peaks
+        accel_rms, gyro_rms = rms
+        accel_ratio = accel_peak / max(0.01, accel_rms)
+        gyro_ratio = gyro_peak / max(0.01, gyro_rms)
+
+        accel_ratio_thresh = float(self.get_parameter("accel_peak_ratio").value)
+        gyro_ratio_thresh = float(self.get_parameter("gyro_peak_ratio").value)
+        if accel_ratio < accel_ratio_thresh or gyro_ratio < gyro_ratio_thresh:
+            return False
+
+        (ax, ay, az), _ = axis_peaks
+        axis_sorted = sorted([ax, ay, az], reverse=True)
+        dominance = axis_sorted[0] / max(0.01, axis_sorted[1])
+        dominance_thresh = float(self.get_parameter("axis_dominance_ratio").value)
+        if dominance < dominance_thresh:
+            return False
+
+        return True
 
     @staticmethod
     def _accel_magnitude(msg: Imu) -> float:

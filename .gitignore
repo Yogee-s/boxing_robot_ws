@@ -6,3 +6,5 @@ install/
 *.tmp
 .DS_Store
 /notebooks/assets/
+action_prediction/checkpoints/
+action_prediction/weights/

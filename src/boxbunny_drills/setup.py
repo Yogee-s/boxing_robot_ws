@@ -22,6 +22,8 @@ setup(
     entry_points={
         "console_scripts": [
             "reaction_drill_manager = boxbunny_drills.reaction_drill_manager:main",
+            "shadow_sparring_drill = boxbunny_drills.shadow_sparring_drill:main",
+            "defence_drill = boxbunny_drills.defence_drill:main",
         ],
     },
 )

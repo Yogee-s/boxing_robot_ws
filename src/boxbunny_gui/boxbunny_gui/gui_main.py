@@ -3,18 +3,19 @@ import os
 import threading
 import time
 from collections import deque
-from typing import Optional
+from typing import Optional, List
 
 import cv2
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter_client import AsyncParametersClient
 from rclpy.parameter import Parameter
-from std_msgs.msg import String, Int32
+from std_msgs.msg import String, Int32, Bool
+from std_srvs.srv import SetBool
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
-from boxbunny_msgs.msg import GloveDetections, PunchEvent, ImuDebug, TrashTalk
-from boxbunny_msgs.srv import StartStopDrill, GenerateLLM
+from boxbunny_msgs.msg import GloveDetections, PunchEvent, ImuDebug, TrashTalk, ActionPrediction, DrillProgress
+from boxbunny_msgs.srv import StartStopDrill, GenerateLLM, StartDrill
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -55,8 +56,32 @@ class RosInterface(Node):
 
         self.start_stop_client = self.create_client(StartStopDrill, "start_stop_drill")
         self.llm_client = self.create_client(GenerateLLM, "llm/generate")
+        self.shadow_drill_client = self.create_client(StartDrill, "start_drill")
+        self.defence_drill_client = self.create_client(StartDrill, "start_defence_drill")
+        self.imu_input_client = self.create_client(SetBool, "imu_input_selector/enable")
         self.tracker_param_client = AsyncParametersClient(self, "realsense_glove_tracker")
         self.drill_param_client = AsyncParametersClient(self, "reaction_drill_manager")
+        
+        # Action prediction
+        self.last_action: Optional[ActionPrediction] = None
+        self.drill_progress: Optional[DrillProgress] = None
+        self.imu_input_enabled = False
+        
+        self.action_sub = self.create_subscription(ActionPrediction, "action_prediction", self._on_action, 5)
+        self.progress_sub = self.create_subscription(DrillProgress, "drill_progress", self._on_progress, 5)
+        self.imu_enabled_sub = self.create_subscription(Bool, "imu_input_enabled", self._on_imu_enabled, 5)
+    
+    def _on_action(self, msg: ActionPrediction) -> None:
+        with self.lock:
+            self.last_action = msg
+    
+    def _on_progress(self, msg: DrillProgress) -> None:
+        with self.lock:
+            self.drill_progress = msg
+    
+    def _on_imu_enabled(self, msg: Bool) -> None:
+        with self.lock:
+            self.imu_input_enabled = msg.data
 
     def _on_image(self, msg: Image) -> None:
         try:
@@ -143,6 +168,14 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.calib_tab = QtWidgets.QWidget()
         self._setup_calibration_tab()
         tabs.addTab(self.calib_tab, "Calibration")
+
+        self.shadow_tab = QtWidgets.QWidget()
+        self._setup_shadow_tab()
+        tabs.addTab(self.shadow_tab, "Shadow Sparring")
+
+        self.defence_tab = QtWidgets.QWidget()
+        self._setup_defence_tab()
+        tabs.addTab(self.defence_tab, "Defence Drill")
 
         self.llm_tab = QtWidgets.QWidget()
         self._setup_llm_tab()
@@ -262,7 +295,108 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
 
         layout.addLayout(row)
         layout.addWidget(self.llm_response)
+        
+        # IMU Input Toggle
+        self.imu_toggle = QtWidgets.QCheckBox("Enable IMU Input (punch to select)")
+        self.imu_toggle.toggled.connect(self._toggle_imu_input)
+        layout.addWidget(self.imu_toggle)
+        
         self.llm_tab.setLayout(layout)
+    
+    def _setup_shadow_tab(self) -> None:
+        """Setup shadow sparring drill tab."""
+        layout = QtWidgets.QVBoxLayout()
+        
+        # Drill selection
+        drill_row = QtWidgets.QHBoxLayout()
+        drill_row.addWidget(QtWidgets.QLabel("Select Combo:"))
+        self.shadow_combo = QtWidgets.QComboBox()
+        self.shadow_combo.addItems([
+            "1-1-2 Combo", "Jab-Cross-Hook", "Double Jab",
+            "Cross-Hook-Cross", "Four Punch Combo", "Uppercut Combo"
+        ])
+        drill_row.addWidget(self.shadow_combo)
+        
+        self.shadow_start_btn = QtWidgets.QPushButton("Start Drill")
+        self.shadow_start_btn.clicked.connect(self._start_shadow_drill)
+        drill_row.addWidget(self.shadow_start_btn)
+        
+        layout.addLayout(drill_row)
+        
+        # Action prediction display
+        self.action_label = QtWidgets.QLabel("Detected Action: --")
+        self.action_label.setStyleSheet("font-size: 24pt; font-weight: bold;")
+        layout.addWidget(self.action_label)
+        
+        self.action_conf_label = QtWidgets.QLabel("Confidence: --%")
+        self.action_conf_label.setStyleSheet("font-size: 16pt;")
+        layout.addWidget(self.action_conf_label)
+        
+        # Progress display
+        progress_group = QtWidgets.QGroupBox("Drill Progress")
+        prog_layout = QtWidgets.QVBoxLayout()
+        self.shadow_progress_label = QtWidgets.QLabel("Step: -/-")
+        self.shadow_expected_label = QtWidgets.QLabel("Expected: --")
+        self.shadow_elapsed_label = QtWidgets.QLabel("Elapsed: 0.0s")
+        self.shadow_status_label = QtWidgets.QLabel("Status: idle")
+        prog_layout.addWidget(self.shadow_progress_label)
+        prog_layout.addWidget(self.shadow_expected_label)
+        prog_layout.addWidget(self.shadow_elapsed_label)
+        prog_layout.addWidget(self.shadow_status_label)
+        progress_group.setLayout(prog_layout)
+        layout.addWidget(progress_group)
+        
+        # Sequence display
+        self.shadow_sequence_label = QtWidgets.QLabel("Sequence: --")
+        layout.addWidget(self.shadow_sequence_label)
+        
+        layout.addStretch(1)
+        self.shadow_tab.setLayout(layout)
+    
+    def _setup_defence_tab(self) -> None:
+        """Setup defence drill tab."""
+        layout = QtWidgets.QVBoxLayout()
+        
+        # Defence drill selection
+        drill_row = QtWidgets.QHBoxLayout()
+        drill_row.addWidget(QtWidgets.QLabel("Defence Mode:"))
+        self.defence_combo = QtWidgets.QComboBox()
+        self.defence_combo.addItems(["Head Defense", "Body Defense", "Full Defense", "Speed Defense"])
+        drill_row.addWidget(self.defence_combo)
+        
+        drill_row.addWidget(QtWidgets.QLabel("Attacks:"))
+        self.defence_count_spin = QtWidgets.QSpinBox()
+        self.defence_count_spin.setRange(5, 30)
+        self.defence_count_spin.setValue(10)
+        drill_row.addWidget(self.defence_count_spin)
+        
+        self.defence_start_btn = QtWidgets.QPushButton("Start Defence Drill")
+        self.defence_start_btn.clicked.connect(self._start_defence_drill)
+        drill_row.addWidget(self.defence_start_btn)
+        
+        layout.addLayout(drill_row)
+        
+        # Block indicator
+        self.block_indicator = QtWidgets.QFrame()
+        self.block_indicator.setFixedHeight(100)
+        self.block_indicator.setStyleSheet("background-color: #444;")
+        layout.addWidget(self.block_indicator)
+        
+        # Block status
+        self.defence_action_label = QtWidgets.QLabel("Waiting for attack...")
+        self.defence_action_label.setStyleSheet("font-size: 20pt;")
+        layout.addWidget(self.defence_action_label)
+        
+        # Progress
+        self.defence_progress_label = QtWidgets.QLabel("Blocks: 0/0")
+        self.defence_elapsed_label = QtWidgets.QLabel("Elapsed: 0.0s")
+        self.defence_status_label = QtWidgets.QLabel("Status: idle")
+        layout.addWidget(self.defence_progress_label)
+        layout.addWidget(self.defence_elapsed_label)
+        layout.addWidget(self.defence_status_label)
+        
+        layout.addStretch(1)
+        self.defence_tab.setLayout(layout)
 
     def _create_hsv_group(self, title: str):
         group = QtWidgets.QGroupBox(title)
@@ -397,7 +531,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         baseline_v = summary.get("baseline_velocity_mps") if isinstance(summary, dict) else None
         self.last_reaction_label.setText(f"Last reaction: {last_rt if last_rt is not None else '--'}")
         self.summary_label.setText(
-            f\"Summary: mean {mean_rt if mean_rt is not None else '--'} | best {best_rt if best_rt is not None else '--'} | baseline v {baseline_v if baseline_v is not None else '--'}\"
+            f"Summary: mean {mean_rt if mean_rt is not None else '--'} | best {best_rt if best_rt is not None else '--'} | baseline v {baseline_v if baseline_v is not None else '--'}"
         )
         self.trash_label.setText(f"Coach: {trash or '--'}")
 
@@ -427,6 +561,10 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         if punch_counter != self._last_punch_counter:
             self._last_punch_counter = punch_counter
             self._capture_replay_clip()
+        
+        # Update new drill tabs
+        self._update_shadow_ui()
+        self._update_defence_ui()
 
     def _capture_replay_clip(self) -> None:
         if not self._frame_buffer:
@@ -459,6 +597,84 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         h, w, _ = img.shape
         rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         return QtGui.QImage(rgb.data, w, h, QtGui.QImage.Format.Format_RGB888)
+    
+    def _start_shadow_drill(self) -> None:
+        """Start shadow sparring drill."""
+        if not self.ros.shadow_drill_client.service_is_ready():
+            self.shadow_status_label.setText("Status: service not ready")
+            return
+        req = StartDrill.Request()
+        req.drill_type = "shadow_sparring"
+        req.drill_name = self.shadow_combo.currentText()
+        req.repetitions = 1
+        self.ros.shadow_drill_client.call_async(req)
+        self.shadow_status_label.setText("Status: starting...")
+    
+    def _start_defence_drill(self) -> None:
+        """Start defence drill."""
+        if not self.ros.defence_drill_client.service_is_ready():
+            self.defence_status_label.setText("Status: service not ready")
+            return
+        req = StartDrill.Request()
+        req.drill_type = "defence"
+        req.drill_name = self.defence_combo.currentText()
+        req.repetitions = self.defence_count_spin.value()
+        self.ros.defence_drill_client.call_async(req)
+        self.defence_status_label.setText("Status: starting...")
+    
+    def _toggle_imu_input(self, enabled: bool) -> None:
+        """Toggle IMU input for menu selection."""
+        if not self.ros.imu_input_client.service_is_ready():
+            return
+        req = SetBool.Request()
+        req.data = enabled
+        self.ros.imu_input_client.call_async(req)
+    
+    def _update_shadow_ui(self) -> None:
+        """Update shadow sparring tab UI."""
+        with self.ros.lock:
+            action = self.ros.last_action
+            progress = self.ros.drill_progress
+        
+        # Action prediction display
+        if action is not None:
+            self.action_label.setText(f"Detected Action: {action.action_label.upper()}")
+            self.action_conf_label.setText(f"Confidence: {action.confidence * 100:.0f}%")
+        
+        # Drill progress
+        if progress is not None and progress.drill_name:
+            self.shadow_progress_label.setText(
+                f"Step: {progress.current_step}/{progress.total_steps}")
+            if progress.current_step < len(progress.expected_actions):
+                expected = progress.expected_actions[progress.current_step]
+                self.shadow_expected_label.setText(f"Expected: {expected.upper()}")
+            self.shadow_elapsed_label.setText(f"Elapsed: {progress.elapsed_time_s:.1f}s")
+            self.shadow_status_label.setText(f"Status: {progress.status}")
+            self.shadow_sequence_label.setText(
+                f"Sequence: {' → '.join(progress.expected_actions)}")
+    
+    def _update_defence_ui(self) -> None:
+        """Update defence drill tab UI."""
+        with self.ros.lock:
+            action = self.ros.last_action
+            progress = self.ros.drill_progress
+        
+        # Block detection
+        if action is not None:
+            if action.action_label == 'block' and action.confidence > 0.5:
+                self.block_indicator.setStyleSheet("background-color: #2ecc71;")
+                self.defence_action_label.setText("BLOCK DETECTED!")
+            else:
+                self.block_indicator.setStyleSheet("background-color: #444;")
+                self.defence_action_label.setText(f"Detected: {action.action_label}")
+        
+        # Progress
+        if progress is not None and 'Defence' in progress.drill_name:
+            successful = sum(progress.step_completed) if progress.step_completed else 0
+            self.defence_progress_label.setText(
+                f"Blocks: {successful}/{progress.total_steps}")
+            self.defence_elapsed_label.setText(f"Elapsed: {progress.elapsed_time_s:.1f}s")
+            self.defence_status_label.setText(f"Status: {progress.status}")
 
 
 def main() -> None:

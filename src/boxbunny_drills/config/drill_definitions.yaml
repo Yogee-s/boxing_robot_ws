@@ -1,0 +1,67 @@
+# Drill Definitions Configuration
+# Defines available drills for shadow sparring and defence modes
+
+shadow_sparring_drills:
+  - name: "1-1-2 Combo"
+    sequence: ["jab", "jab", "cross"]
+    time_limit_s: 6.0
+    description: "Classic jab-jab-cross combination"
+    
+  - name: "Jab-Cross-Hook"
+    sequence: ["jab", "cross", "left_hook"]
+    time_limit_s: 7.0
+    description: "Jab to cross followed by left hook"
+    
+  - name: "Double Jab"
+    sequence: ["jab", "jab"]
+    time_limit_s: 4.0
+    description: "Two quick jabs"
+    
+  - name: "Cross-Hook-Cross"
+    sequence: ["cross", "left_hook", "cross"]
+    time_limit_s: 7.0
+    description: "Power hand combo"
+    
+  - name: "Four Punch Combo"
+    sequence: ["jab", "cross", "left_hook", "cross"]
+    time_limit_s: 8.0
+    description: "Classic four punch combination"
+    
+  - name: "Uppercut Combo"
+    sequence: ["jab", "cross", "left_uppercut", "right_uppercut"]
+    time_limit_s: 9.0
+    description: "Jab-cross into double uppercuts"
+
+defence_drills:
+  - name: "Head Defense"
+    positions: [1, 2, 3]
+    pattern: "random"
+    num_attacks: 10
+    description: "Defense against head-level attacks"
+    
+  - name: "Body Defense"
+    positions: [4, 5, 6]
+    pattern: "random"
+    num_attacks: 10
+    description: "Defense against body-level attacks"
+    
+  - name: "Full Defense"
+    positions: [1, 2, 3, 4, 5, 6]
+    pattern: "random"
+    num_attacks: 15
+    description: "Defense against all attack levels"
+    
+  - name: "Speed Defense"
+    positions: [1, 2, 3, 4, 5, 6]
+    pattern: "random"
+    num_attacks: 20
+    attack_interval_s: 1.5
+    description: "Fast-paced defense training"
+
+# Reaction drill settings (extends existing drill.yaml)
+reaction_drill:
+  countdown_seconds: 5
+  baseline_duration_s: 2.0
+  min_cue_delay_s: 1.0
+  max_cue_delay_s: 4.0
+  num_trials: 5

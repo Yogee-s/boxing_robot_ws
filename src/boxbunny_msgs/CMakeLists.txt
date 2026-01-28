@@ -14,9 +14,14 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/DrillEvent.msg"
   "msg/ImuDebug.msg"
   "msg/TrashTalk.msg"
+  "msg/ActionPrediction.msg"
+  "msg/DrillDefinition.msg"
+  "msg/DrillProgress.msg"
+  "msg/MotorCommand.msg"
   "srv/StartStopDrill.srv"
   "srv/CalibrateImuPunch.srv"
   "srv/GenerateLLM.srv"
+  "srv/StartDrill.srv"
   DEPENDENCIES builtin_interfaces std_msgs
 )
 

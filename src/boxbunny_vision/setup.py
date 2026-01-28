@@ -22,6 +22,7 @@ setup(
     entry_points={
         "console_scripts": [
             "realsense_glove_tracker = boxbunny_vision.realsense_glove_tracker:main",
+            "action_predictor = boxbunny_vision.action_predictor_node:main",
         ],
     },
 )

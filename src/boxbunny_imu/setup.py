@@ -23,6 +23,8 @@ setup(
         "console_scripts": [
             "mpu6050_node = boxbunny_imu.mpu6050_node:main",
             "imu_punch_classifier = boxbunny_imu.imu_punch_classifier:main",
+            "imu_punch_gui = boxbunny_imu.imu_punch_gui:main",
+            "imu_input_selector = boxbunny_imu.imu_input_selector:main",
         ],
     },
 )

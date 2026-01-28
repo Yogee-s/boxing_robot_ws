@@ -4,27 +4,30 @@ Target platform: Jetson Orin NX 16GB (Ubuntu 22.04, ROS 2 Humble).
 
 This workspace provides:
 - RealSense D435i glove tracking (HSV + depth, optional pose verification)
-- Reaction-time drill with countdown, baseline capture, and logging
-- Punch prediction via IMU + vision fusion (jab/cross/hook/uppercut)
-- GUI for drills, punch stats, and slow‑mo replay
-- Local LLM coach/trash/encourage/analysis modes
-- Rolling punch analytics topic for feedback
+- **Action recognition** using RGBD model (jab/cross/hook/uppercut/block detection)
+- **3 Drill Modes:** Reaction Time, Shadow Sparring, Defence
+- Punch prediction via IMU + vision fusion
+- Unified GUI with 6 tabs for all training modes
+- Local LLM coach with performance analysis
+- Optional IMU input for menu navigation
 
 ## Workspace Layout
 
 - `src/boxbunny_msgs` – ROS 2 message/service definitions
-- `src/boxbunny_vision` – RealSense glove tracker
+- `src/boxbunny_vision` – RealSense glove tracker + **action predictor node**
 - `src/boxbunny_fusion` – punch fusion (vision + IMU)
-- `src/boxbunny_drills` – reaction drill manager + logging
-- `src/boxbunny_imu` – MPU6050 node + IMU punch classifier + calibration service
+- `src/boxbunny_drills` – reaction drill + **shadow sparring** + **defence drill**
+- `src/boxbunny_imu` – MPU6050 node + punch classifier + **IMU input selector**
 - `src/boxbunny_analytics` – rolling punch stats
 - `src/boxbunny_llm` – local LLM coach node + `GenerateLLM` service
-- `src/boxbunny_gui` – PySide6 GUI
+- `src/boxbunny_gui` – PySide6 GUI (6 tabs)
 - `src/boxbunny_bringup` – launch files + system configuration
+- `action_prediction/` – RGBD action recognition model
 - `notebooks/` – test notebooks
-- `notebooks/boxbunny_all_in_one.ipynb` – detailed guided tests
-- `notebooks/ros_commands.ipynb` – runnable ROS commands
-- `models/` – downloaded LLM + pose models
+  - `component_testing.ipynb` – detailed testing/calibration
+  - `unit_tests.ipynb` – quick tests and GUI launchers
+  - `ros_commands.ipynb` – ROS launch reference
+- `models/` – LLM + pose models
 - `docs/` – architecture + customization
 
 ## Quick Start (Humble)
@@ -76,14 +79,16 @@ ros2 launch boxbunny_bringup boxbunny_system.launch.py enable_imu:=true enable_l
 
 ## Key Topics
 
-- `/camera/color/image_raw` – RealSense RGB
-- `/glove_detections` – glove boxes + distance + velocity
-- `/punch_events_raw` – vision-only punches (from tracker)
-- `/imu/punch` – IMU punch classification
-- `/punch_events` – fused punches (vision + IMU)
-- `/punch_stats` – rolling JSON summary (counts, avg velocity)
-- `/drill_state` + `/drill_countdown` + `/drill_events` – reaction drill status
-- `/trash_talk` – LLM coach output
+| Topic | Type | Description |
+|-------|------|-------------|
+| `/camera/color/image_raw` | Image | RealSense RGB |
+| `/glove_detections` | GloveDetections | Glove boxes + distance + velocity |
+| `/action_prediction` | ActionPrediction | Real-time action classification |
+| `/drill_progress` | DrillProgress | Current drill status/progress |
+| `/punch_events` | PunchEvent | Fused punches (vision + IMU) |
+| `/motor_command` | MotorCommand | Defence drill motor control |
+| `/imu_selection` | Int32 | IMU-based menu selections |
+| `/trash_talk` | TrashTalk | LLM coach output |
 
 ## Reaction Drill Flow
 
@@ -120,8 +125,11 @@ Editable prompt datasets:
 
 ## Notebooks
 
-- `notebooks/boxbunny_all_in_one.ipynb` – camera + IMU + LLM + ROS smoke tests
-- `notebooks/ros_commands.ipynb` – ROS 2 command reference
+| Notebook | Purpose |
+|----------|---------|
+| `component_testing.ipynb` | Detailed testing for camera, action model, IMU calibration, LLM, drills |
+| `unit_tests.ipynb` | Quick tests and GUI launchers |
+| `ros_commands.ipynb` | ROS 2 command reference |
 
 ## Documentation
 

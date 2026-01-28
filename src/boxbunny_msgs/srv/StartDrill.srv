@@ -1,0 +1,6 @@
+string drill_type            # "reaction_time", "shadow_sparring", "defence"
+string drill_name            # Specific drill name (e.g., "1-1-2 Combo")
+int32 repetitions            # Number of reps
+---
+bool success
+string message
