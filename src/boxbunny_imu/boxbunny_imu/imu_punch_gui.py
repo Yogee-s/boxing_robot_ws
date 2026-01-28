@@ -1,3 +1,4 @@
+import json
 import os
 import queue
 import sys
@@ -463,7 +464,8 @@ class ImuPunchGui(QtWidgets.QWidget):
         else:
             self.status_label.setText(f"Status: Calibration file exists at {path}")
         
-        self._log(f"Save check: {path}")
+        self.log_list.addItem(f"Save check: {path}")
+        self.log_list.scrollToBottom()
 
     def _reset_calibration(self) -> None:
         """Reset the current calibration sequence."""
@@ -472,7 +474,8 @@ class ImuPunchGui(QtWidgets.QWidget):
         self.calib_default_btn.setEnabled(True)
         self.calib_all_btn.setEnabled(True)
         self.status_label.setText("Status: Calibration reset. Ready.")
-        self._log("-- CALIBRATION RESET --")
+        self.log_list.addItem("-- CALIBRATION RESET --")
+        self.log_list.scrollToBottom()
 
     def _direction_from_imu(self, imu: ImuDebug) -> str:
         ax, ay, az = imu.ax, imu.ay, imu.az
@@ -493,8 +496,9 @@ class ImuPunchGui(QtWidgets.QWidget):
             self.imu_label.setText(
                 f"IMU ax={imu.ax:.2f} ay={imu.ay:.2f} az={imu.az:.2f} | gx={imu.gx:.2f} gy={imu.gy:.2f} gz={imu.gz:.2f}"
             )
-            # Show key axis values used for detection (ay = punch, gz = rotation)
-            self.mag_label.setText(f"Detection: ay={abs(imu.ay):.2f} | gz={abs(imu.gz):.2f} (vs thresholds)")
+            # Show motion detection values (ay is gravity-corrected: ay_motion = ay + 9.8)
+            ay_motion = abs(imu.ay + 9.8)  # Gravity on Y-axis
+            self.mag_label.setText(f"Motion: ay={ay_motion:.2f} | peak_g={max(abs(imu.gx), abs(imu.gy), abs(imu.gz)):.2f}")
             self.direction_label.setText(f"Direction: {self._direction_from_imu(imu)}")
             self.axis_view.set_vector(imu.ax, imu.ay, imu.az)
         if self.last_punch is not None:

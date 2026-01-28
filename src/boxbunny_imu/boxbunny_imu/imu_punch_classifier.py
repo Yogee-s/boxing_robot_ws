@@ -198,38 +198,44 @@ class ImuPunchClassifier(Node):
         if self._calibrating:
             # Use individual axis values - keep sign for direction
             ax_raw = msg.linear_acceleration.x
-            ay_raw = msg.linear_acceleration.y  # Negative = back (punch into sensor)
+            ay_raw = msg.linear_acceleration.y  # Gravity axis (~-9.8)
             az_raw = msg.linear_acceleration.z
             gx_raw = msg.angular_velocity.x
             gy_raw = msg.angular_velocity.y
             gz_raw = msg.angular_velocity.z
             
+            # The sensor is mounted such that Y has gravity (~9.8)
+            # ay_raw is typically ~-9.8 when still (facing down into sensor)
+            # Remove gravity from Y-axis for motion detection
+            gravity = 9.8
+            ay_motion = ay_raw + gravity  # When still, ay_raw ≈ -9.8, so ay_motion ≈ 0
+            
             # Absolute values for thresholding
             ax = abs(ax_raw)
-            ay = abs(ay_raw)
-            az_no_g = abs(az_raw - 9.8)  # Remove gravity
+            ay = abs(ay_motion)  # Motion only (gravity removed)
+            az = abs(az_raw)
             gx = abs(gx_raw)
             gy = abs(gy_raw)
             gz = abs(gz_raw)
             
-            # Peak axis values
-            peak_a = max(ax, ay, az_no_g)
+            # Peak axis values (use motion-corrected ay)
+            peak_a = max(ax, ay, az)
             peak_g = max(gx, gy, gz)
             
             if self._waiting_for_quiet:
                 # Wait for sensor to be relatively still
-                # RELAXED: Allow some movement, just not huge spikes
-                quiet_thresh = 3.0  # Very relaxed
-                gyro_quiet = 1.0
+                # ay is already gravity-corrected from above
+                quiet_thresh = 2.0  # Low motion
+                gyro_quiet = 0.5
                 
                 # Log periodically to debug
                 if not hasattr(self, '_quiet_log_count'):
                     self._quiet_log_count = 0
                 self._quiet_log_count += 1
-                if self._quiet_log_count % 50 == 0:  # Every ~0.5s at 100Hz
-                    self.get_logger().info(f"Waiting quiet: ax={ax:.1f} ay={ay:.1f} g={peak_g:.1f} (need ax<{quiet_thresh}, ay<{quiet_thresh}, g<{gyro_quiet})")
+                if self._quiet_log_count % 50 == 0:
+                    self.get_logger().info(f"Waiting quiet: ax={ax:.1f} ay={ay:.1f} az={az:.1f} g={peak_g:.1f} (need <{quiet_thresh})")
                 
-                if ax < quiet_thresh and ay < quiet_thresh and peak_g < gyro_quiet:
+                if ax < quiet_thresh and ay < quiet_thresh and az < quiet_thresh and peak_g < gyro_quiet:
                     self._waiting_for_quiet = False
                     self._waiting_for_trigger = True
                     self._prev_ay = ay_raw
@@ -238,42 +244,39 @@ class ImuPunchClassifier(Node):
                 return
 
             if self._waiting_for_trigger:
-                # Jerk: sudden change in forward acceleration
-                jerk = abs(ay_raw - getattr(self, '_prev_ay', 0))
+                # ay is already gravity-corrected from above
+                # Jerk: sudden change in acceleration
+                jerk = abs(ay_raw - getattr(self, '_prev_ay', ay_raw))
                 self._prev_ay = ay_raw
                 
                 # Use sensitivity params from GUI
                 accel_thresh = float(self.get_parameter("accel_threshold").value)
                 gyro_thresh = float(self.get_parameter("gyro_threshold").value)
                 
-                # VERY LOW thresholds for debugging - any movement triggers
-                ay_thresh = max(0.5, accel_thresh / 20.0)  # Super sensitive
-                any_thresh = max(1.0, accel_thresh / 10.0)
-                g_thresh = max(0.3, gyro_thresh / 8.0)
-                jerk_thresh = max(0.5, ay_thresh)
+                # Reasonable thresholds
+                motion_thresh = max(3.0, accel_thresh / 4.0)
+                jerk_thresh = max(4.0, accel_thresh / 3.0)
+                g_thresh = max(0.8, gyro_thresh / 3.0)
                 
                 # Log what we're seeing
                 if not hasattr(self, '_trigger_log_count'):
                     self._trigger_log_count = 0
                 self._trigger_log_count += 1
                 if self._trigger_log_count % 20 == 0:
-                    self.get_logger().info(f"Waiting punch: ay={ay:.2f}>{ay_thresh:.2f}? peak={peak_a:.2f}>{any_thresh:.2f}? g={peak_g:.2f}>{g_thresh:.2f}?")
+                    self.get_logger().info(f"Waiting: peak_a={peak_a:.2f}>{motion_thresh:.2f}? jerk={jerk:.2f}>{jerk_thresh:.2f}? g={peak_g:.2f}>{g_thresh:.2f}?")
                 
-                # Trigger on: ay spike, ANY axis spike, rotation, or jerk
+                # Trigger on significant motion, jerk, or rotation
                 triggered = False
                 reason = ""
-                if ay > ay_thresh:
+                if peak_a > motion_thresh:
                     triggered = True
-                    reason = f"ay={ay:.1f}>{ay_thresh:.1f}"
-                elif peak_a > any_thresh:
-                    triggered = True
-                    reason = f"peak={peak_a:.1f}>{any_thresh:.1f}"
-                elif peak_g > g_thresh:
-                    triggered = True
-                    reason = f"gyro={peak_g:.1f}>{g_thresh:.1f}"
+                    reason = f"motion={peak_a:.1f}>{motion_thresh:.1f}"
                 elif jerk > jerk_thresh:
                     triggered = True
                     reason = f"jerk={jerk:.1f}>{jerk_thresh:.1f}"
+                elif peak_g > g_thresh:
+                    triggered = True
+                    reason = f"gyro={peak_g:.1f}>{g_thresh:.1f}"
                 
                 if triggered:
                     self._waiting_for_trigger = False
