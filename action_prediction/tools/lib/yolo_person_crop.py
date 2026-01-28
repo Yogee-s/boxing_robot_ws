@@ -36,6 +36,7 @@ class YOLOPersonCrop:
         conf_threshold: float = 0.5,
         padding_ratio: float = 0.15,
         temporal_smoothing: float = 0.3,
+        detect_interval: int = 1,
     ):
         """
         Initialize YOLO person cropper.
@@ -46,6 +47,7 @@ class YOLOPersonCrop:
             conf_threshold: Minimum confidence for person detection
             padding_ratio: Extra padding around detected person (0.15 = 15%)
             temporal_smoothing: Smoothing factor for bounding box (0 = no smoothing, 1 = full smoothing)
+            detect_interval: Run detection every N frames (1 = every frame)
         """
         if YOLO is None:
             raise ImportError("ultralytics not installed. Run: pip install ultralytics")
@@ -54,6 +56,8 @@ class YOLOPersonCrop:
         self.conf_threshold = conf_threshold
         self.padding_ratio = padding_ratio
         self.temporal_smoothing = temporal_smoothing
+        self.detect_interval = detect_interval
+        self.frame_count = 0
         
         # Load YOLO model
         self.model = YOLO(model_path)
@@ -76,6 +80,7 @@ class YOLOPersonCrop:
     def reset(self):
         """Reset temporal state (call when starting a new video/clip)."""
         self._prev_bbox = None
+        self.frame_count = 0
     
     def _detect_batch(self, rgb_list: list) -> list:
         """
@@ -297,8 +302,13 @@ class YOLOPersonCrop:
         """
         h, w = rgb.shape[:2]
         
-        # Detect person
-        bbox = self._detect_person(rgb)
+        # Detect person (with frame skipping)
+        should_detect = (self.frame_count % self.detect_interval == 0)
+        self.frame_count += 1
+        
+        bbox = None
+        if should_detect:
+            bbox = self._detect_person(rgb)
         
         if bbox is None:
             # No detection - use previous bbox or center crop

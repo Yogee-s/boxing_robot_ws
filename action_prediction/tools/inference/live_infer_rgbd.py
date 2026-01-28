@@ -43,6 +43,7 @@ except ImportError:
 import torch
 from tools.lib.yolo_person_crop import YOLOPersonCrop, create_rgbd_tensor
 from tools.lib.rgbd_model import load_model
+from tools.lib.hybrid_detectors import YOLOPoseWrapper, RosImuHandler
 
 
 def _load_config(path: str) -> dict:
@@ -134,16 +135,28 @@ class LiveRGBDInference:
         fps: int = 30,
         rgb_res: str = '640x480',
         depth_res: str = '640x480',
+        detect_interval: int = 1,
     ):
         self.root = root
         self.root.title(f"RGB-D Boxing Action Recognition ({fps} FPS)")
         self.device = device
         self.window_size = window_size
+        self.mode = 'hybrid' # 'anticipation' or 'hybrid'
         self.causal = causal
         self.labels = labels or DEFAULT_LABELS
         self.fps = fps
+        self.detect_interval = detect_interval
+        self.fps = fps
+        self.detect_interval = detect_interval
         self.rgb_res = self._parse_res(rgb_res)
         self.depth_res = self._parse_res(depth_res)
+        
+        # Camera Intrinsics (Approx for D435i@640x480)
+        # fx ~ 610, fy ~ 610, cx ~ 320, cy ~ 240
+        self.intrinsics = {'fx': 610.0, 'fy': 610.0, 'cx': 320.0, 'cy': 240.0}
+        
+        # Height Publishing
+        self.height_pub = None 
         
         # Theme
         self.c_bg_main = '#0d1117'
@@ -164,7 +177,13 @@ class LiveRGBDInference:
         self.model = None
         self.model = None
         self.cropper = None
+        self.model = None
+        self.cropper = None
         self.monitor = ResourceMonitor()
+        
+        # Hybrid Components
+        self.pose_wrapper = None
+        self.imu_handler = None
         
         # Buffers
         self.frame_buffer = deque(maxlen=window_size)
@@ -377,7 +396,17 @@ class LiveRGBDInference:
         
         chk_bbox = tk.Checkbutton(control_group, text="Show Bounding Box", variable=self.var_show_bbox, 
                                   bg=self.c_bg_panel, fg=self.c_text_main, selectcolor=self.c_bg_panel, activebackground=self.c_bg_panel)
-        chk_bbox.pack(anchor='w')
+        chk_bbox.pack(anchor='w', pady=(0, 10))
+
+        # Mode Selector
+        self.btn_mode = tk.Button(control_group, text="MODE: Hybrid (IMU+Pose)", command=self._toggle_mode,
+                                   bg='#2B3240', fg=self.c_text_main, font=(self.font_family, 9, 'bold'))
+        self.btn_mode.pack(fill=tk.X, pady=(0, 5))
+
+        # Calibration Button
+        self.btn_calib = tk.Button(control_group, text="Calibrate IMU", command=self._start_calibration,
+                                   bg='#2B3240', fg=self.c_text_main, font=(self.font_family, 9))
+        self.btn_calib.pack(fill=tk.X)
         
         # 4. Model Inputs (Crops)
         crop_group = tk.Frame(info_panel, bg=self.c_bg_panel, padx=10, pady=10)
@@ -423,32 +452,67 @@ class LiveRGBDInference:
             val.pack(side=tk.LEFT)
             
             self.prob_bars[label] = (bar, val)
+            
+        # 6. Advanced Controls (Height)
+        adv_group = tk.Frame(info_panel, bg=self.c_bg_panel, padx=10, pady=10)
+        adv_group.pack(fill=tk.X, pady=(0, 20))
+        
+        tk.Label(adv_group, text="Advanced", font=(self.font_family, 9, 'bold'), bg=self.c_bg_panel, fg=self.c_text_dim).pack(anchor='w')
+        
+        self.lbl_height = tk.Label(adv_group, text="Height: -- m", font=(self.font_family, 10), bg=self.c_bg_panel, fg=self.c_text_main)
+        self.lbl_height.pack(anchor='w', pady=2)
+        
+        btn_send_h = tk.Button(adv_group, text="Send Height", command=self._send_height,
+                             bg='#2B3240', fg=self.c_text_main, font=(self.font_family, 9))
+        btn_send_h.pack(fill=tk.X)
     
     def _init_async(self):
         """Initialize camera and models in background."""
         def init():
             try:
-                self._update_status("Loading YOLO model...")
-                self.cropper = YOLOPersonCrop(self.yolo_model, self.device)
+                # 1. Start ROS/IMU Handler
+                self._update_status("Starting ROS/IMU...")
+                self.imu_handler = RosImuHandler()
+                self.imu_handler.start()
                 
-                self._update_status("Loading action model...")
+                # Setup Height Publisher (hacky access to node)
+                if self.imu_handler.node:
+                    from std_msgs.msg import Float32
+                    self.height_pub = self.imu_handler.node.create_publisher(Float32, '/player_height', 10)
                 
-                # Enable cuDNN benchmark for fixed input size optimization
-                if 'cuda' in self.device:
-                    torch.backends.cudnn.benchmark = True
-                
-                self.model = load_model(
-                    config_path=self.model_config,
-                    checkpoint_path=self.model_checkpoint,
-                    device=self.device,
+                # 2. Load Models
+                # Only load Pose Wrapper by default for Hybrid Mode
+                self._update_status("Loading Pose Model...")
+                self.pose_wrapper = YOLOPoseWrapper(
+                    '../models/checkpoints/yolo26n-pose.pt',
+                    self.device
                 )
-                
-                # Convert to Half Precision (FP16) if on CUDA
-                if 'cuda' in self.device:
-                    # Check if it's an ONNX wrapper (which doesn't support .half() the same way)
-                    if hasattr(self.model, 'half'):
-                        self.model.half()
-                        print("Model converted to FP16")
+
+                if self.mode == 'anticipation':
+                    self._update_status("Loading Action Models (Slow)...")
+                    # Load Object Detection YOLO
+                    self.cropper = YOLOPersonCrop(
+                        self.yolo_model, 
+                        self.device,
+                        detect_interval=self.detect_interval
+                    )
+                    
+                    # Load Action Model
+                    # Enable cuDNN benchmark for fixed input size optimization
+                    if 'cuda' in self.device:
+                        torch.backends.cudnn.benchmark = True
+                    
+                    self.model = load_model(
+                        config_path=self.model_config,
+                        checkpoint_path=self.model_checkpoint,
+                        device=self.device,
+                    )
+                    
+                    # Convert to Half Precision (FP16) if on CUDA
+                    if 'cuda' in self.device:
+                        if hasattr(self.model, 'half'):
+                            self.model.half()
+                            print("Model converted to FP16")
                 
                 self._update_status("Initializing camera...")
                 self._init_realsense()
@@ -533,6 +597,17 @@ class LiveRGBDInference:
             if not self.input_queue.full():
                 self.input_queue.put((rgb, depth))
             
+            # --- Hybrid Logic: Check IMU ---
+            if self.mode == 'hybrid' and self.imu_handler:
+                punch_msg = self.imu_handler.get_latest_punch()
+                if punch_msg:
+                    self._handle_hybrid_punch(punch_msg, rgb, depth)
+
+            # Height Calc (Update GUI only)
+            if self.current_bbox:
+                h_val = self._calc_height(depth, self.current_bbox)
+                self.lbl_height.config(text=f"Height: {h_val:.2f} m")
+
             # Update display with LATEST AVAILABLE predictions
             self._update_display(
                 rgb, 
@@ -545,6 +620,128 @@ class LiveRGBDInference:
         
         # Schedule next iteration (aim for high FPS)
         self.root.after(10, self._video_loop)
+
+    def _send_height(self):
+        """Publish current height to ROS."""
+        txt = self.lbl_height.cget("text")
+        try:
+            val = float(txt.split(":")[1].replace("m", "").strip())
+            if self.height_pub:
+                from std_msgs.msg import Float32
+                msg = Float32()
+                msg.data = val
+                self.height_pub.publish(msg)
+                self._update_status(f"Sent Height: {val:.2f}m")
+            else:
+                self._update_status("Error: Publisher not ready")
+        except:
+            self._update_status("Error: No valid height")
+
+    def _toggle_mode(self):
+        """Switch between Anticipation and Hybrid modes."""
+        if self.mode == 'hybrid':
+            self.mode = 'anticipation'
+            self.btn_mode.config(text="MODE: Anticipation (AI)")
+            self._update_status("Switched to Full AI Model")
+        else:
+            self.mode = 'hybrid'
+            self.btn_mode.config(text="MODE: Hybrid (IMU+Pose)")
+            self._update_status("Switched to Hybrid Mode")
+
+    def _start_calibration(self):
+        """Trigger IMU calibration wizard."""
+        if not self.imu_handler or not self.imu_handler.ready:
+            self._update_status("Error: ROS IMU inactive")
+            return
+            
+        # Dialog
+        win = tk.Toplevel(self.root)
+        win.title("IMU Setup: Calibration & Testing")
+        win.geometry("400x350")
+        win.configure(bg=self.c_bg_panel)
+        
+        # Tabs
+        notebook = ttk.Notebook(win)
+        notebook.pack(fill='both', expand=True, padx=5, pady=5)
+        
+        # Tab 1: Calibrate
+        f_calib = tk.Frame(notebook, bg=self.c_bg_panel)
+        notebook.add(f_calib, text='Calibrate')
+        
+        lbl = tk.Label(f_calib, text="Hit the bag 3 times continuously\nwhen you press Start.", 
+                       bg=self.c_bg_panel, fg=self.c_text_main, pady=10)
+        lbl.pack()
+        
+        def run_calib(astype):
+            lbl.config(text=f"CALIBRATING {astype.upper()}... PUNCH NOW!", fg=self.c_accent)
+            future = self.imu_handler.calibrate(astype, 3.5)
+            if not future:
+                lbl.config(text="Service Call Failed")
+                return
+            
+            # Close wait
+            self.root.after(4000, lambda: lbl.config(text="Done! Saved.", fg=self.c_text_main))
+
+        btn_straight = tk.Button(f_calib, text="Calibrate STRAIGHT (3.5s)", 
+                               command=lambda: run_calib('straight'), bg=self.c_bg_main, fg='white')
+        btn_straight.pack(pady=5, fill=tk.X, padx=20)
+        
+        btn_hook = tk.Button(f_calib, text="Calibrate HOOK (3.5s)", 
+                               command=lambda: run_calib('hook'), bg=self.c_bg_main, fg='white')
+        btn_hook.pack(pady=5, fill=tk.X, padx=20)
+
+        btn_upper = tk.Button(f_calib, text="Calibrate UPPERCUT (3.5s)", 
+                               command=lambda: run_calib('uppercut'), bg=self.c_bg_main, fg='white')
+        btn_upper.pack(pady=5, fill=tk.X, padx=20)
+        
+        # Tab 2: Test
+        f_test = tk.Frame(notebook, bg=self.c_bg_panel)
+        notebook.add(f_test, text='Test Mode')
+        
+        self.imu_handler.reset_stats()
+        
+        lbl_stats = tk.Label(f_test, text="Punches: 0\nLast: None", font=("Arial", 14),
+                             bg=self.c_bg_panel, fg=self.c_text_main, pady=20)
+        lbl_stats.pack()
+        
+        def update_test():
+            if not win.winfo_exists(): return
+            s = self.imu_handler.stats
+            txt = f"Total: {s['total']}\nLast: {s['last_type'].upper()}\n\n"
+            txt += f"Jab/Cross: {s.get('jab', 0) + s.get('cross', 0) + s.get('straight', 0)}\n"
+            txt += f"Hook: {s.get('hook', 0)}\nUppercut: {s.get('uppercut', 0)}"
+            lbl_stats.config(text=txt)
+            win.after(100, update_test)
+            
+        update_test()
+
+    def _calc_height(self, depth, bbox):
+        """Estimate height from Depth + BBox."""
+        if bbox is None: return 0.0
+        x1, y1, x2, y2 = bbox
+        
+        # Get person centroid depth
+        cx, cy = int((x1+x2)/2), int((y1+y2)/2)
+        h, w = depth.shape
+        cy = max(0, min(h-1, cy))
+        cx = max(0, min(w-1, cx))
+        
+        d_val = depth[cy, cx] * self.depth_scale # Meters
+        if d_val == 0: return 0.0
+        
+        # Assume Standing: Top of bbox is head.
+        # Height pixels = (y2 - y1)  <-- This is just crop height, might be partial
+        # Better: Assume camera is at specific height (e.g. 1.0m) or assume full body visible?
+        # User asked: "measure height... maybe finding a bounding box"
+        # Formula: H_real = (H_pix * Depth) / fy
+        
+        h_pix = y2 - y1
+        real_h = (h_pix * d_val) / self.intrinsics['fy']
+        
+        # Correction? If only upper body, this is wrong.
+        # Assume full body 3m away fills 400px?
+        # Let's provide raw calc first.
+        return real_h
 
     def _apply_stream_settings(self):
         try:
@@ -631,6 +828,53 @@ class LiveRGBDInference:
         # Return bbox from the original crop call (already stored above)
         return probs, rgb_crop, depth_crop, bbox
     
+    def _handle_hybrid_punch(self, punch_msg, rgb, depth):
+        """Handle punch detected by IMU in Hybrid Mode."""
+        # Get Pose
+        pose = self.pose_wrapper.predict(rgb)
+        
+        # Determine Hand: Use Depth Z of wrist
+        # Note: YOLO Pose returns (x, y, conf). We map (x, y) to Depth map (Z).
+        l_wrist = pose['left_wrist'] # [x, y, conf]
+        r_wrist = pose['right_wrist']
+        
+        hand_label = "UNKNOWN"
+        
+        if l_wrist[2] > 0.5 and r_wrist[2] > 0.5:
+            # Map coordinates
+            lx, ly = int(l_wrist[0]), int(l_wrist[1])
+            rx, ry = int(r_wrist[0]), int(r_wrist[1])
+            
+            # Safety clamp
+            h, w = depth.shape
+            lx, ly = min(w-1, max(0, lx)), min(h-1, max(0, ly))
+            rx, ry = min(w-1, max(0, rx)), min(h-1, max(0, ry))
+            
+            l_z = depth[ly, lx] * self.depth_scale
+            r_z = depth[ry, rx] * self.depth_scale
+            
+            # Closer hand is punching?
+            # Or assume standard stance?
+            # User Rule: Left=Green, Right=Red.
+            # Logic: If IMU says "Straight", look for extended hand.
+            
+            if l_z < r_z - 0.1: # Left is 10cm closer
+                hand_label = "JAB"
+            elif r_z < l_z - 0.1:
+                hand_label = "CROSS"
+            else:
+                # Fallback to IMU type if depths are similar
+                hand_label = punch_msg.punch_type.upper()
+        else:
+            hand_label = punch_msg.punch_type.upper()
+        
+        # Display Result directly
+        self.pred_label.config(text=f"{hand_label}!", fg='#4DFF88' if hand_label=='JAB' else '#FF6B6B')
+        self.conf_label.config(text="IMU TRIGGER")
+        
+        # Flash effect?
+        self.root.after(1000, lambda: self.pred_label.config(text="READY", fg=self.c_text_main))
+
     
     def _update_display(self, rgb: np.ndarray, bbox=None):
         """Update Main Video Display (Fastest Loop)."""
@@ -756,7 +1000,7 @@ def main():
                         help='Path to model config')
     parser.add_argument('--model-checkpoint', type=str, required=True,
                         help='Path to model checkpoint')
-    parser.add_argument('--yolo-model', type=str, default='checkpoints/yolo26m.pt',
+    parser.add_argument('--yolo-model', type=str, default='../models/checkpoints/yolo26n.pt',
                         help='Path to YOLO model')
     parser.add_argument('--device', type=str, default='cuda:0',
                         help='Inference device')
@@ -773,6 +1017,8 @@ def main():
                         help='RGB resolution (e.g. 640x480, 960x540, 1280x720)')
     parser.add_argument('--depth-res', type=str, default='640x480',
                         help='Depth resolution (e.g. 640x480, 848x480, 1280x720)')
+    parser.add_argument('--detect-interval', type=int, default=5,
+                        help='Run YOLO detection every N frames (default: 5)')
     
     args = parser.parse_args()
     
@@ -791,6 +1037,7 @@ def main():
         fps=args.fps,
         rgb_res=args.rgb_res,
         depth_res=args.depth_res,
+        detect_interval=args.detect_interval,
     )
     
     def on_close():
