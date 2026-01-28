@@ -1,0 +1,9 @@
+{
+  "straight": {
+    "peak_accel": 10.799919795488528,
+    "peak_gyro": 0.33696846323335544
+  },
+  "settings": {
+    "accel_threshold": 11.5
+  }
+}

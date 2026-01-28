@@ -40,25 +40,85 @@ class ImuPunchClassifier(Node):
         self._calibrating: Optional[str] = None
         self._calibration_end = 0.0
         self._calibration_peaks: Dict[str, Tuple[float, float]] = {}
+        
+        self._first_strike_accel = None # Baseline from first strike of a sequence
+        self._last_calib_type = None
+        self._prev_accel = 9.8  # For jerk detection (rate of change)
 
+        self._waiting_for_quiet = False
+        self._waiting_for_trigger = False
         self._templates = self._load_templates()
         self._calib_timer = self.create_timer(0.05, self._calibration_tick)
+        self._loading_defaults = False
+        
+        self.add_on_set_parameters_callback(self._on_params_changed)
 
         self.get_logger().info("IMU punch classifier initialized")
+        
+    def _on_params_changed(self, params):
+        changed = False
+        for param in params:
+            if param.name == "calibration_path":
+                self.get_logger().info(f"Reloading calibration from: {param.value}")
+                try:
+                    self._templates = self._load_templates(path_override=str(param.value))
+                except Exception as e:
+                    self.get_logger().error(f"Failed to reload templates: {e}")
+            elif param.name in ["accel_threshold", "gyro_threshold"]:
+                changed = True
+                
+        # If thresholds changed and we aren't currently loading them from file, save new defaults
+        if changed and not self._loading_defaults:
+            if "settings" not in self._templates:
+                self._templates["settings"] = {}
+                
+            # Note: param values here are the NEW values
+            for param in params:
+                if param.name in ["accel_threshold", "gyro_threshold"]:
+                    self._templates["settings"][param.name] = float(param.value)
+            
+            self._save_templates()
+            
+        return rclpy.rclpy_implementation.rclpy_common.SetParametersResult(successful=True)
 
-    def _load_templates(self) -> Dict[str, Dict[str, float]]:
-        path = self.get_parameter("calibration_path").value
+    def _load_templates(self, path_override: Optional[str] = None) -> Dict[str, Dict[str, float]]:
+        if path_override:
+            path = path_override
+        else:
+            path = self.get_parameter("calibration_path").value
+            
         if not path or not os.path.exists(path):
             return {}
         try:
             with open(path, "r") as f:
                 raw = json.load(f)
+            
             templates = {}
+            settings = raw.get("settings", {})
+            
+            # Apply settings if present
+            if settings:
+                self._loading_defaults = True
+                updates = []
+                if "accel_threshold" in settings:
+                    updates.append(rclpy.parameter.Parameter("accel_threshold", rclpy.Parameter.Type.DOUBLE, settings["accel_threshold"]))
+                if "gyro_threshold" in settings:
+                    updates.append(rclpy.parameter.Parameter("gyro_threshold", rclpy.Parameter.Type.DOUBLE, settings["gyro_threshold"]))
+                    
+                if updates:
+                    self.set_parameters(updates)
+                    self.get_logger().info(f"Loaded settings from file: {settings}")
+                self._loading_defaults = False
+
             for key, value in raw.items():
+                if key == "settings":
+                    templates["settings"] = value
+                    continue
                 canonical = PUNCH_TYPE_ALIASES.get(key, key)
                 templates[canonical] = value
             return templates
-        except Exception:
+        except Exception as e:
+            self.get_logger().error(f"Error loading templates: {e}")
             return {}
 
     def _save_templates(self) -> None:
@@ -71,37 +131,159 @@ class ImuPunchClassifier(Node):
 
     def _on_calibrate(self, request, response):
         punch_type = PUNCH_TYPE_ALIASES.get(request.punch_type, request.punch_type)
-        duration_s = max(0.5, float(request.duration_s or 2.5))
+        duration_s = float(request.duration_s)
+        
         if punch_type not in PUNCH_TYPES:
             response.accepted = False
             response.message = f"Unknown punch_type: {punch_type}"
             return response
+            
+        # Reset baseline if strictly new type
+        if punch_type != self._last_calib_type:
+            self._first_strike_accel = None
+            self._last_calib_type = punch_type
+            self.get_logger().info(f"New punch type {punch_type}: Resetting baseline.")
+            
         self._calibrating = punch_type
-        self._calibration_end = time.time() + duration_s
         self._calibration_peaks[punch_type] = (0.0, 0.0)
+        
+        if duration_s < 0:
+            self._waiting_for_quiet = True
+            self._waiting_for_trigger = False
+            self._calibration_end = 0.0 # Will be set on trigger
+            response.message = f"Stabilizing... then {punch_type}..."
+        else:
+            self._waiting_for_trigger = False
+            self._calibration_end = time.time() + max(0.5, duration_s)
+            response.message = f"Calibrating {punch_type} for {duration_s:.1f}s"
+            
         response.accepted = True
-        response.message = f"Calibrating {punch_type} for {duration_s:.1f}s"
         self.get_logger().info(response.message)
         return response
 
     def _calibration_tick(self) -> None:
-        if self._calibrating is None:
+        if self._calibrating is None or self._waiting_for_trigger or self._waiting_for_quiet:
             return
+            
         if time.time() < self._calibration_end:
             return
+            
         punch_type = self._calibrating
         peak_accel, peak_gyro = self._calibration_peaks.get(punch_type, (0.0, 0.0))
+        
+        # Capture baseline if this is the first strike of the sequence
+        if self._first_strike_accel is None:
+             self._first_strike_accel = max(15.0, peak_accel)
+             self.get_logger().info(f"Baseline set to {self._first_strike_accel:.1f}")
+        
         self._templates[punch_type] = {"peak_accel": peak_accel, "peak_gyro": peak_gyro}
         self._save_templates()
+        
+        # Publish completion message for GUI
+        out = ImuPunch()
+        out.stamp = self.get_clock().now().to_msg()
+        out.glove = str(self.get_parameter("imu_hand").value)
+        out.punch_type = punch_type
+        out.peak_accel = peak_accel
+        out.peak_gyro = peak_gyro
+        out.confidence = 1.0
+        out.method = "calibration_complete"
+        self.pub.publish(out)
+        
         self.get_logger().info(f"Saved calibration for {punch_type}: accel={peak_accel:.2f} gyro={peak_gyro:.2f}")
         self._calibrating = None
 
     def _on_imu(self, msg: Imu) -> None:
         if self._calibrating:
+            # Use individual axis values - keep sign for direction
+            ax_raw = msg.linear_acceleration.x
+            ay_raw = msg.linear_acceleration.y  # Negative = back (punch into sensor)
+            az_raw = msg.linear_acceleration.z
+            gx_raw = msg.angular_velocity.x
+            gy_raw = msg.angular_velocity.y
+            gz_raw = msg.angular_velocity.z
+            
+            # Absolute values for thresholding
+            ax = abs(ax_raw)
+            ay = abs(ay_raw)
+            az_no_g = abs(az_raw - 9.8)  # Remove gravity
+            gx = abs(gx_raw)
+            gy = abs(gy_raw)
+            gz = abs(gz_raw)
+            
+            # Peak axis values
+            peak_a = max(ax, ay, az_no_g)
+            peak_g = max(gx, gy, gz)
+            
+            if self._waiting_for_quiet:
+                # Wait for sensor to be relatively still
+                # RELAXED: Allow some movement, just not huge spikes
+                quiet_thresh = 3.0  # Very relaxed
+                gyro_quiet = 1.0
+                
+                # Log periodically to debug
+                if not hasattr(self, '_quiet_log_count'):
+                    self._quiet_log_count = 0
+                self._quiet_log_count += 1
+                if self._quiet_log_count % 50 == 0:  # Every ~0.5s at 100Hz
+                    self.get_logger().info(f"Waiting quiet: ax={ax:.1f} ay={ay:.1f} g={peak_g:.1f} (need ax<{quiet_thresh}, ay<{quiet_thresh}, g<{gyro_quiet})")
+                
+                if ax < quiet_thresh and ay < quiet_thresh and peak_g < gyro_quiet:
+                    self._waiting_for_quiet = False
+                    self._waiting_for_trigger = True
+                    self._prev_ay = ay_raw
+                    self._quiet_log_count = 0
+                    self.get_logger().info("Sensor stable. PUNCH NOW!")
+                return
+
+            if self._waiting_for_trigger:
+                # Jerk: sudden change in forward acceleration
+                jerk = abs(ay_raw - getattr(self, '_prev_ay', 0))
+                self._prev_ay = ay_raw
+                
+                # Use sensitivity params from GUI
+                accel_thresh = float(self.get_parameter("accel_threshold").value)
+                gyro_thresh = float(self.get_parameter("gyro_threshold").value)
+                
+                # VERY LOW thresholds for debugging - any movement triggers
+                ay_thresh = max(0.5, accel_thresh / 20.0)  # Super sensitive
+                any_thresh = max(1.0, accel_thresh / 10.0)
+                g_thresh = max(0.3, gyro_thresh / 8.0)
+                jerk_thresh = max(0.5, ay_thresh)
+                
+                # Log what we're seeing
+                if not hasattr(self, '_trigger_log_count'):
+                    self._trigger_log_count = 0
+                self._trigger_log_count += 1
+                if self._trigger_log_count % 20 == 0:
+                    self.get_logger().info(f"Waiting punch: ay={ay:.2f}>{ay_thresh:.2f}? peak={peak_a:.2f}>{any_thresh:.2f}? g={peak_g:.2f}>{g_thresh:.2f}?")
+                
+                # Trigger on: ay spike, ANY axis spike, rotation, or jerk
+                triggered = False
+                reason = ""
+                if ay > ay_thresh:
+                    triggered = True
+                    reason = f"ay={ay:.1f}>{ay_thresh:.1f}"
+                elif peak_a > any_thresh:
+                    triggered = True
+                    reason = f"peak={peak_a:.1f}>{any_thresh:.1f}"
+                elif peak_g > g_thresh:
+                    triggered = True
+                    reason = f"gyro={peak_g:.1f}>{g_thresh:.1f}"
+                elif jerk > jerk_thresh:
+                    triggered = True
+                    reason = f"jerk={jerk:.1f}>{jerk_thresh:.1f}"
+                
+                if triggered:
+                    self._waiting_for_trigger = False
+                    self._calibration_end = time.time() + 0.8
+                    self.get_logger().info(f"Triggered: {reason} (raw_ay={ay_raw:.1f})")
+                else:
+                    return
+
+            # Track peak axis values during calibration window
             peak_accel, peak_gyro = self._calibration_peaks.get(self._calibrating, (0.0, 0.0))
-            accel = self._accel_magnitude(msg)
-            gyro = self._gyro_magnitude(msg)
-            self._calibration_peaks[self._calibrating] = (max(peak_accel, accel), max(peak_gyro, gyro))
+            self._calibration_peaks[self._calibrating] = (max(peak_accel, peak_a), max(peak_gyro, peak_g))
             return
 
         if not self.get_parameter("enable_punch_classification").value:

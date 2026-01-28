@@ -107,30 +107,80 @@ class RosWorker(QtCore.QThread):
         self._requests: queue.Queue = queue.Queue()
 
     def run(self) -> None:
-        rclpy.init()
-        node = ImuGuiNode(self.imu, self.punch, self.status, self._requests)
         try:
-            rclpy.spin(node)
-        except KeyboardInterrupt:
-            pass
-        node.destroy_node()
-        rclpy.shutdown()
+            rclpy.init()
+            node = ImuGuiNode(self.imu, self.punch, self.status, self._requests)
+            try:
+                rclpy.spin(node)
+            except KeyboardInterrupt:
+                pass
+            node.destroy_node()
+        except Exception as e:
+            print(f"ROS Worker error: {e}")
+        finally:
+            try:
+                rclpy.shutdown()
+            except Exception:
+                pass  # Already shutdown or never initialized
 
-    def request_calibration(self, punch_type: str, duration_s: float) -> None:
-        self._requests.put((punch_type, duration_s))
+    def request_calibration(self, punch_type: str, duration: float) -> None:
+        self._requests.put((punch_type, duration))
+
+    def set_calibration_path(self, path: str) -> None:
+        self.set_parameter_value("calibration_path", path)
+
+    def set_parameter_value(self, name: str, value: str, node: str = "/imu_punch_classifier") -> None:
+        # Use subprocess for simplicity in this threaded worker context
+        subprocess.Popen(
+            ["ros2", "param", "set", node, name, str(value)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+
+    def get_parameters(self, names: list[str], node: str = "/imu_punch_classifier") -> dict:
+        # Synchronous call via subprocess to get current params
+        results = {}
+        for name in names:
+            try:
+                out = subprocess.check_output(
+                    ["ros2", "param", "get", node, name],
+                    encoding="utf-8"
+                )
+                # Output format e.g.: "Boolean value is: true" or "Double value is: 0.5"
+                # We just need to parse the value after the last colon
+                val_str = out.strip().split(":")[-1].strip()
+                
+                # Try float
+                try:
+                    results[name] = float(val_str)
+                except ValueError:
+                    # Try boolean
+                    if val_str.lower() == "true":
+                        results[name] = True
+                    elif val_str.lower() == "false":
+                        results[name] = False
+                    else:
+                        results[name] = val_str
+            except Exception:
+                pass
+        return results
 
 
 class ImuPunchGui(QtWidgets.QWidget):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("IMU Punch Calibration")
-        self.resize(860, 520)
+        self.setWindowTitle("Sensor Calibration & Config")
+        self.resize(1100, 650)
 
         self.last_imu: Optional[ImuDebug] = None
         self.last_punch: Optional[ImuPunch] = None
         self._last_punch_time: Optional[float] = None
         self._calib_end: Optional[float] = None
         self._imu_proc: Optional[subprocess.Popen] = None
+
+        self._calib_queue: list[str] = []
+        self._calib_count = 0
+        self._updating_ui = False
 
         self.ros = RosWorker()
         self.ros.imu.connect(self._on_imu)
@@ -146,50 +196,174 @@ class ImuPunchGui(QtWidgets.QWidget):
         self.refresh_timer.start()
 
     def _build_ui(self) -> None:
-        layout = QtWidgets.QVBoxLayout()
+        layout = QtWidgets.QHBoxLayout()
 
-        title = QtWidgets.QLabel("IMU Punch Viewer + Calibration")
+        # Left Panel: Status + 3D View + Calibration
+        left_panel = QtWidgets.QWidget()
+        left_layout = QtWidgets.QVBoxLayout(left_panel)
+        
+        title = QtWidgets.QLabel("Sensor Calibration Dashboard")
         title.setStyleSheet("font-size: 18px; font-weight: bold;")
-        layout.addWidget(title)
+        left_layout.addWidget(title)
 
         self.status_label = QtWidgets.QLabel("Status: --")
-        layout.addWidget(self.status_label)
+        left_layout.addWidget(self.status_label)
+        
+        # Profile Selector
+        profile_layout = QtWidgets.QHBoxLayout()
+        profile_layout.addWidget(QtWidgets.QLabel("Profile:"))
+        self.profile_combo = QtWidgets.QComboBox()
+        self.profile_combo.addItem("Straights Only", os.path.expanduser("~/.boxbunny/calibration_straights.json"))
+        self.profile_combo.addItem("All Punches", os.path.expanduser("~/.boxbunny/calibration_all.json"))
+        self.profile_combo.currentIndexChanged.connect(self._on_profile_changed)
+        profile_layout.addWidget(self.profile_combo)
+        left_layout.addLayout(profile_layout)
 
         grid = QtWidgets.QGridLayout()
         self.axis_view = ImuAxisWidget()
         self.imu_label = QtWidgets.QLabel("IMU: --")
+        self.mag_label = QtWidgets.QLabel("Magnitudes: Accel=-- | Gyro=-- (compared to thresholds)")
+        self.mag_label.setStyleSheet("font-weight: bold; color: #00aaff;")
         self.direction_label = QtWidgets.QLabel("Direction: --")
         self.punch_label = QtWidgets.QLabel("Last punch: --")
         self.confidence_label = QtWidgets.QLabel("Confidence: --")
-        grid.addWidget(self.axis_view, 0, 0, 4, 1)
+        grid.addWidget(self.axis_view, 0, 0, 5, 1)
         grid.addWidget(self.imu_label, 0, 1)
-        grid.addWidget(self.direction_label, 1, 1)
-        grid.addWidget(self.punch_label, 2, 1)
-        grid.addWidget(self.confidence_label, 3, 1)
-        layout.addLayout(grid)
+        grid.addWidget(self.mag_label, 1, 1)
+        grid.addWidget(self.direction_label, 2, 1)
+        grid.addWidget(self.punch_label, 3, 1)
+        grid.addWidget(self.confidence_label, 4, 1)
+        left_layout.addLayout(grid)
 
         calib_group = QtWidgets.QGroupBox("Calibration")
         calib_layout = QtWidgets.QHBoxLayout()
-        self.punch_type_box = QtWidgets.QComboBox()
-        for label, value in PUNCH_TYPE_CHOICES:
-            self.punch_type_box.addItem(label, value)
-        self.calib_btn = QtWidgets.QPushButton("Calibrate (3 hits)")
-        self.calib_btn.clicked.connect(self._start_calibration)
-        calib_layout.addWidget(QtWidgets.QLabel("Punch type:"))
-        calib_layout.addWidget(self.punch_type_box)
+        
+        self.calib_default_btn = QtWidgets.QPushButton("Calibrate Default (Jab/Cross)")
+        self.calib_default_btn.clicked.connect(lambda: self._start_calibration_sequence("default"))
+        
+        self.calib_all_btn = QtWidgets.QPushButton("Calibrate All (Cycle)")
+        self.calib_all_btn.clicked.connect(lambda: self._start_calibration_sequence("all"))
+
+        self.calib_verify_btn = QtWidgets.QPushButton("Verify File")
+        self.calib_verify_btn.clicked.connect(self._verify_calibration)
+
+        self.calib_save_btn = QtWidgets.QPushButton("Save Calibration")
+        self.calib_save_btn.clicked.connect(self._force_save_calibration)
+
+        self.calib_reset_btn = QtWidgets.QPushButton("Reset")
+        self.calib_reset_btn.clicked.connect(self._reset_calibration)
+
+        calib_layout.addWidget(self.calib_default_btn)
+        calib_layout.addWidget(self.calib_all_btn)
+        calib_layout.addWidget(self.calib_verify_btn)
+        calib_layout.addWidget(self.calib_save_btn)
+        calib_layout.addWidget(self.calib_reset_btn)
         calib_layout.addStretch(1)
-        calib_layout.addWidget(self.calib_btn)
         calib_group.setLayout(calib_layout)
-        layout.addWidget(calib_group)
+        left_layout.addWidget(calib_group)
 
         self.help_label = QtWidgets.QLabel(
-            "Tip: Click Calibrate and hit the pad 3 times during the countdown."
+            "Tip: Click Calibrate. Wait for prompt. Punch. Repeat when prompted."
         )
         self.help_label.setStyleSheet("color: #666;")
-        layout.addWidget(self.help_label)
-
-        layout.addStretch(1)
+        left_layout.addWidget(self.help_label)
+        left_layout.addStretch(1)
+        
+        # Right Panel: Testing Log
+        right_panel = QtWidgets.QGroupBox("Punch Log (Testing)")
+        right_layout = QtWidgets.QVBoxLayout(right_panel)
+        self.log_list = QtWidgets.QListWidget()
+        self.log_list.setStyleSheet("font-family: monospace;")
+        clear_btn = QtWidgets.QPushButton("Clear Log")
+        clear_btn.clicked.connect(self.log_list.clear)
+        right_layout.addWidget(self.log_list)
+        right_layout.addWidget(clear_btn)
+        
+        # Sensitivity settings
+        sens_group = self._build_sensitivity_ui()
+        right_layout.insertWidget(0, sens_group)
+        
+        layout.addWidget(left_panel, stretch=2)
+        layout.addWidget(right_panel, stretch=1)
         self.setLayout(layout)
+        
+        # Trigger initial profile load
+        QtCore.QTimer.singleShot(1000, self._on_profile_changed)
+
+
+
+    def _build_sensitivity_ui(self) -> QtWidgets.QGroupBox:
+        group = QtWidgets.QGroupBox("IMU Sensitivity Settings")
+        layout = QtWidgets.QFormLayout()
+        
+        self.accel_spin = QtWidgets.QDoubleSpinBox()
+        self.accel_spin.setRange(1.0, 50.0)
+        self.accel_spin.setSingleStep(0.5)
+        self.accel_spin.setValue(12.0)
+        self.accel_spin.valueChanged.connect(lambda v: self._on_sensitivity_changed("accel_threshold", v))
+        
+        self.gyro_spin = QtWidgets.QDoubleSpinBox()
+        self.gyro_spin.setRange(0.1, 20.0)
+        self.gyro_spin.setSingleStep(0.1)
+        self.gyro_spin.setValue(0.5)
+        self.gyro_spin.valueChanged.connect(lambda v: self._on_sensitivity_changed("gyro_threshold", v))
+
+        layout.addRow("Accel Threshold:", self.accel_spin)
+        layout.addRow("Gyro Threshold:", self.gyro_spin)
+        group.setLayout(layout)
+        return group
+
+    def _on_sensitivity_changed(self, name: str, value: float) -> None:
+        if self._updating_ui:
+            return
+        self.ros.set_parameter_value(name, str(value))
+
+    def _on_profile_changed(self) -> None:
+        path = self.profile_combo.currentData()
+        name = self.profile_combo.currentText()
+        self.ros.set_calibration_path(path)
+        self.status_label.setText(f"Status: Switched to profile '{name}'")
+        
+        # Sync settings after a short delay to allow backend to load file
+        QtCore.QTimer.singleShot(500, self._sync_settings)
+        
+    def _sync_settings(self) -> None:
+        self._updating_ui = True
+        try:
+            # Sync IMU Params
+            params = self.ros.get_parameters(["accel_threshold", "gyro_threshold"])
+            if "accel_threshold" in params:
+                self.accel_spin.setValue(params["accel_threshold"])
+            if "gyro_threshold" in params:
+                self.gyro_spin.setValue(params["gyro_threshold"])
+        finally:
+            self._updating_ui = False
+
+    def _verify_calibration(self) -> None:
+        path = self.profile_combo.currentData()
+        ts = time.strftime("%H:%M:%S")
+        self.log_list.addItem(f"[{ts}] -- VERIFYING '{os.path.basename(path)}' --")
+        
+        if not os.path.exists(path):
+            self.log_list.addItem("  FILE NOT FOUND (Needs calibration)")
+            self.log_list.scrollToBottom()
+            return
+
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+            
+            if not data:
+                self.log_list.addItem("  FILE EMPTY")
+            
+            for key, val in data.items():
+                accel = val.get("peak_accel", 0.0)
+                gyro = val.get("peak_gyro", 0.0)
+                self.log_list.addItem(f"  {key.upper()}: Accel={accel:.2f}, Gyro={gyro:.2f}")
+        except Exception as e:
+            self.log_list.addItem(f"  ERROR: {e}")
+            
+        self.log_list.scrollToBottom()
 
     def _on_imu(self, msg: ImuDebug) -> None:
         self.last_imu = msg
@@ -197,17 +371,108 @@ class ImuPunchGui(QtWidgets.QWidget):
     def _on_punch(self, msg: ImuPunch) -> None:
         self.last_punch = msg
         self._last_punch_time = time.time()
+        
+        # Add to log
+        ts = time.strftime("%H:%M:%S")
+        method = f" [{msg.method}]" if msg.method == "calibration_complete" else ""
+        entry = f"[{ts}] {msg.punch_type.upper():<10} Conf: {msg.confidence:.2f}{method}"
+        item = QtWidgets.QListWidgetItem(entry)
+        
+        if msg.method == "calibration_complete":
+            item.setForeground(QtGui.QColor("#4DFF88")) # Green for calibration
+        elif msg.confidence < 0.5:
+             item.setForeground(QtGui.QColor("#FF6B6B")) # Red for low confidence
+             
+        self.log_list.addItem(item)
+        self.log_list.scrollToBottom()
+        
+        if msg.method == "calibration_complete":
+            self._handle_calibration_step_complete()
 
     def _on_status(self, message: str) -> None:
-        self.status_label.setText(f"Status: {message}")
+        if not self._calib_queue: # Only update status from worker if not in sequence logic
+            self.status_label.setText(f"Status: {message}")
 
-    def _start_calibration(self) -> None:
-        punch_type = str(self.punch_type_box.currentData())
-        duration_s = 3.5
-        self._calib_end = time.time() + duration_s
-        self.status_label.setText("Status: Get ready... punch 3 times now")
-        self.ros.request_calibration(punch_type, duration_s)
-        self.calib_btn.setEnabled(False)
+    def _start_calibration_sequence(self, mode: str) -> None:
+        if mode == "default":
+            self._calib_queue = ["straight"]
+        elif mode == "all":
+            self._calib_queue = ["straight", "hook", "uppercut"]
+        else:
+            return
+
+        self._calib_count = 0
+        self.calib_default_btn.setEnabled(False)
+        self.calib_all_btn.setEnabled(False)
+        self._trigger_next_calibration_step()
+
+    def _trigger_next_calibration_step(self) -> None:
+        if not self._calib_queue:
+            self._finish_calibration()
+            return
+            
+        punch_type = self._calib_queue[0]
+        self.status_label.setText(f"Status: Waiting for {punch_type} ({self._calib_count + 1}/3)... PUNCH NOW!")
+        self.ros.request_calibration(punch_type, -1.0) # -1.0 = wait for trigger
+
+    def _handle_calibration_step_complete(self) -> None:
+        if not self._calib_queue:
+            return
+
+        self._calib_count += 1
+        
+        if self._calib_count < 3:
+            self._trigger_next_calibration_step()
+        else:
+            # Done with this type
+            self._calib_queue.pop(0)
+            self._calib_count = 0
+            if self._calib_queue:
+                self._trigger_next_calibration_step()
+            else:
+                self._finish_calibration()
+
+    def _finish_calibration(self) -> None:
+        self.status_label.setText("Status: Calibration sequence finished!")
+        self.calib_default_btn.setEnabled(True)
+        self.calib_all_btn.setEnabled(True)
+        self._calib_queue = []
+
+    def _force_save_calibration(self) -> None:
+        """Force save current calibration to file by triggering a ROS service."""
+        # Use subprocess to call ros2 service that triggers save
+        profile = self.profile_combo.currentText()
+        if profile == "Straights Only":
+            path = os.path.expanduser("~/.boxbunny/calibration_straights.json")
+        else:
+            path = os.path.expanduser("~/.boxbunny/imu_calibration.json")
+        
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        
+        # Create a minimal calibration file if none exists
+        if not os.path.exists(path):
+            import json
+            default_data = {
+                "straight": {"peak_accel": 15.0, "peak_gyro": 2.0},
+                "settings": {"accel_threshold": 12.5, "gyro_threshold": 2.5}
+            }
+            with open(path, "w") as f:
+                json.dump(default_data, f, indent=2)
+            self.status_label.setText(f"Status: Created default calibration at {path}")
+        else:
+            self.status_label.setText(f"Status: Calibration file exists at {path}")
+        
+        self._log(f"Save check: {path}")
+
+    def _reset_calibration(self) -> None:
+        """Reset the current calibration sequence."""
+        self._calib_queue = []
+        self._calib_count = 0
+        self.calib_default_btn.setEnabled(True)
+        self.calib_all_btn.setEnabled(True)
+        self.status_label.setText("Status: Calibration reset. Ready.")
+        self._log("-- CALIBRATION RESET --")
 
     def _direction_from_imu(self, imu: ImuDebug) -> str:
         ax, ay, az = imu.ax, imu.ay, imu.az
@@ -228,22 +493,17 @@ class ImuPunchGui(QtWidgets.QWidget):
             self.imu_label.setText(
                 f"IMU ax={imu.ax:.2f} ay={imu.ay:.2f} az={imu.az:.2f} | gx={imu.gx:.2f} gy={imu.gy:.2f} gz={imu.gz:.2f}"
             )
+            # Show key axis values used for detection (ay = punch, gz = rotation)
+            self.mag_label.setText(f"Detection: ay={abs(imu.ay):.2f} | gz={abs(imu.gz):.2f} (vs thresholds)")
             self.direction_label.setText(f"Direction: {self._direction_from_imu(imu)}")
             self.axis_view.set_vector(imu.ax, imu.ay, imu.az)
         if self.last_punch is not None:
             punch = self.last_punch
-            self.punch_label.setText(f"Last punch: {punch.punch_type or 'unknown'}")
+            method_str = f" ({punch.method})" if punch.method else ""
+            self.punch_label.setText(f"Last punch: {punch.punch_type or 'unknown'}{method_str}")
             self.confidence_label.setText(
                 f"Confidence: {punch.confidence:.2f} (accel={punch.peak_accel:.2f}, gyro={punch.peak_gyro:.2f})"
             )
-        if self._calib_end is not None:
-            remaining = self._calib_end - time.time()
-            if remaining <= 0:
-                self._calib_end = None
-                self.calib_btn.setEnabled(True)
-                self.status_label.setText("Status: Calibration finished. Saved to calibration file.")
-            else:
-                self.status_label.setText(f"Status: Calibrating... {remaining:.1f}s left (hit 3 times)")
 
     def closeEvent(self, event) -> None:
         if self.ros.isRunning():

@@ -146,8 +146,7 @@ class LiveRGBDInference:
         self.labels = labels or DEFAULT_LABELS
         self.fps = fps
         self.detect_interval = detect_interval
-        self.fps = fps
-        self.detect_interval = detect_interval
+        self.pose_conf_thresh = 0.5
         self.rgb_res = self._parse_res(rgb_res)
         self.depth_res = self._parse_res(depth_res)
         
@@ -398,10 +397,29 @@ class LiveRGBDInference:
                                   bg=self.c_bg_panel, fg=self.c_text_main, selectcolor=self.c_bg_panel, activebackground=self.c_bg_panel)
         chk_bbox.pack(anchor='w', pady=(0, 10))
 
+        # Tuning Sliders
+        tk.Label(control_group, text="Vision Sensitivity", font=(self.font_family, 9, 'bold'), bg=self.c_bg_panel, fg=self.c_text_dim).pack(anchor='w', pady=(5,5))
+        
+        # YOLO Confidence
+        tk.Label(control_group, text="YOLO Conf", bg=self.c_bg_panel, fg=self.c_text_dim, font=(self.font_family, 8)).pack(anchor='w')
+        self.scale_yolo = tk.Scale(control_group, from_=0.1, to=1.0, resolution=0.05, orient=tk.HORIZONTAL,
+                                   bg=self.c_bg_panel, fg=self.c_text_main, highlightthickness=0,
+                                   command=self._update_vision_params)
+        self.scale_yolo.set(0.25) # Default
+        self.scale_yolo.pack(fill=tk.X, pady=(0, 5))
+
+        # Pose Confidence (Reaction Sensitivity)
+        tk.Label(control_group, text="Pose Thresh (Reaction)", bg=self.c_bg_panel, fg=self.c_text_dim, font=(self.font_family, 8)).pack(anchor='w')
+        self.scale_pose = tk.Scale(control_group, from_=0.1, to=1.0, resolution=0.05, orient=tk.HORIZONTAL,
+                                   bg=self.c_bg_panel, fg=self.c_text_main, highlightthickness=0,
+                                   command=self._update_vision_params)
+        self.scale_pose.set(0.5)
+        self.scale_pose.pack(fill=tk.X, pady=(0, 5))
+
         # Mode Selector
         self.btn_mode = tk.Button(control_group, text="MODE: Hybrid (IMU+Pose)", command=self._toggle_mode,
                                    bg='#2B3240', fg=self.c_text_main, font=(self.font_family, 9, 'bold'))
-        self.btn_mode.pack(fill=tk.X, pady=(0, 5))
+        self.btn_mode.pack(fill=tk.X, pady=(10, 5))
 
         # Calibration Button
         self.btn_calib = tk.Button(control_group, text="Calibrate IMU", command=self._start_calibration,
@@ -637,6 +655,19 @@ class LiveRGBDInference:
         except:
             self._update_status("Error: No valid height")
 
+    def _update_vision_params(self, _=None):
+        """Update vision parameters from GUI sliders."""
+        if hasattr(self, 'scale_yolo') and hasattr(self, 'cropper'):
+            val = self.scale_yolo.get()
+            # Attempt to set on wrapper (assuming it stores it)
+            if hasattr(self.cropper, 'conf'):
+                self.cropper.conf = val
+        
+        if hasattr(self, 'scale_pose'):
+            self.pose_conf_thresh = self.scale_pose.get()
+            
+        print(f"Updated Params - YOLO Conf: {self.cropper.conf}, Pose Thresh: {self.pose_conf_thresh}")
+
     def _toggle_mode(self):
         """Switch between Anticipation and Hybrid modes."""
         if self.mode == 'hybrid':
@@ -840,7 +871,8 @@ class LiveRGBDInference:
         
         hand_label = "UNKNOWN"
         
-        if l_wrist[2] > 0.5 and r_wrist[2] > 0.5:
+        
+        if l_wrist[2] > self.pose_conf_thresh and r_wrist[2] > self.pose_conf_thresh:
             # Map coordinates
             lx, ly = int(l_wrist[0]), int(l_wrist[1])
             rx, ry = int(r_wrist[0]), int(r_wrist[1])

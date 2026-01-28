@@ -12,4 +12,13 @@ def generate_launch_description():
         parameters=[gui_config],
         output="screen",
     )
-    return LaunchDescription([gui])
+    
+    # Add IMU punch classifier for calibration service
+    imu_classifier = Node(
+        package="boxbunny_imu",
+        executable="imu_punch_classifier",
+        name="imu_punch_classifier",
+        output="screen",
+    )
+    
+    return LaunchDescription([imu_classifier, gui])
