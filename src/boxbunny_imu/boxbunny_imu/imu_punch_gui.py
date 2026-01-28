@@ -140,12 +140,15 @@ class RosWorker(QtCore.QThread):
 
     def get_parameters(self, names: list[str], node: str = "/imu_punch_classifier") -> dict:
         # Synchronous call via subprocess to get current params
+        # Handle case where node isn't ready yet
         results = {}
         for name in names:
             try:
                 out = subprocess.check_output(
                     ["ros2", "param", "get", node, name],
-                    encoding="utf-8"
+                    encoding="utf-8",
+                    stderr=subprocess.DEVNULL,  # Suppress "Node not found" errors
+                    timeout=2.0
                 )
                 # Output format e.g.: "Boolean value is: true" or "Double value is: 0.5"
                 # We just need to parse the value after the last colon
@@ -162,6 +165,9 @@ class RosWorker(QtCore.QThread):
                         results[name] = False
                     else:
                         results[name] = val_str
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                # Node not ready or param doesn't exist - silently skip
+                pass
             except Exception:
                 pass
         return results
@@ -357,10 +363,23 @@ class ImuPunchGui(QtWidgets.QWidget):
             if not data:
                 self.log_list.addItem("  FILE EMPTY")
             
+            punch_count = 0
             for key, val in data.items():
-                accel = val.get("peak_accel", 0.0)
-                gyro = val.get("peak_gyro", 0.0)
-                self.log_list.addItem(f"  {key.upper()}: Accel={accel:.2f}, Gyro={gyro:.2f}")
+                # Skip settings, only show punch types
+                if key == "settings":
+                    continue
+                if isinstance(val, dict) and ("peak_accel" in val or "peak_gyro" in val):
+                    accel = val.get("peak_accel", 0.0)
+                    gyro = val.get("peak_gyro", 0.0)
+                    self.log_list.addItem(f"  {key.upper()}: Accel={accel:.2f}, Gyro={gyro:.2f}")
+                    punch_count += 1
+            
+            if punch_count == 0:
+                self.log_list.addItem("  No punch calibrations found")
+            else:
+                self.log_list.addItem(f"  Loaded {punch_count} punch type(s)")
+                self.log_list.addItem("  TEST MODE: Punch now and watch for detection...")
+                
         except Exception as e:
             self.log_list.addItem(f"  ERROR: {e}")
             

@@ -310,12 +310,24 @@ class ImuPunchClassifier(Node):
         if not self._passes_filters(peaks, rms, axis_peaks):
             return
 
+        (ax, ay, az), (gx, gy, gz) = axis_peaks
+        
+        # Debug: log classification inputs periodically
+        if not hasattr(self, '_class_log_count'):
+            self._class_log_count = 0
+        self._class_log_count += 1
+        if self._class_log_count % 10 == 0:
+            self.get_logger().debug(f"Classify: ax={ax:.1f} ay={ay:.1f} az={az:.1f} | gx={gx:.1f} gy={gy:.1f} gz={gz:.1f} | thresh a={accel_thresh:.1f} g={gyro_thresh:.1f}")
+
         punch_type = self._classify(gyro_thresh, accel_thresh, axis_peaks)
         if punch_type is None:
             return
 
         self._last_time = now
         confidence = self._estimate_confidence(punch_type, peaks)
+        
+        # Log detection
+        self.get_logger().info(f"PUNCH DETECTED: {punch_type} (accel={peaks[0]:.1f}, gyro={peaks[1]:.1f}, conf={confidence:.2f})")
 
         out = ImuPunch()
         out.stamp = self.get_clock().now().to_msg()
@@ -396,6 +408,14 @@ class ImuPunchClassifier(Node):
 
         accel_ratio_thresh = float(self.get_parameter("accel_peak_ratio").value)
         gyro_ratio_thresh = float(self.get_parameter("gyro_peak_ratio").value)
+        
+        # Debug: log filter values periodically
+        if not hasattr(self, '_filter_log_count'):
+            self._filter_log_count = 0
+        self._filter_log_count += 1
+        if self._filter_log_count % 30 == 0:
+            self.get_logger().debug(f"Filter: a_ratio={accel_ratio:.2f}>{accel_ratio_thresh:.1f}? g_ratio={gyro_ratio:.2f}>{gyro_ratio_thresh:.1f}?")
+        
         if accel_ratio < accel_ratio_thresh or gyro_ratio < gyro_ratio_thresh:
             return False
 
@@ -430,8 +450,12 @@ def main() -> None:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
-    node.destroy_node()
-    rclpy.shutdown()
+    finally:
+        node.destroy_node()
+        try:
+            rclpy.shutdown()
+        except Exception:
+            pass  # Already shut down
 
 
 if __name__ == "__main__":

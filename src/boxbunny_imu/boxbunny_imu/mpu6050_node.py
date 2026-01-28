@@ -130,8 +130,12 @@ def main() -> None:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
-    node.destroy_node()
-    rclpy.shutdown()
+    finally:
+        node.destroy_node()
+        try:
+            rclpy.shutdown()
+        except Exception:
+            pass  # Already shut down
 
 
 if __name__ == "__main__":

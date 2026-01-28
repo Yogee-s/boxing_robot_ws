@@ -100,6 +100,8 @@ class RosImuHandler(threading.Thread):
     """
     def __init__(self):
         super().__init__(daemon=True)
+        self.node = None  # Node is created in run()
+        
         if rclpy is None:
             print("Warning: rclpy not found. Hybrid mode disabled.")
             return
