@@ -26,10 +26,18 @@ def generate_launch_description():
         condition=IfCondition(enable_classifier),
     )
 
+    imu_gui = Node(
+        package="boxbunny_imu",
+        executable="imu_punch_gui",
+        output="screen",
+        additional_env={"BOXBUNNY_IMU_AUTO_LAUNCH": "0"},  # Prevent recursive launch
+    )
+
     return LaunchDescription(
         [
             DeclareLaunchArgument("enable_classifier", default_value="true"),
             imu,
             imu_classifier,
+            imu_gui,
         ]
     )

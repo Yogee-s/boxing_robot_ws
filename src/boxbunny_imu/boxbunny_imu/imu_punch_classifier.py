@@ -6,6 +6,7 @@ from typing import Deque, Dict, Optional, Tuple
 
 import rclpy
 from rclpy.node import Node
+from rcl_interfaces.msg import SetParametersResult
 from sensor_msgs.msg import Imu
 from boxbunny_msgs.msg import ImuPunch
 from boxbunny_msgs.srv import CalibrateImuPunch
@@ -79,7 +80,7 @@ class ImuPunchClassifier(Node):
             
             self._save_templates()
             
-        return rclpy.rclpy_implementation.rclpy_common.SetParametersResult(successful=True)
+        return SetParametersResult(successful=True)
 
     def _load_templates(self, path_override: Optional[str] = None) -> Dict[str, Dict[str, float]]:
         if path_override:
