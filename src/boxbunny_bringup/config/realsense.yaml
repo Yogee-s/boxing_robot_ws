@@ -2,8 +2,16 @@
   ros__parameters:
     enable_color: true
     enable_depth: true
+    enable_infra1: false
+    enable_infra2: false
+    enable_gyro: false
+    enable_accel: false
     align_depth.enable: true
     depth_module.profile: "640x480x30"
     rgb_camera.profile: "640x480x30"
     pointcloud.enable: false
     serial_no: "216322072730"
+    # Stability settings for version mismatch
+    initial_reset: true
+    reconnect_timeout: 10.0
+    wait_for_device_timeout: 30.0

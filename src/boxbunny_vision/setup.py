@@ -23,6 +23,7 @@ setup(
         "console_scripts": [
             "realsense_glove_tracker = boxbunny_vision.realsense_glove_tracker:main",
             "action_predictor = boxbunny_vision.action_predictor_node:main",
+            "simple_camera_node = boxbunny_vision.simple_camera_node:main",
         ],
     },
 )
