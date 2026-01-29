@@ -95,7 +95,7 @@ class ButtonStyle:
 # ============================================================================
 
 class CheckboxProgressWidget(QtWidgets.QWidget):
-    """Visual progress tracker with checkbox indicators (☐ → ✓)."""
+    """Visual progress tracker with numbered step indicators."""
     
     def __init__(self, count: int = 3, parent=None):
         super().__init__(parent)
@@ -103,22 +103,38 @@ class CheckboxProgressWidget(QtWidgets.QWidget):
         self.current = 0
         self.checkboxes = []
         
-        layout = QtWidgets.QHBoxLayout(self)
-        layout.setSpacing(30)
-        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        outer_layout = QtWidgets.QVBoxLayout(self)
+        outer_layout.setSpacing(4)
+        outer_layout.setContentsMargins(0, 8, 0, 0)
+        
+        # Title label
+        title = QtWidgets.QLabel("PROGRESS")
+        title.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet("font-size: 10px; font-weight: 700; color: #555; letter-spacing: 1px;")
+        outer_layout.addWidget(title)
+        
+        # Checkboxes row
+        checkbox_row = QtWidgets.QHBoxLayout()
+        checkbox_row.setSpacing(8)
+        checkbox_row.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         
         for i in range(count):
-            checkbox = QtWidgets.QLabel("☐")
+            checkbox = QtWidgets.QLabel(f"{i+1}")
             checkbox.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
             checkbox.setStyleSheet("""
-                font-size: 64px;
+                font-size: 16px;
+                font-weight: 700;
                 color: #484f58;
-                min-width: 80px;
-                background: transparent;
-                border: none;
+                min-width: 32px;
+                min-height: 32px;
+                background: #1a1a1a;
+                border: 2px solid #333;
+                border-radius: 6px;
             """)
-            layout.addWidget(checkbox)
+            checkbox_row.addWidget(checkbox)
             self.checkboxes.append(checkbox)
+        
+        outer_layout.addLayout(checkbox_row)
     
     def tick(self, index: int = None):
         """Tick the checkbox at the given index (or next if None)."""
@@ -127,26 +143,31 @@ class CheckboxProgressWidget(QtWidgets.QWidget):
         if 0 <= index < len(self.checkboxes):
             self.checkboxes[index].setText("✓")
             self.checkboxes[index].setStyleSheet("""
-                font-size: 64px;
-                color: #26d0ce;
-                min-width: 80px;
-                font-weight: bold;
-                background: transparent;
-                border: none;
+                font-size: 16px;
+                font-weight: 700;
+                color: #000;
+                min-width: 32px;
+                min-height: 32px;
+                background: #26d0ce;
+                border: 2px solid #26d0ce;
+                border-radius: 6px;
             """)
             self.current = index + 1
     
     def reset(self):
         """Reset all checkboxes to empty."""
         self.current = 0
-        for checkbox in self.checkboxes:
-            checkbox.setText("☐")
+        for i, checkbox in enumerate(self.checkboxes):
+            checkbox.setText(f"{i+1}")
             checkbox.setStyleSheet("""
-                font-size: 64px;
+                font-size: 16px;
+                font-weight: 700;
                 color: #484f58;
-                min-width: 80px;
-                background: transparent;
-                border: none;
+                min-width: 32px;
+                min-height: 32px;
+                background: #1a1a1a;
+                border: 2px solid #333;
+                border-radius: 6px;
             """)
 
 
@@ -983,57 +1004,56 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """)
 
     def _setup_home_screen(self) -> None:
-        """Clean, aesthetic home screen for 7" touchscreen (1024x600)."""
+        """Clean, aesthetic home screen for 7\" touchscreen (1024x600)."""
         layout = QtWidgets.QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setContentsMargins(40, 20, 40, 16)
+        layout.setSpacing(12)
         
-        # Centered content area
-        content = QtWidgets.QWidget()
-        content_layout = QtWidgets.QVBoxLayout(content)
-        content_layout.setContentsMargins(40, 20, 40, 20)
-        content_layout.setSpacing(12)
-        content_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        # Center everything vertically
+        layout.addStretch(1)
         
-        # Main drill buttons - clean cards
+        # === MAIN DRILL BUTTONS (centered) ===
         drills_container = QtWidgets.QWidget()
-        drills_container.setFixedWidth(400)
+        drills_container.setFixedWidth(500)
         drills_layout = QtWidgets.QVBoxLayout(drills_container)
         drills_layout.setSpacing(10)
         drills_layout.setContentsMargins(0, 0, 0, 0)
         
-        btn_reaction = self._create_menu_btn("🎯 REACTION", "", self.reaction_tab)
-        btn_shadow = self._create_menu_btn("🥊 SHADOW", "", self.shadow_tab)
-        btn_defence = self._create_menu_btn("🛡️ DEFENCE", "", self.defence_tab)
+        btn_reaction = self._create_menu_btn_centered("🎯  REACTION", self.reaction_tab)
+        btn_shadow = self._create_menu_btn_centered("🥊  SHADOW", self.shadow_tab)
+        btn_defence = self._create_menu_btn_centered("🛡️  DEFENCE", self.defence_tab)
         
         for btn in [btn_reaction, btn_shadow, btn_defence]:
-            btn.setFixedHeight(58)
+            btn.setFixedHeight(65)
             drills_layout.addWidget(btn)
         
-        content_layout.addWidget(drills_container, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
-
-        # Quick Actions Row
+        layout.addWidget(drills_container, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
+        
+        layout.addSpacing(12)
+        
+        # === QUICK ACCESS ROW (horizontal) ===
         quick_container = QtWidgets.QWidget()
-        quick_container.setFixedWidth(400)
+        quick_container.setFixedWidth(500)
         quick_row = QtWidgets.QHBoxLayout(quick_container)
         quick_row.setSpacing(10)
         quick_row.setContentsMargins(0, 0, 0, 0)
         
-        btn_stats = self._create_small_btn("📊 STATS", self.punch_tab)
-        btn_llm = self._create_small_btn("💬 COACH", self.llm_tab)
-        btn_calib = self._create_small_btn("⚙️ SETUP", self.calib_tab)
+        btn_stats = self._create_quick_btn("📊", "STATS", self.punch_tab)
+        btn_llm = self._create_quick_btn("💬", "COACH", self.llm_tab)
+        btn_calib = self._create_quick_btn("⚙️", "SETUP", self.calib_tab)
         
         for btn in [btn_stats, btn_llm, btn_calib]:
-            btn.setFixedHeight(36)
-            quick_row.addWidget(btn)
+            quick_row.addWidget(btn, stretch=1)
         
-        content_layout.addWidget(quick_container, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
-
-        # Advanced Toggle
+        layout.addWidget(quick_container, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
+        
+        layout.addSpacing(8)
+        
+        # === ADVANCED TOGGLE ===
         adv_container = QtWidgets.QWidget()
-        adv_container.setFixedWidth(400)
+        adv_container.setFixedWidth(500)
         adv_layout = QtWidgets.QVBoxLayout(adv_container)
-        adv_layout.setContentsMargins(0, 8, 0, 0)
+        adv_layout.setContentsMargins(0, 0, 0, 0)
         adv_layout.setSpacing(8)
         
         self.advanced_btn = QtWidgets.QPushButton("⚗️ ADVANCED ▾")
@@ -1042,7 +1062,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.advanced_btn.setStyleSheet("""
             QPushButton {
                 background: transparent;
-                color: #666666;
+                color: #555555;
                 border: 1px solid #333333;
                 font-size: 11px;
                 font-weight: 600;
@@ -1056,87 +1076,117 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
 
         # Advanced Panel (Hidden by default)
         self.advanced_panel = QtWidgets.QFrame()
-        self.advanced_panel.setStyleSheet("background: rgba(30,30,30,0.5); border-radius: 6px; padding: 8px;")
-        adv_panel_layout = QtWidgets.QHBoxLayout(self.advanced_panel)
-        adv_panel_layout.setContentsMargins(12, 8, 12, 8)
-        adv_panel_layout.setSpacing(16)
+        self.advanced_panel.setStyleSheet("background: rgba(25,25,25,0.95); border-radius: 8px; border: 1px solid #333;")
+        adv_panel_layout = QtWidgets.QVBoxLayout(self.advanced_panel)
+        adv_panel_layout.setContentsMargins(12, 10, 12, 10)
+        adv_panel_layout.setSpacing(8)
         
-        # Detection mode
-        mode_label = QtWidgets.QLabel("Mode:")
-        mode_label.setStyleSheet("font-size: 10px; color: #888;")
-        adv_panel_layout.addWidget(mode_label)
+        # Detection mode row
+        mode_row = QtWidgets.QHBoxLayout()
+        mode_row.setSpacing(12)
+        mode_label = QtWidgets.QLabel("Detection:")
+        mode_label.setStyleSheet("font-size: 11px; color: #888; font-weight: 600;")
+        mode_row.addWidget(mode_label)
         
         self.color_mode_radio = QtWidgets.QRadioButton("Color")
         self.color_mode_radio.setChecked(True)
-        self.color_mode_radio.setStyleSheet("font-size: 10px; color: #ff8c00;")
+        self.color_mode_radio.setStyleSheet("font-size: 11px; color: #ff8c00;")
         self.color_mode_radio.toggled.connect(self._on_detection_mode_changed)
-        adv_panel_layout.addWidget(self.color_mode_radio)
+        mode_row.addWidget(self.color_mode_radio)
         
-        self.action_mode_radio = QtWidgets.QRadioButton("AI")
-        self.action_mode_radio.setStyleSheet("font-size: 10px; color: #888;")
-        adv_panel_layout.addWidget(self.action_mode_radio)
+        self.action_mode_radio = QtWidgets.QRadioButton("AI Model")
+        self.action_mode_radio.setStyleSheet("font-size: 11px; color: #888;")
+        mode_row.addWidget(self.action_mode_radio)
         
-        adv_panel_layout.addSpacing(10)
+        mode_row.addSpacing(20)
         
-        self.imu_toggle = QtWidgets.QCheckBox("IMU")
-        self.imu_toggle.setStyleSheet("font-size: 10px; color: #888;")
+        self.imu_toggle = QtWidgets.QCheckBox("IMU Input")
+        self.imu_toggle.setStyleSheet("font-size: 11px; color: #888;")
         self.imu_toggle.toggled.connect(self._toggle_imu_input)
-        adv_panel_layout.addWidget(self.imu_toggle)
+        mode_row.addWidget(self.imu_toggle)
         
-        adv_panel_layout.addStretch()
+        mode_row.addStretch()
         
         self.height_btn = QtWidgets.QPushButton("📏 Height")
         self.height_btn.setFixedSize(70, 24)
-        self.height_btn.setStyleSheet("background: #2a2a2a; color: #ff8c00; font-size: 9px; border-radius: 4px;")
+        self.height_btn.setStyleSheet("background: #2a2a2a; color: #ff8c00; font-size: 10px; border-radius: 4px;")
         self.height_btn.clicked.connect(self._start_height_calibration)
-        adv_panel_layout.addWidget(self.height_btn)
+        mode_row.addWidget(self.height_btn)
         
         self.imu_calib_btn = QtWidgets.QPushButton("🔧 IMU")
         self.imu_calib_btn.setFixedSize(60, 24)
-        self.imu_calib_btn.setStyleSheet("background: #2a2a2a; color: #666; font-size: 9px; border-radius: 4px;")
+        self.imu_calib_btn.setStyleSheet("background: #2a2a2a; color: #555; font-size: 10px; border-radius: 4px;")
         self.imu_calib_btn.clicked.connect(self._open_imu_calibration)
         self.imu_calib_btn.setEnabled(False)
-        adv_panel_layout.addWidget(self.imu_calib_btn)
+        mode_row.addWidget(self.imu_calib_btn)
+        
+        adv_panel_layout.addLayout(mode_row)
         
         self.advanced_panel.setVisible(False)
         adv_layout.addWidget(self.advanced_panel)
         
-        content_layout.addWidget(adv_container, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
-        content_layout.addStretch()
-
-        # Status at bottom
+        layout.addWidget(adv_container, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
+        
+        layout.addStretch(1)
+        
+        # Status indicator at bottom
         self.status_indicator = QtWidgets.QLabel("● Ready")
         self.status_indicator.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.status_indicator.setStyleSheet("font-size: 12px; color: #00cc00; font-weight: 600;")
-        content_layout.addWidget(self.status_indicator)
-
-        layout.addWidget(content, stretch=1)
+        layout.addWidget(self.status_indicator)
+        
         self.home_screen.setLayout(layout)
     
-    def _create_small_btn(self, title: str, target_widget):
-        """Create a small navigation button - compact for touchscreen."""
+    def _create_menu_btn_centered(self, title: str, target_widget):
+        """Create a centered menu button."""
         btn = QtWidgets.QPushButton(title)
         btn.setStyleSheet("""
             QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #2a2a2a, stop:1 #1a1a1a);
-                color: #ff8c00;
-                font-size: 12px;
-                font-weight: 600;
-                padding: 8px 8px;
-                border-radius: 8px;
-                border: 1px solid #333333;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #ff8c00, stop:1 #e67300);
+                color: #000000;
+                font-size: 20px;
+                font-weight: 800;
+                padding: 16px 36px;
+                border-radius: 14px;
+                border: 2px solid rgba(255, 255, 255, 0.15);
+                letter-spacing: 2px;
             }
             QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #333333, stop:1 #2a2a2a);
-                border-color: #ff8c00;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #ffa333, stop:1 #ff8c00);
+                border: 2px solid rgba(255, 255, 255, 0.4);
             }
         """)
         btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
         btn.clicked.connect(lambda: self.stack.setCurrentWidget(target_widget))
         return btn
     
+    def _create_quick_btn(self, icon: str, title: str, target_widget):
+        """Create a quick access button with icon and title."""
+        btn = QtWidgets.QPushButton(f"{icon}\n{title}")
+        btn.setFixedHeight(55)
+        btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #1e1e1e, stop:1 #151515);
+                color: #ff8c00;
+                font-size: 11px;
+                font-weight: 700;
+                padding: 8px;
+                border-radius: 10px;
+                border: 1px solid #333333;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #2a2a2a, stop:1 #1e1e1e);
+                border-color: #ff8c00;
+            }
+        """)
+        btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+        btn.clicked.connect(lambda: self.stack.setCurrentWidget(target_widget))
+        return btn
+
     def _on_detection_mode_changed(self) -> None:
         """Handle detection mode radio button change."""
         is_action = self.action_mode_radio.isChecked()
@@ -1615,87 +1665,83 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
 
     def _setup_llm_tab(self) -> None:
         layout = QtWidgets.QVBoxLayout()
-        layout.setContentsMargins(12, 8, 12, 12)
-        layout.setSpacing(6)
+        layout.setContentsMargins(12, 8, 12, 10)
+        layout.setSpacing(8)
         self._add_back_btn(layout)
         
-        # Header - compact
-        header = QtWidgets.QLabel("💬 AI BOXING COACH")
+        # Header
+        header = QtWidgets.QLabel("💬 AI COACH")
         header.setStyleSheet("font-size: 16px; font-weight: 800; color: #ff8c00;")
         header.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(header)
         
-        # Chat response area - compact
+        # Main content: Chat area (left) + Quick buttons (right column)
+        content_row = QtWidgets.QHBoxLayout()
+        content_row.setSpacing(10)
+        
+        # Left side - Chat response area
         self.llm_response = QtWidgets.QTextEdit()
         self.llm_response.setReadOnly(True)
-        self.llm_response.setPlaceholderText("Coach responses appear here...")
+        self.llm_response.setPlaceholderText("Ask your AI coach...")
         self.llm_response.setStyleSheet("""
             QTextEdit {
                 background: #1a1a1a;
                 border: 1px solid #333333;
-                border-radius: 8px;
-                padding: 8px;
+                border-radius: 10px;
+                padding: 10px;
                 font-size: 13px;
                 color: #f0f0f0;
             }
         """)
-        self.llm_response.setFixedHeight(180)
-        layout.addWidget(self.llm_response, stretch=1)
+        content_row.addWidget(self.llm_response, stretch=2)
         
-        # Mode + Quick buttons row - single compact row
-        mode_row = QtWidgets.QHBoxLayout()
-        mode_row.setSpacing(8)
+        # Right side - 3 Quick buttons in a vertical column
+        quick_col = QtWidgets.QVBoxLayout()
+        quick_col.setSpacing(8)
         
-        mode_label = QtWidgets.QLabel("Mode:")
-        mode_label.setStyleSheet("font-size: 11px; font-weight: 600; color: #ff8c00;")
-        mode_row.addWidget(mode_label)
-        
-        self.llm_mode = QtWidgets.QComboBox()
-        self.llm_mode.addItems(["coach", "encourage", "trash", "analysis"])
-        self.llm_mode.setFixedWidth(100)
-        self.llm_mode.setStyleSheet("font-size: 11px; padding: 4px;")
-        mode_row.addWidget(self.llm_mode)
-        
-        mode_row.addSpacing(10)
-        
-        # Quick prompts - compact
         quick_btns = [
-            ("🔥 Motivate", "Give me intense motivation to keep training"),
-            ("😤 Trash", "Hit me with some trash talk to fire me up"),
-            ("📊 Analyze", "Analyze my recent performance and give tips"),
+            ("🔥 MOTIVATE", "Give me intense motivation to push through!"),
+            ("💡 TIP", "Give me one practical boxing tip"),
+            ("😤 TRASH TALK", "Hit me with competitive trash talk!"),
         ]
+        
         for text, prompt in quick_btns:
             btn = QtWidgets.QPushButton(text)
-            btn.setFixedHeight(28)
+            btn.setFixedSize(100, 50)
             btn.setStyleSheet("""
                 QPushButton {
-                    background: rgba(255, 140, 0, 0.2);
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                        stop:0 #2a2a2a, stop:1 #1a1a1a);
                     color: #ff8c00;
-                    border: 1px solid rgba(255, 140, 0, 0.4);
-                    border-radius: 5px;
-                    padding: 2px 8px;
-                    font-size: 10px;
-                    font-weight: 600;
+                    border: 2px solid #ff8c00;
+                    border-radius: 10px;
+                    font-size: 11px;
+                    font-weight: 700;
                 }
-                QPushButton:hover { background: rgba(255, 140, 0, 0.3); }
+                QPushButton:hover { 
+                    background: #ff8c00;
+                    color: #000000;
+                }
             """)
             btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
             btn.clicked.connect(lambda checked, p=prompt: self._quick_llm_prompt(p))
-            mode_row.addWidget(btn)
+            quick_col.addWidget(btn)
         
-        mode_row.addStretch()
-        layout.addLayout(mode_row)
+        quick_col.addStretch()
+        content_row.addLayout(quick_col)
         
-        # Input row - compact
+        layout.addLayout(content_row, stretch=1)
+        
+        # Input row at bottom
         input_row = QtWidgets.QHBoxLayout()
         input_row.setSpacing(8)
         
         self.llm_prompt = QtWidgets.QLineEdit()
-        self.llm_prompt.setPlaceholderText("Type your message...")
-        self.llm_prompt.setFixedHeight(36)
+        self.llm_prompt.setPlaceholderText("Type your question...")
+        self.llm_prompt.setFixedHeight(38)
         self.llm_prompt.setStyleSheet("""
             QLineEdit {
-                padding: 6px 12px;
+                padding: 8px 12px;
                 font-size: 12px;
                 border-radius: 8px;
                 border: 1px solid #333333;
@@ -1706,8 +1752,13 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.llm_prompt.returnPressed.connect(self._send_llm_prompt)
         input_row.addWidget(self.llm_prompt, stretch=1)
         
+        # Hidden mode selector (default to coach)
+        self.llm_mode = QtWidgets.QComboBox()
+        self.llm_mode.addItems(["coach", "encourage", "trash", "analysis"])
+        self.llm_mode.hide()
+        
         self.llm_send = QtWidgets.QPushButton("Send 📤")
-        self.llm_send.setFixedSize(80, 36)
+        self.llm_send.setFixedSize(70, 38)
         self.llm_send.setStyleSheet("""
             QPushButton {
                 background: #ff8c00;
@@ -1770,247 +1821,319 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         threading.Thread(target=run_and_update, daemon=True).start()
     
     def _setup_shadow_tab(self) -> None:
-        """Setup shadow sparring drill tab - compact for 7" screen."""
+        """Setup shadow sparring drill tab - with camera feed."""
         outer_layout = QtWidgets.QVBoxLayout(self.shadow_tab)
-        outer_layout.setContentsMargins(12, 8, 12, 12)
+        outer_layout.setContentsMargins(12, 8, 12, 8)
         outer_layout.setSpacing(6)
         self._add_back_btn(outer_layout)
         
-        # Header
-        header = QtWidgets.QLabel("🥊 SHADOW SPARRING")
-        header.setStyleSheet("font-size: 16px; font-weight: 700; color: #ff8c00;")
-        header.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        outer_layout.addWidget(header)
-        
-        # Content - horizontal layout for compact display
+        # Content - horizontal layout
         content = QtWidgets.QHBoxLayout()
         content.setSpacing(12)
         
-        # LEFT - Controls + Progress
-        left_panel = QtWidgets.QVBoxLayout()
-        left_panel.setSpacing(8)
+        # === LEFT: Camera Feed ===
+        left_col = QtWidgets.QVBoxLayout()
+        left_col.setSpacing(6)
         
-        # Drill selection - compact row
-        drill_row = QtWidgets.QHBoxLayout()
-        drill_row.setSpacing(6)
+        video_frame = QtWidgets.QFrame()
+        video_frame.setStyleSheet("""
+            QFrame {
+                background: #0a0a0a;
+                border: 2px solid #222;
+                border-radius: 10px;
+            }
+        """)
+        video_inner = QtWidgets.QVBoxLayout(video_frame)
+        video_inner.setContentsMargins(6, 6, 6, 6)
+        video_inner.setSpacing(4)
+        
+        video_header = QtWidgets.QHBoxLayout()
+        shadow_video_title = QtWidgets.QLabel("🥊 SHADOW SPARRING")
+        shadow_video_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #ff8c00;")
+        video_header.addWidget(shadow_video_title)
+        video_header.addStretch()
+        self.shadow_video_status = QtWidgets.QLabel("● LIVE")
+        self.shadow_video_status.setStyleSheet("font-size: 10px; font-weight: 700; color: #00cc00;")
+        video_header.addWidget(self.shadow_video_status)
+        video_inner.addLayout(video_header)
+        
+        self.shadow_preview = QtWidgets.QLabel()
+        self.shadow_preview.setFixedSize(380, 260)
+        self.shadow_preview.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.shadow_preview.setText("⏳ Connecting...")
+        self.shadow_preview.setStyleSheet("""
+            background: #000;
+            border: 1px solid #1a1a1a;
+            border-radius: 6px;
+            color: #555;
+            font-size: 13px;
+        """)
+        video_inner.addWidget(self.shadow_preview)
+        
+        left_col.addWidget(video_frame)
+        left_col.addStretch()
+        content.addLayout(left_col)
+        
+        # === RIGHT: Controls & Action Display ===
+        right_col = QtWidgets.QVBoxLayout()
+        right_col.setSpacing(8)
+        
+        # Action prediction card - prominent display
+        self.action_card = QtWidgets.QFrame()
+        self.action_card.setFixedHeight(100)
+        self.action_card.setStyleSheet("""
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #1a1a1a, stop:1 #0d0d0d);
+                border: 2px solid #333;
+                border-radius: 12px;
+            }
+        """)
+        ac_layout = QtWidgets.QVBoxLayout(self.action_card)
+        ac_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        ac_layout.setContentsMargins(10, 8, 10, 8)
+        
+        self.action_label = QtWidgets.QLabel("READY")
+        self.action_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.action_label.setStyleSheet("font-size: 36px; font-weight: 800; color: #ff8c00; background: transparent;")
+        ac_layout.addWidget(self.action_label)
+        
+        self.action_conf_label = QtWidgets.QLabel("Confidence: --%")
+        self.action_conf_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.action_conf_label.setStyleSheet("font-size: 11px; color: #888; background: transparent;")
+        ac_layout.addWidget(self.action_conf_label)
+        
+        right_col.addWidget(self.action_card)
+        
+        # Drill controls row
+        controls_frame = QtWidgets.QFrame()
+        controls_frame.setStyleSheet("background: #151515; border-radius: 8px; border: 1px solid #282828;")
+        controls_inner = QtWidgets.QHBoxLayout(controls_frame)
+        controls_inner.setContentsMargins(12, 10, 12, 10)
+        controls_inner.setSpacing(10)
         
         combo_label = QtWidgets.QLabel("Combo:")
-        combo_label.setStyleSheet("font-weight: 700; font-size: 11px; color: #ff8c00;")
-        drill_row.addWidget(combo_label)
+        combo_label.setStyleSheet("font-weight: 700; font-size: 12px; color: #ff8c00;")
+        controls_inner.addWidget(combo_label)
         
         self.shadow_combo = QtWidgets.QComboBox()
         self.shadow_combo.addItems([
             "1-1-2", "Jab-Cross-Hook", "Double Jab",
             "Cross-Hook-Cross", "4 Punch", "Uppercut"
         ])
-        self.shadow_combo.setFixedWidth(120)
-        self.shadow_combo.setStyleSheet("font-size: 11px; padding: 4px;")
-        drill_row.addWidget(self.shadow_combo)
+        self.shadow_combo.setFixedWidth(130)
+        self.shadow_combo.setStyleSheet("font-size: 12px; padding: 6px;")
+        controls_inner.addWidget(self.shadow_combo)
         
-        self.shadow_start_btn = QtWidgets.QPushButton("▶ Start")
-        self.shadow_start_btn.setFixedHeight(32)
+        self.shadow_start_btn = QtWidgets.QPushButton("▶ START")
+        self.shadow_start_btn.setFixedSize(85, 34)
         self.shadow_start_btn.clicked.connect(self._start_shadow_drill)
         self.shadow_start_btn.setStyleSheet("""
             QPushButton {
                 background: #ff8c00;
                 color: #000000;
-                padding: 4px 16px;
                 font-size: 12px;
                 font-weight: 700;
                 border-radius: 6px;
             }
             QPushButton:hover { background: #ffa333; }
         """)
-        drill_row.addWidget(self.shadow_start_btn)
-        drill_row.addStretch()
+        controls_inner.addWidget(self.shadow_start_btn)
         
-        left_panel.addLayout(drill_row)
+        right_col.addWidget(controls_frame)
         
-        # Checkbox progress indicator
-        self.shadow_checkbox_progress = CheckboxProgressWidget(count=5)
-        left_panel.addWidget(self.shadow_checkbox_progress)
-        
-        # Progress info - compact
+        # Progress info
         progress_frame = QtWidgets.QFrame()
-        progress_frame.setStyleSheet("background: #1a1a1a; border-radius: 6px; padding: 6px;")
+        progress_frame.setStyleSheet("background: #151515; border-radius: 8px; border: 1px solid #282828;")
         prog_layout = QtWidgets.QGridLayout(progress_frame)
-        prog_layout.setSpacing(4)
-        prog_layout.setContentsMargins(8, 6, 8, 6)
+        prog_layout.setSpacing(6)
+        prog_layout.setContentsMargins(12, 10, 12, 10)
         
         self.shadow_progress_label = QtWidgets.QLabel("Step: -/-")
-        self.shadow_progress_label.setStyleSheet("font-size: 12px; font-weight: 700; color: #ff8c00;")
+        self.shadow_progress_label.setStyleSheet("font-size: 13px; font-weight: 700; color: #ff8c00;")
         self.shadow_expected_label = QtWidgets.QLabel("Next: --")
-        self.shadow_expected_label.setStyleSheet("font-size: 11px; color: #ffa333;")
+        self.shadow_expected_label.setStyleSheet("font-size: 12px; color: #ffa333;")
         self.shadow_elapsed_label = QtWidgets.QLabel("Time: 0.0s")
-        self.shadow_elapsed_label.setStyleSheet("font-size: 11px; color: #888;")
+        self.shadow_elapsed_label.setStyleSheet("font-size: 12px; color: #888;")
         self.shadow_status_label = QtWidgets.QLabel("Status: idle")
-        self.shadow_status_label.setStyleSheet("font-size: 11px; color: #666;")
+        self.shadow_status_label.setStyleSheet("font-size: 12px; color: #666;")
         
         prog_layout.addWidget(self.shadow_progress_label, 0, 0)
         prog_layout.addWidget(self.shadow_expected_label, 0, 1)
         prog_layout.addWidget(self.shadow_elapsed_label, 1, 0)
         prog_layout.addWidget(self.shadow_status_label, 1, 1)
         
-        left_panel.addWidget(progress_frame)
+        right_col.addWidget(progress_frame)
         
-        # Sequence display - compact
+        # Sequence display
         self.shadow_sequence_label = QtWidgets.QLabel("Sequence: --")
         self.shadow_sequence_label.setWordWrap(True)
         self.shadow_sequence_label.setStyleSheet("""
-            font-size: 11px;
+            font-size: 12px;
             color: #8b949e;
-            padding: 6px;
-            background: rgba(22, 27, 34, 0.5);
-            border-radius: 6px;
+            padding: 10px;
+            background: #151515;
+            border-radius: 8px;
+            border: 1px solid #282828;
         """)
-        left_panel.addWidget(self.shadow_sequence_label)
-        left_panel.addStretch()
+        right_col.addWidget(self.shadow_sequence_label)
         
-        content.addLayout(left_panel, stretch=1)
+        # Checkbox progress indicator
+        self.shadow_checkbox_progress = CheckboxProgressWidget(count=5)
+        right_col.addWidget(self.shadow_checkbox_progress)
         
-        # RIGHT - Action prediction display
-        self.action_card = QtWidgets.QFrame()
-        self.action_card.setFixedSize(280, 200)
-        self.action_card.setStyleSheet("""
-            QFrame {
-                background: #121212;
-                border: 1px solid #333333;
-                border-radius: 10px;
-            }
-        """)
-        ac_layout = QtWidgets.QVBoxLayout(self.action_card)
-        ac_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        
-        self.action_label = QtWidgets.QLabel("READY")
-        self.action_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.action_label.setStyleSheet("""
-            font-size: 36px;
-            font-weight: 800;
-            letter-spacing: 2px;
-            color: #ff8c00;
-        """)
-        ac_layout.addWidget(self.action_label)
-        
-        self.action_conf_label = QtWidgets.QLabel("Confidence: --%")
-        self.action_conf_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.action_conf_label.setStyleSheet("font-size: 13px; color: #888888;")
-        ac_layout.addWidget(self.action_conf_label)
-        
-        content.addWidget(self.action_card)
+        right_col.addStretch()
+        content.addLayout(right_col, stretch=1)
         
         outer_layout.addLayout(content, stretch=1)
 
     
     def _setup_defence_tab(self) -> None:
-        """Setup defence drill tab - compact for 7" screen."""
+        """Setup defence drill tab - with camera feed."""
         outer_layout = QtWidgets.QVBoxLayout(self.defence_tab)
-        outer_layout.setContentsMargins(12, 8, 12, 12)
+        outer_layout.setContentsMargins(12, 8, 12, 8)
         outer_layout.setSpacing(6)
         self._add_back_btn(outer_layout)
-        
-        # Header
-        header = QtWidgets.QLabel("🛡️ DEFENCE DRILL")
-        header.setStyleSheet("font-size: 16px; font-weight: 700; color: #ff8c00;")
-        header.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        outer_layout.addWidget(header)
         
         # Content - horizontal layout
         content = QtWidgets.QHBoxLayout()
         content.setSpacing(12)
         
-        # LEFT - Controls + Progress
-        left_panel = QtWidgets.QVBoxLayout()
-        left_panel.setSpacing(8)
+        # === LEFT: Camera Feed ===
+        left_col = QtWidgets.QVBoxLayout()
+        left_col.setSpacing(6)
         
-        # Drill controls - compact row
-        drill_row = QtWidgets.QHBoxLayout()
-        drill_row.setSpacing(6)
+        video_frame = QtWidgets.QFrame()
+        video_frame.setStyleSheet("""
+            QFrame {
+                background: #0a0a0a;
+                border: 2px solid #222;
+                border-radius: 10px;
+            }
+        """)
+        video_inner = QtWidgets.QVBoxLayout(video_frame)
+        video_inner.setContentsMargins(6, 6, 6, 6)
+        video_inner.setSpacing(4)
+        
+        video_header = QtWidgets.QHBoxLayout()
+        defence_video_title = QtWidgets.QLabel("🛡️ DEFENCE DRILL")
+        defence_video_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #ff8c00;")
+        video_header.addWidget(defence_video_title)
+        video_header.addStretch()
+        self.defence_video_status = QtWidgets.QLabel("● LIVE")
+        self.defence_video_status.setStyleSheet("font-size: 10px; font-weight: 700; color: #00cc00;")
+        video_header.addWidget(self.defence_video_status)
+        video_inner.addLayout(video_header)
+        
+        self.defence_preview = QtWidgets.QLabel()
+        self.defence_preview.setFixedSize(380, 260)
+        self.defence_preview.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.defence_preview.setText("⏳ Connecting...")
+        self.defence_preview.setStyleSheet("""
+            background: #000;
+            border: 1px solid #1a1a1a;
+            border-radius: 6px;
+            color: #555;
+            font-size: 13px;
+        """)
+        video_inner.addWidget(self.defence_preview)
+        
+        left_col.addWidget(video_frame)
+        left_col.addStretch()
+        content.addLayout(left_col)
+        
+        # === RIGHT: Controls & Block Indicator ===
+        right_col = QtWidgets.QVBoxLayout()
+        right_col.setSpacing(8)
+        
+        # Block indicator - prominent display
+        self.block_indicator = QtWidgets.QFrame()
+        self.block_indicator.setFixedHeight(100)
+        self.block_indicator.setStyleSheet("""
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #1a1a1a, stop:1 #0d0d0d);
+                border: 2px solid #333;
+                border-radius: 12px;
+            }
+        """)
+        bi_layout = QtWidgets.QVBoxLayout(self.block_indicator)
+        bi_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        bi_layout.setContentsMargins(10, 8, 10, 8)
+        
+        self.defence_action_label = QtWidgets.QLabel("READY")
+        self.defence_action_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.defence_action_label.setStyleSheet("font-size: 36px; font-weight: 800; color: #888; background: transparent;")
+        bi_layout.addWidget(self.defence_action_label)
+        
+        self.defence_sub_label = QtWidgets.QLabel("Dodge incoming attacks!")
+        self.defence_sub_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.defence_sub_label.setStyleSheet("font-size: 11px; color: #555; background: transparent;")
+        bi_layout.addWidget(self.defence_sub_label)
+        
+        right_col.addWidget(self.block_indicator)
+        
+        # Drill controls row
+        controls_frame = QtWidgets.QFrame()
+        controls_frame.setStyleSheet("background: #151515; border-radius: 8px; border: 1px solid #282828;")
+        controls_inner = QtWidgets.QHBoxLayout(controls_frame)
+        controls_inner.setContentsMargins(12, 10, 12, 10)
+        controls_inner.setSpacing(10)
         
         attacks_label = QtWidgets.QLabel("Attacks:")
-        attacks_label.setStyleSheet("font-weight: 700; font-size: 11px; color: #ff8c00;")
-        drill_row.addWidget(attacks_label)
+        attacks_label.setStyleSheet("font-weight: 700; font-size: 12px; color: #ff8c00;")
+        controls_inner.addWidget(attacks_label)
         
         self.defence_count_spin = QtWidgets.QSpinBox()
         self.defence_count_spin.setRange(5, 30)
         self.defence_count_spin.setValue(10)
-        self.defence_count_spin.setFixedWidth(60)
-        self.defence_count_spin.setStyleSheet("font-size: 11px; padding: 4px;")
-        drill_row.addWidget(self.defence_count_spin)
+        self.defence_count_spin.setFixedWidth(70)
+        self.defence_count_spin.setStyleSheet("font-size: 12px; padding: 6px;")
+        controls_inner.addWidget(self.defence_count_spin)
         
-        self.defence_start_btn = QtWidgets.QPushButton("▶ Start")
-        self.defence_start_btn.setFixedHeight(32)
+        self.defence_start_btn = QtWidgets.QPushButton("▶ START")
+        self.defence_start_btn.setFixedSize(85, 34)
         self.defence_start_btn.clicked.connect(self._start_defence_drill)
         self.defence_start_btn.setStyleSheet("""
             QPushButton {
                 background: #ff8c00;
                 color: #000000;
-                padding: 4px 16px;
                 font-size: 12px;
                 font-weight: 700;
                 border-radius: 6px;
             }
             QPushButton:hover { background: #ffa333; }
         """)
-        drill_row.addWidget(self.defence_start_btn)
-        drill_row.addStretch()
+        controls_inner.addWidget(self.defence_start_btn)
         
-        left_panel.addLayout(drill_row)
+        right_col.addWidget(controls_frame)
         
-        # Checkbox progress
-        self.defence_checkbox_progress = CheckboxProgressWidget(count=5)
-        left_panel.addWidget(self.defence_checkbox_progress)
-        
-        # Progress info - compact
+        # Progress info
         progress_frame = QtWidgets.QFrame()
-        progress_frame.setStyleSheet("background: #1a1a1a; border-radius: 6px; padding: 6px;")
+        progress_frame.setStyleSheet("background: #151515; border-radius: 8px; border: 1px solid #282828;")
         prog_layout = QtWidgets.QGridLayout(progress_frame)
-        prog_layout.setSpacing(4)
-        prog_layout.setContentsMargins(8, 6, 8, 6)
+        prog_layout.setSpacing(6)
+        prog_layout.setContentsMargins(12, 10, 12, 10)
         
         self.defence_progress_label = QtWidgets.QLabel("Dodges: 0/0")
-        self.defence_progress_label.setStyleSheet("font-size: 12px; font-weight: 700; color: #ff8c00;")
+        self.defence_progress_label.setStyleSheet("font-size: 13px; font-weight: 700; color: #ff8c00;")
         self.defence_elapsed_label = QtWidgets.QLabel("Time: 0.0s")
-        self.defence_elapsed_label.setStyleSheet("font-size: 11px; color: #888;")
+        self.defence_elapsed_label.setStyleSheet("font-size: 12px; color: #888;")
         self.defence_status_label = QtWidgets.QLabel("Status: idle")
-        self.defence_status_label.setStyleSheet("font-size: 11px; color: #666;")
+        self.defence_status_label.setStyleSheet("font-size: 12px; color: #666;")
         
         prog_layout.addWidget(self.defence_progress_label, 0, 0)
         prog_layout.addWidget(self.defence_elapsed_label, 0, 1)
         prog_layout.addWidget(self.defence_status_label, 1, 0, 1, 2)
         
-        left_panel.addWidget(progress_frame)
-        left_panel.addStretch()
+        right_col.addWidget(progress_frame)
         
-        content.addLayout(left_panel, stretch=1)
+        # Checkbox progress indicator
+        self.defence_checkbox_progress = CheckboxProgressWidget(count=5)
+        right_col.addWidget(self.defence_checkbox_progress)
         
-        # RIGHT - Block indicator display
-        self.block_indicator = QtWidgets.QFrame()
-        self.block_indicator.setFixedSize(280, 200)
-        self.block_indicator.setStyleSheet("""
-            background: #121212;
-            border-radius: 10px;
-            border: 1px solid #333333;
-        """)
-        bi_layout = QtWidgets.QVBoxLayout(self.block_indicator)
-        bi_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        
-        self.defence_action_label = QtWidgets.QLabel("READY")
-        self.defence_action_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.defence_action_label.setStyleSheet("""
-            font-size: 36px;
-            font-weight: 800;
-            color: #888888;
-            border: none;
-            background: transparent;
-        """)
-        bi_layout.addWidget(self.defence_action_label)
-        
-        self.defence_sub_label = QtWidgets.QLabel("(DODGE incoming!)")
-        self.defence_sub_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.defence_sub_label.setStyleSheet("font-size: 12px; color: #555555;")
-        bi_layout.addWidget(self.defence_sub_label)
-        
-        content.addWidget(self.block_indicator)
+        right_col.addStretch()
+        content.addLayout(right_col, stretch=1)
         
         outer_layout.addLayout(content, stretch=1)
 
@@ -2279,7 +2402,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             # First frame received - update status
             if not self._camera_received:
                 self._camera_received = True
-                self.video_status_label.setText("📹 LIVE ●")
+                self.video_status_label.setText("● LIVE")
                 self.video_status_label.setStyleSheet("font-size: 10px; font-weight: 700; color: #00ff00;")
             
             now = time.time()
@@ -2289,10 +2412,20 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self.reaction_preview.setPixmap(
                 pix2.scaled(self.reaction_preview.size(), QtCore.Qt.AspectRatioMode.KeepAspectRatio)
             )
+            
+            # Update shadow and defence previews too
+            if hasattr(self, 'shadow_preview'):
+                self.shadow_preview.setPixmap(
+                    pix2.scaled(self.shadow_preview.size(), QtCore.Qt.AspectRatioMode.KeepAspectRatio)
+                )
+            if hasattr(self, 'defence_preview'):
+                self.defence_preview.setPixmap(
+                    pix2.scaled(self.defence_preview.size(), QtCore.Qt.AspectRatioMode.KeepAspectRatio)
+                )
         else:
             # No camera feed yet
             if not self._camera_received:
-                self.video_status_label.setText("📹 CONNECTING...")
+                self.video_status_label.setText("● CONNECTING...")
                 self.video_status_label.setStyleSheet("font-size: 10px; font-weight: 700; color: #ffaa00;")
 
         if punch_counter != self._last_punch_counter:
