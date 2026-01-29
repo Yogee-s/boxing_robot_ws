@@ -355,12 +355,18 @@ class ImuPunchClassifier(Node):
     ) -> Optional[str]:
         (ax, ay, az), (gx, gy, gz) = axis_peaks
 
-        if gz > gyro_thresh and ay > accel_thresh:
-            return "hook"
-        if gy > gyro_thresh and ax > accel_thresh:
-            return "straight"
-        if az > accel_thresh and gx > gyro_thresh:
-            return "uppercut"
+        # SIMPLIFIED: Just detect if ANY axis exceeded thresholds significantly
+        # We rely on visual inference to classify the TYPE of punch (jab/cross/hook).
+        # IMU just provides the precise timing and impact force.
+        
+        # Check against thresholds (already filtered by _passes_filters logic generally, 
+        # but explicit check here ensures valid magnitude).
+        max_a = max(ax, ay, az)
+        max_g = max(gx, gy, gz)
+        
+        if max_a > accel_thresh or max_g > gyro_thresh:
+             return "straight" # Generic label for "strike"
+             
         return None
 
     def _estimate_confidence(self, punch_type: str, peaks: Tuple[float, float]) -> float:

@@ -280,6 +280,7 @@ sensor-msgs-py==4.9.0
 shape-msgs==4.9.0
 shiboken6==6.8.0.2
 six==1.16.0
+smbus2
 snowballstemmer==2.2.0
 sros2==0.10.7
 stack-data==0.6.3

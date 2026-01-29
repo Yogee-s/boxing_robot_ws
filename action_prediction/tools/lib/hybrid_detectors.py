@@ -25,8 +25,10 @@ except ImportError:
 try:
     import rclpy
     from rclpy.node import Node
-    from boxbunny_msgs.msg import ImuPunch
+    from boxbunny_msgs.msg import ImuPunch, ActionPrediction
     from boxbunny_msgs.srv import CalibrateImuPunch
+    from std_srvs.srv import SetBool, Trigger
+    from std_msgs.msg import Float32
 except ImportError:
     rclpy = None
     Node = object # Mock
@@ -131,6 +133,10 @@ class RosImuHandler(threading.Thread):
         self.last_punch_time = 0.0
         self.cooldown_duration = 0.4 # 400ms cooldown
         
+        # Flags for external control
+        self.simple_mode = False
+        self.calibrate_height_req = False
+        
     def reset_stats(self):
         """Reset punch statistics."""
         for k in self.stats:
@@ -158,16 +164,45 @@ class RosImuHandler(threading.Thread):
                     CalibrateImuPunch, 
                     'calibrate_imu_punch'
                 )
+
+                # Action Prediction Pub
+                self.action_pub = node_self.create_publisher(ActionPrediction, 'action_prediction', 10)
+                self.height_pub = node_self.create_publisher(Float32, '/player_height', 10)
+                
+                # New Services
+                node_self.create_service(SetBool, 'action_predictor/set_simple_mode', self._handle_simple_mode)
+                node_self.create_service(Trigger, 'action_predictor/calibrate_height', self._handle_calib_height)
                 
             def log(self, msg):
                 self.get_logger().info(msg)
                 
+            def _handle_simple_mode(self, req, res):
+                # Access parent class (handler) via closure if needed, but 'self' here is ImuNode.
+                # We need to set flag on Handler. 
+                # Inner class can access outer instance? No, not automatically in Python unless passed.
+                # Used 'node_self' for ImuNode instance. 'self' refers to RosImuHandler instance in run() scope?
+                # No, run() defines ImuNode. 'self' inside ImuNode methods is ImuNode instance.
+                # But 'self' in run() is RosImuHandler instance.
+                # So we can close over 'self' (RosImuHandler).
+                outer.simple_mode = req.data
+                res.success = True
+                res.message = f"Simple mode set to {req.data}"
+                outer.status_msg = res.message
+                return res
+
+            def _handle_calib_height(self, req, res):
+                outer.calibrate_height_req = True
+                res.success = True
+                res.message = "Height calibration triggered"
+                return res
+
         # Init ROS context (check if already initialized?)
         try:
             rclpy.init()
         except Exception:
             pass # Already initialized?
             
+        outer = self # Capture reference for inner class
         self.node = ImuNode()
         self.ready = True
         self.status_msg = "ROS Ready."
@@ -261,6 +296,27 @@ class RosImuHandler(threading.Thread):
             print(f"Saved calibration to {self.calib_file}")
         except Exception as e:
             print(f"Failed to save calib: {e}")
+
+    def publish_action(self, label: str, conf: float, probs: List[float] = None, labels: List[str] = None):
+        """Publish ActionPrediction msg."""
+        if not self.ready: return
+        
+        msg = ActionPrediction()
+        msg.header.stamp = self.node.get_clock().now().to_msg()
+        msg.action_label = label
+        msg.confidence = conf
+        if probs:
+            msg.probabilities = probs
+        if labels:
+            msg.class_labels = labels
+            
+        self.node.action_pub.publish(msg)
+
+    def publish_height(self, height: float):
+        if not self.ready: return
+        msg = Float32()
+        msg.data = height
+        self.node.height_pub.publish(msg)
 
     def load_calibration(self) -> dict:
         """Load calibration data."""

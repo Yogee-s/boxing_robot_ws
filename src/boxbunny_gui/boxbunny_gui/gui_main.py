@@ -9,7 +9,8 @@ import cv2
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
-from std_msgs.msg import String, Int32, Bool
+from std_msgs.msg import String, Int32, Bool, Float32
+from std_srvs.srv import SetBool, Trigger
 from std_srvs.srv import SetBool
 from rcl_interfaces.srv import SetParameters
 from sensor_msgs.msg import Image
@@ -430,6 +431,14 @@ class RosInterface(Node):
         self.action_sub = self.create_subscription(ActionPrediction, "action_prediction", self._on_action, 5)
         self.progress_sub = self.create_subscription(DrillProgress, "drill_progress", self._on_progress, 5)
         self.imu_enabled_sub = self.create_subscription(Bool, "imu_input_enabled", self._on_imu_enabled, 5)
+        self.height_sub = self.create_subscription(Float32, "/player_height", self._on_height, 5)
+        
+        # New Services
+        self.mode_client = self.create_client(SetBool, "action_predictor/set_simple_mode")
+        self.height_trigger_client = self.create_client(Trigger, "action_predictor/calibrate_height")
+
+    def _on_height(self, msg: Float32) -> None:
+        pass # Optional: could update a status label somewhere
     
     def _on_action(self, msg: ActionPrediction) -> None:
         with self.lock:
@@ -884,6 +893,19 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         adv_layout.addWidget(btn_punch)
         adv_layout.addWidget(btn_llm)
         adv_layout.addWidget(btn_calib)
+
+        # Mode Toggle
+        self.mode_btn = QtWidgets.QPushButton("Mode: AI Model")
+        self.mode_btn.setCheckable(True)
+        self.mode_btn.setStyleSheet("background-color: #21262d; border: 1px solid #484f58;")
+        self.mode_btn.clicked.connect(self._toggle_action_mode)
+        adv_layout.addWidget(self.mode_btn)
+
+        # Height Calib
+        self.height_btn = QtWidgets.QPushButton("📏 Calib Height")
+        self.height_btn.setStyleSheet("background-color: #21262d; border: 1px solid #484f58;")
+        self.height_btn.clicked.connect(self._start_height_calibration)
+        adv_layout.addWidget(self.height_btn)
         
         self.advanced_panel.setVisible(False)
         main_layout.addWidget(self.advanced_panel)
@@ -1229,12 +1251,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         mode_label.setStyleSheet("font-weight: 600; font-size: 15px;")
         drill_row.addWidget(mode_label)
         
-        self.defence_combo = QtWidgets.QComboBox()
-        self.defence_combo.addItems(["Head Defense", "Body Defense", "Full Defense", "Speed Defense"])
-        self.defence_combo.setMinimumWidth(160)
-        drill_row.addWidget(self.defence_combo)
-        
-        drill_row.addStretch()
+        # REMOVED: Specific block area selection (Head/Body/etc)
+        # Just generic defence now
         
         attacks_label = QtWidgets.QLabel("Attacks:")
         attacks_label.setStyleSheet("font-weight: 600; font-size: 15px;")
@@ -1252,9 +1270,9 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         
         layout.addWidget(drill_card)
         
-        # Block indicator - Large feedback panel
+        # Incoming Attack indicator - Large feedback panel
         self.block_indicator = QtWidgets.QFrame()
-        self.block_indicator.setFixedHeight(120)
+        self.block_indicator.setFixedHeight(180)
         self.block_indicator.setStyleSheet("""
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                 stop:0 rgba(22, 27, 34, 0.9), stop:1 rgba(13, 17, 23, 0.9));
@@ -1264,27 +1282,23 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         bi_layout = QtWidgets.QVBoxLayout(self.block_indicator)
         bi_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         
-        self.defence_action_label = QtWidgets.QLabel("Waiting for attack...")
+        self.defence_action_label = QtWidgets.QLabel("Waiting to start...")
         self.defence_action_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.defence_action_label.setStyleSheet("""
-            font-size: 36px;
+            font-size: 48px;
             font-weight: bold;
             color: #8b949e;
             border: none;
             background: transparent;
         """)
         bi_layout.addWidget(self.defence_action_label)
+        
+        self.defence_sub_label = QtWidgets.QLabel("(Robot will strike - DODGE!)")
+        self.defence_sub_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.defence_sub_label.setStyleSheet("font-size: 18px; color: #666;")
+        bi_layout.addWidget(self.defence_sub_label)
+        
         layout.addWidget(self.block_indicator)
-        
-        # Numpad for blocking zone selection (touch-friendly)
-        numpad_label = QtWidgets.QLabel("Select Blocking Zone:")
-        numpad_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        numpad_label.setStyleSheet("font-size: 18px; font-weight: 600; color: #8b949e;")
-        layout.addWidget(numpad_label)
-        
-        self.defence_numpad = NumpadWidget()
-        self.defence_numpad.button_pressed.connect(self._on_blocking_zone_selected)
-        layout.addWidget(self.defence_numpad, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
         
         # Checkbox progress for blocks completed
         self.defence_checkbox_progress = CheckboxProgressWidget(count=5)
@@ -1295,7 +1309,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         prog_layout = QtWidgets.QVBoxLayout(progress_group)
         prog_layout.setSpacing(8)
         
-        self.defence_progress_label = QtWidgets.QLabel("Blocks: 0/0")
+        self.defence_progress_label = QtWidgets.QLabel("Dodges: 0/0")
         self.defence_progress_label.setStyleSheet("font-size: 18px; font-weight: 600;")
         self.defence_elapsed_label = QtWidgets.QLabel("Elapsed: 0.0s")
         self.defence_status_label = QtWidgets.QLabel("Status: idle")
@@ -1740,6 +1754,36 @@ def main() -> None:
     ros_node.destroy_node()
     rclpy.shutdown()
 
+
+    def _toggle_action_mode(self) -> None:
+        is_simple = self.mode_btn.isChecked()
+        self.mode_btn.setText("Mode: Simple/Color" if is_simple else "Mode: AI Model")
+        self.mode_btn.setStyleSheet(
+            "background-color: #ff4757; color: white;" if is_simple else "background-color: #21262d; border: 1px solid #484f58;"
+        )
+        
+        if self.ros.mode_client.service_is_ready():
+            req = SetBool.Request()
+            req.data = is_simple
+            self.ros.mode_client.call_async(req)
+        else:
+            print("Mode service not ready")
+
+    def _start_height_calibration(self) -> None:
+        # Use countdown splash for the 3s wait
+        self.stack.setCurrentWidget(self.shadow_countdown)
+        self.shadow_countdown.set_status("Stand Straight for Height Calibration...")
+        self.shadow_countdown.countdown_finished.disconnect()
+        self.shadow_countdown.countdown_finished.connect(self._trigger_height_calc)
+        self.shadow_countdown.start(3)
+
+    def _trigger_height_calc(self) -> None:
+        self.stack.setCurrentWidget(self.home_screen)
+        if self.ros.height_trigger_client.service_is_ready():
+             self.ros.height_trigger_client.call_async(Trigger.Request())
+             QtWidgets.QMessageBox.information(self, "Height", "Calibration request sent! Check logs/status.")
+        else:
+             QtWidgets.QMessageBox.warning(self, "Height", "Height service not ready")
 
 if __name__ == "__main__":
     main()

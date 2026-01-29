@@ -45,6 +45,58 @@ from tools.lib.yolo_person_crop import YOLOPersonCrop, create_rgbd_tensor
 from tools.lib.rgbd_model import load_model
 from tools.lib.hybrid_detectors import YOLOPoseWrapper, RosImuHandler
 
+class SimpleActionDetector:
+    """
+    Simple glove color based detector (Red=Right/Cross, Green=Left/Jab).
+    """
+    def __init__(self):
+        # Default HSV ranges (can be tuned via ROS or config)
+        # Green (Left/Jab)
+        self.green_lower = np.array([40, 80, 80])
+        self.green_upper = np.array([90, 255, 255])
+        
+        # Red (Right/Cross) - wrap around hue
+        self.red_lower1 = np.array([0, 100, 100])
+        self.red_upper1 = np.array([10, 255, 255])
+        self.red_lower2 = np.array([170, 100, 100])
+        self.red_upper2 = np.array([180, 255, 255])
+        
+        self.min_area = 5000 # px
+        self.cooldown = 0.5
+        self.last_time = 0.0
+        
+    def detect(self, rgb: np.ndarray) -> str:
+        hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+        
+        # Green
+        mask_g = cv2.inRange(hsv, self.green_lower, self.green_upper)
+        # Red
+        mask_r1 = cv2.inRange(hsv, self.red_lower1, self.red_upper1)
+        mask_r2 = cv2.inRange(hsv, self.red_lower2, self.red_upper2)
+        mask_r = cv2.bitwise_or(mask_r1, mask_r2)
+        
+        area_g = np.count_nonzero(mask_g)
+        area_r = np.count_nonzero(mask_r)
+        
+        # Debug
+        # print(f"Area G: {area_g}, Area R: {area_r}")
+        
+        now = time.time()
+        if now - self.last_time < self.cooldown:
+            return "IDLE"
+            
+        label = "IDLE"
+        if area_g > self.min_area and area_g > area_r:
+            label = "jab"
+        elif area_r > self.min_area and area_r > area_g:
+            label = "cross"
+            
+        if label != "IDLE":
+             self.last_time = now
+             return label
+        
+        return "IDLE"
+
 
 def _load_config(path: str) -> dict:
     import importlib.util
@@ -183,6 +235,7 @@ class LiveRGBDInference:
         # Hybrid Components
         self.pose_wrapper = None
         self.imu_handler = None
+        self.simple_detector = SimpleActionDetector()
         
         # Buffers
         self.frame_buffer = deque(maxlen=window_size)
@@ -234,7 +287,37 @@ class LiveRGBDInference:
                     continue
                 
                 # Run Inference (Heavy!)
-                probs, rgb_crop, depth_crop, bbox = self._process_frame(rgb, depth)
+                # Run Inference (Heavy!)
+                # Check for Simple Mode
+                use_simple = self.imu_handler and self.imu_handler.simple_mode
+                
+                if use_simple:
+                    # Simple Color Mode
+                    label = self.simple_detector.detect(rgb)
+                    probs = np.zeros(len(self.labels), dtype=np.float32)
+                    bbox = None
+                    rgb_crop, depth_crop = None, None
+                    
+                    if label != "IDLE":
+                         # Find index
+                         if label in self.labels:
+                             probs[self.labels.index(label)] = 1.0
+                         # Publish
+                         self.imu_handler.publish_action(label, 1.0, probs.tolist(), self.labels)
+                    else:
+                         # Idle
+                         if 'idle' in self.labels:
+                             probs[self.labels.index('idle')] = 1.0
+
+                else:
+                    # Use AI Model
+                    probs, rgb_crop, depth_crop, bbox = self._process_frame(rgb, depth)
+                    
+                    # Publish result if valid
+                    if probs is not None and self.imu_handler:
+                         idx = np.argmax(probs)
+                         self.imu_handler.publish_action(self.labels[idx], float(probs[idx]), probs.tolist(), self.labels)
+                
                 
                 # Put result (non-blocking, drop old result if main thread is slow)
                 if self.result_queue.full():
@@ -625,6 +708,20 @@ class LiveRGBDInference:
             if self.current_bbox:
                 h_val = self._calc_height(depth, self.current_bbox)
                 self.lbl_height.config(text=f"Height: {h_val:.2f} m")
+
+            # Check Height Trigger (Service)
+            if self.imu_handler and self.imu_handler.calibrate_height_req:
+                self.imu_handler.calibrate_height_req = False
+                # Perform instant calculation (or could average)
+                # We need a bbox to calculate height. If model mode, we have current_bbox.
+                # If simple mode, we might not have bbox.
+                # Use current_bbox if available, else try to find one or warn.
+                if self.current_bbox is not None:
+                     h_val = self._calc_height(depth, self.current_bbox)
+                     self.imu_handler.publish_height(h_val)
+                     self._update_status(f"Calibrated Height: {h_val:.2f} m")
+                else:
+                     self._update_status("Height Calib Failed: No person detected")
 
             # Update display with LATEST AVAILABLE predictions
             self._update_display(

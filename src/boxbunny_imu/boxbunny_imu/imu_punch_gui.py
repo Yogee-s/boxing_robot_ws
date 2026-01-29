@@ -216,15 +216,12 @@ class ImuPunchGui(QtWidgets.QWidget):
         self.status_label = QtWidgets.QLabel("Status: --")
         left_layout.addWidget(self.status_label)
         
-        # Profile Selector
-        profile_layout = QtWidgets.QHBoxLayout()
-        profile_layout.addWidget(QtWidgets.QLabel("Profile:"))
-        self.profile_combo = QtWidgets.QComboBox()
-        self.profile_combo.addItem("Straights Only", os.path.expanduser("~/.boxbunny/calibration_straights.json"))
-        self.profile_combo.addItem("All Punches", os.path.expanduser("~/.boxbunny/calibration_all.json"))
-        self.profile_combo.currentIndexChanged.connect(self._on_profile_changed)
-        profile_layout.addWidget(self.profile_combo)
-        left_layout.addLayout(profile_layout)
+        # Profile Selector - REMOVED (Simplified to generic strike)
+        # profile_layout = QtWidgets.QHBoxLayout()
+        # profile_layout.addWidget(QtWidgets.QLabel("Profile:"))
+        # self.profile_combo = QtWidgets.QComboBox()
+        # ...
+        # left_layout.addLayout(profile_layout)
 
         grid = QtWidgets.QGridLayout()
         self.axis_view = ImuAxisWidget()
@@ -245,34 +242,38 @@ class ImuPunchGui(QtWidgets.QWidget):
         calib_group = QtWidgets.QGroupBox("Calibration")
         calib_layout = QtWidgets.QHBoxLayout()
         
-        self.calib_default_btn = QtWidgets.QPushButton("Calibrate Default (Jab/Cross)")
+        # Simplified Calibration
+        self.calib_default_btn = QtWidgets.QPushButton("Calibrate Strike Impact")
         self.calib_default_btn.clicked.connect(lambda: self._start_calibration_sequence("default"))
+        self.calib_default_btn.setMinimumHeight(40)
+        self.calib_default_btn.setStyleSheet("""
+            background-color: #2ea043; 
+            font-weight: bold; 
+            font-size: 14px;
+        """)
         
-        self.calib_all_btn = QtWidgets.QPushButton("Calibrate All (Cycle)")
-        self.calib_all_btn.clicked.connect(lambda: self._start_calibration_sequence("all"))
-
         self.calib_verify_btn = QtWidgets.QPushButton("Verify File")
         self.calib_verify_btn.clicked.connect(self._verify_calibration)
 
         self.calib_save_btn = QtWidgets.QPushButton("Save Calibration")
         self.calib_save_btn.clicked.connect(self._force_save_calibration)
-
+        
         self.calib_reset_btn = QtWidgets.QPushButton("Reset")
         self.calib_reset_btn.clicked.connect(self._reset_calibration)
 
         calib_layout.addWidget(self.calib_default_btn)
-        calib_layout.addWidget(self.calib_all_btn)
         calib_layout.addWidget(self.calib_verify_btn)
         calib_layout.addWidget(self.calib_save_btn)
         calib_layout.addWidget(self.calib_reset_btn)
         calib_layout.addStretch(1)
+        
         calib_group.setLayout(calib_layout)
         left_layout.addWidget(calib_group)
 
         self.help_label = QtWidgets.QLabel(
-            "Tip: Click Calibrate. Wait for prompt. Punch. Repeat when prompted."
+            "Instructions: Click 'Calibrate Strike Impact'. Hold still... then PUNCH clearly!"
         )
-        self.help_label.setStyleSheet("color: #666;")
+        self.help_label.setStyleSheet("color: #8b949e; font-style: italic;")
         left_layout.addWidget(self.help_label)
         left_layout.addStretch(1)
         
@@ -295,7 +296,8 @@ class ImuPunchGui(QtWidgets.QWidget):
         self.setLayout(layout)
         
         # Trigger initial profile load
-        QtCore.QTimer.singleShot(1000, self._on_profile_changed)
+        # QtCore.QTimer.singleShot(1000, self._on_profile_changed)
+        QtCore.QTimer.singleShot(1000, self._sync_settings)
 
 
 
@@ -325,14 +327,14 @@ class ImuPunchGui(QtWidgets.QWidget):
             return
         self.ros.set_parameter_value(name, str(value))
 
-    def _on_profile_changed(self) -> None:
-        path = self.profile_combo.currentData()
-        name = self.profile_combo.currentText()
-        self.ros.set_calibration_path(path)
-        self.status_label.setText(f"Status: Switched to profile '{name}'")
-        
-        # Sync settings after a short delay to allow backend to load file
-        QtCore.QTimer.singleShot(500, self._sync_settings)
+    # def _on_profile_changed(self) -> None:
+    #     path = self.profile_combo.currentData()
+    #     name = self.profile_combo.currentText()
+    #     self.ros.set_calibration_path(path)
+    #     self.status_label.setText(f"Status: Switched to profile '{name}'")
+    #     
+    #     # Sync settings after a short delay to allow backend to load file
+    #     QtCore.QTimer.singleShot(500, self._sync_settings)
         
     def _sync_settings(self) -> None:
         self._updating_ui = True
@@ -347,7 +349,7 @@ class ImuPunchGui(QtWidgets.QWidget):
             self._updating_ui = False
 
     def _verify_calibration(self) -> None:
-        path = self.profile_combo.currentData()
+        path = os.path.expanduser("~/.boxbunny/imu_calibration.json")
         ts = time.strftime("%H:%M:%S")
         self.log_list.addItem(f"[{ts}] -- VERIFYING '{os.path.basename(path)}' --")
         
@@ -422,8 +424,9 @@ class ImuPunchGui(QtWidgets.QWidget):
             return
 
         self._calib_count = 0
+        self._calib_count = 0
         self.calib_default_btn.setEnabled(False)
-        self.calib_all_btn.setEnabled(False)
+        # self.calib_all_btn.setEnabled(False)
         self._trigger_next_calibration_step()
 
     def _trigger_next_calibration_step(self) -> None:
@@ -455,17 +458,13 @@ class ImuPunchGui(QtWidgets.QWidget):
     def _finish_calibration(self) -> None:
         self.status_label.setText("Status: Calibration sequence finished!")
         self.calib_default_btn.setEnabled(True)
-        self.calib_all_btn.setEnabled(True)
+        # self.calib_all_btn.setEnabled(True)
         self._calib_queue = []
 
     def _force_save_calibration(self) -> None:
         """Force save current calibration to file by triggering a ROS service."""
-        # Use subprocess to call ros2 service that triggers save
-        profile = self.profile_combo.currentText()
-        if profile == "Straights Only":
-            path = os.path.expanduser("~/.boxbunny/calibration_straights.json")
-        else:
-            path = os.path.expanduser("~/.boxbunny/imu_calibration.json")
+        # Force save to default
+        path = os.path.expanduser("~/.boxbunny/imu_calibration.json")
         
         # Ensure directory exists
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -490,8 +489,9 @@ class ImuPunchGui(QtWidgets.QWidget):
         """Reset the current calibration sequence."""
         self._calib_queue = []
         self._calib_count = 0
+        self._calib_count = 0
         self.calib_default_btn.setEnabled(True)
-        self.calib_all_btn.setEnabled(True)
+        # self.calib_all_btn.setEnabled(True)
         self.status_label.setText("Status: Calibration reset. Ready.")
         self.log_list.addItem("-- CALIBRATION RESET --")
         self.log_list.scrollToBottom()
