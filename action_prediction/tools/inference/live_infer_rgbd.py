@@ -722,10 +722,16 @@ class LiveRGBDInference:
                 if punch_msg:
                     self._handle_hybrid_punch(punch_msg, rgb, depth)
 
-            # Height Calc (Update GUI only)
-            if self.current_bbox:
+            # Height Calc (Update GUI + Publish to ROS)
+            if self.current_bbox is not None:
                 h_val = self._calc_height(depth, self.current_bbox)
                 self.lbl_height.config(text=f"Height: {h_val:.2f} m")
+                # Publish to ROS topic for other nodes
+                if self.height_pub and h_val > 0.1:
+                    from std_msgs.msg import Float32
+                    msg = Float32()
+                    msg.data = h_val
+                    self.height_pub.publish(msg)
 
             # Check Height Trigger (Service)
             if self.imu_handler and self.imu_handler.calibrate_height_req:

@@ -67,6 +67,8 @@ class YOLOPoseWrapper:
           - 'left_wrist': (x, y, conf)
           - 'right_wrist': (x, y, conf)
           - 'extended_hand': 'left' | 'right' | None
+          - 'keypoints': Full keypoints array (17, 3)
+          - 'bbox': Bounding box [x1, y1, x2, y2] if available
         """
         results = self.model(bgr_frame, verbose=False, save=False)
         if not results or not results[0].keypoints:
@@ -75,6 +77,11 @@ class YOLOPoseWrapper:
         # Get keypoints for person with highest confidence
         # Shape: (N, 17, 3) -> (17, 3) [x, y, conf]
         kp = results[0].keypoints.data[0].cpu().numpy()
+        
+        # Get bounding box if available
+        bbox = None
+        if results[0].boxes is not None and len(results[0].boxes) > 0:
+            bbox = results[0].boxes.xyxy[0].cpu().numpy()  # [x1, y1, x2, y2]
         
         l_wrist = kp[self.IDX_L_WRIST]
         r_wrist = kp[self.IDX_R_WRIST]
@@ -90,7 +97,8 @@ class YOLOPoseWrapper:
             'left_wrist': l_wrist,
             'right_wrist': r_wrist,
             'nose': nose,
-            'keypoints': kp
+            'keypoints': kp,
+            'bbox': bbox
         }
 
 # =============================================================================

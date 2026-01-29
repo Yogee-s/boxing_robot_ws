@@ -334,9 +334,10 @@ class ImuPunchClassifier(Node):
         gyro_thresh = float(self.get_parameter("gyro_threshold").value)
         accel_thresh = float(self.get_parameter("accel_threshold").value)
 
-        peaks = self._window_peaks()
-        rms = self._window_rms()
-        axis_peaks = self._axis_peaks()
+        # Use gravity-corrected peaks for detection
+        peaks = self._window_peaks_corrected()
+        rms = self._window_rms_corrected()
+        axis_peaks = self._axis_peaks_corrected()
         if not self._passes_filters(peaks, rms, axis_peaks):
             return
 
@@ -376,6 +377,49 @@ class ImuPunchClassifier(Node):
             peak_accel = max(peak_accel, self._accel_magnitude(h))
             peak_gyro = max(peak_gyro, self._gyro_magnitude(h))
         return peak_accel, peak_gyro
+
+    def _window_peaks_corrected(self) -> Tuple[float, float]:
+        """Window peaks with gravity subtracted from acceleration."""
+        peak_accel = 0.0
+        peak_gyro = 0.0
+        for h in self._history:
+            peak_accel = max(peak_accel, self._accel_magnitude_corrected(h))
+            peak_gyro = max(peak_gyro, self._gyro_magnitude(h))
+        return peak_accel, peak_gyro
+
+    def _window_rms_corrected(self) -> Tuple[float, float]:
+        """RMS values with gravity subtracted from acceleration."""
+        if not self._history:
+            return 0.0, 0.0
+        accel_sum = 0.0
+        gyro_sum = 0.0
+        for h in self._history:
+            accel = self._accel_magnitude_corrected(h)
+            gyro = self._gyro_magnitude(h)
+            accel_sum += accel * accel
+            gyro_sum += gyro * gyro
+        n = float(len(self._history))
+        return (accel_sum / n) ** 0.5, (gyro_sum / n) ** 0.5
+
+    def _axis_peaks_corrected(self) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+        """Axis peaks with gravity subtracted from acceleration."""
+        # Subtract gravity from each sample's accel vector
+        ax_list, ay_list, az_list = [], [], []
+        for h in self._history:
+            ax = h.linear_acceleration.x - self._gravity_vector[0]
+            ay = h.linear_acceleration.y - self._gravity_vector[1]
+            az = h.linear_acceleration.z - self._gravity_vector[2]
+            ax_list.append(abs(ax))
+            ay_list.append(abs(ay))
+            az_list.append(abs(az))
+        
+        ax = max(ax_list) if ax_list else 0.0
+        ay = max(ay_list) if ay_list else 0.0
+        az = max(az_list) if az_list else 0.0
+        gx = max(abs(h.angular_velocity.x) for h in self._history)
+        gy = max(abs(h.angular_velocity.y) for h in self._history)
+        gz = max(abs(h.angular_velocity.z) for h in self._history)
+        return (ax, ay, az), (gx, gy, gz)
 
     def _classify(
         self,
@@ -439,6 +483,16 @@ class ImuPunchClassifier(Node):
     ) -> bool:
         accel_peak, gyro_peak = peaks
         accel_rms, gyro_rms = rms
+        
+        # Check absolute thresholds first (most important)
+        accel_thresh = float(self.get_parameter("accel_threshold").value)
+        gyro_thresh = float(self.get_parameter("gyro_threshold").value)
+        
+        # Must exceed at least one absolute threshold
+        if accel_peak < accel_thresh and gyro_peak < gyro_thresh:
+            return False
+        
+        # Peak-to-RMS ratio check (ensures it's a spike, not constant motion)
         accel_ratio = accel_peak / max(0.01, accel_rms)
         gyro_ratio = gyro_peak / max(0.01, gyro_rms)
 
@@ -450,17 +504,20 @@ class ImuPunchClassifier(Node):
             self._filter_log_count = 0
         self._filter_log_count += 1
         if self._filter_log_count % 30 == 0:
-            self.get_logger().debug(f"Filter: a_ratio={accel_ratio:.2f}>{accel_ratio_thresh:.1f}? g_ratio={gyro_ratio:.2f}>{gyro_ratio_thresh:.1f}?")
+            self.get_logger().debug(f"Filter: a_peak={accel_peak:.1f}>{accel_thresh:.1f}? g_peak={gyro_peak:.1f}>{gyro_thresh:.1f}? a_ratio={accel_ratio:.2f} g_ratio={gyro_ratio:.2f}")
         
-        if accel_ratio < accel_ratio_thresh or gyro_ratio < gyro_ratio_thresh:
+        # Either accel OR gyro ratio must pass (not both required)
+        if accel_ratio < accel_ratio_thresh and gyro_ratio < gyro_ratio_thresh:
             return False
 
-        (ax, ay, az), _ = axis_peaks
-        axis_sorted = sorted([ax, ay, az], reverse=True)
-        dominance = axis_sorted[0] / max(0.01, axis_sorted[1])
+        # Axis dominance check - disabled if threshold is 1.0 or less
         dominance_thresh = float(self.get_parameter("axis_dominance_ratio").value)
-        if dominance < dominance_thresh:
-            return False
+        if dominance_thresh > 1.0:
+            (ax, ay, az), _ = axis_peaks
+            axis_sorted = sorted([ax, ay, az], reverse=True)
+            dominance = axis_sorted[0] / max(0.01, axis_sorted[1])
+            if dominance < dominance_thresh:
+                return False
 
         return True
 
@@ -469,6 +526,13 @@ class ImuPunchClassifier(Node):
         ax = msg.linear_acceleration.x
         ay = msg.linear_acceleration.y
         az = msg.linear_acceleration.z
+        return float((ax * ax + ay * ay + az * az) ** 0.5)
+
+    def _accel_magnitude_corrected(self, msg: Imu) -> float:
+        """Acceleration magnitude with gravity subtracted."""
+        ax = msg.linear_acceleration.x - self._gravity_vector[0]
+        ay = msg.linear_acceleration.y - self._gravity_vector[1]
+        az = msg.linear_acceleration.z - self._gravity_vector[2]
         return float((ax * ax + ay * ay + az * az) ** 0.5)
 
     @staticmethod

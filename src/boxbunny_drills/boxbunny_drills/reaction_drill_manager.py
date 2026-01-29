@@ -59,6 +59,7 @@ class ReactionDrillManager(Node):
         self._baseline_velocity_mps = 0.0
         self._baseline_samples = deque(maxlen=200)
         self._penalty_end: Optional[float] = None
+        self._result_end: Optional[float] = None
         self._last_state_pub = 0.0
 
         self.get_logger().info("Reaction drill manager ready")
@@ -103,6 +104,7 @@ class ReactionDrillManager(Node):
         self._countdown_end = None
         self._baseline_end = None
         self._penalty_end = None
+        self._result_end = None
         self._publish_state()
         self._publish_event("drill_stop", value=0.0)
         self.get_logger().info(f"Drill stopped: {reason}")
@@ -133,6 +135,14 @@ class ReactionDrillManager(Node):
                  self._state = "waiting"
                  self._next_cue_time = now + self._random_delay()
                  self._publish_state()
+            return
+
+        if self._state == "result":
+            if self._result_end is not None and now >= self._result_end:
+                # Transition back to waiting for next trial
+                self._state = "waiting"
+                self._next_cue_time = now + self._random_delay()
+                self._publish_state()
             return
             
         if self._state == "baseline":
@@ -185,12 +195,26 @@ class ReactionDrillManager(Node):
             self._baseline_samples.append(abs(det.approach_velocity_mps))
 
     def _on_action(self, msg: ActionPrediction) -> None:
-        if not self._running or self._state != "cue" or self._cue_time is None:
+        if not self._running:
             return
 
-        # Only react to punches
-        if msg.action_label not in ["jab", "cross", "left_hook", "right_hook", "left_uppercut", "right_uppercut"]:
+        # Only react to punch actions
+        punch_labels = ["jab", "cross", "left_hook", "right_hook", "left_uppercut", "right_uppercut"]
+        if msg.action_label not in punch_labels:
              return
+
+        # Check for Early Start (Punch before Cue)
+        if self._state in ["waiting", "baseline"]:
+            self._publish_event("early_start", glove=msg.action_label)
+            # Penalty Logic
+            self._state = "early_penalty"
+            self._penalty_end = time.time() + 1.5  # 1.5s penalty
+            self._publish_state()
+            self.get_logger().info(f"Early punch detected: {msg.action_label}")
+            return
+
+        if self._state != "cue" or self._cue_time is None:
+            return
 
         reaction_time = time.time() - self._cue_time
         if reaction_time < float(self.get_parameter("min_reaction_time_s").value):
@@ -230,16 +254,21 @@ class ReactionDrillManager(Node):
         self._publish_event("punch_detected", glove=msg.glove, value=reaction_time)
         self._advance_trial()
 
+    def _advance_trial(self) -> None:
+        """Advance to next trial or complete the drill."""
         self._trial_index += 1
         if self._trial_index >= self._num_trials:
             self._stop_drill("Completed")
+            self._publish_summary_final()
             return
-        self._state = "waiting"
+        # Brief "result" state to show feedback, then back to waiting
+        self._state = "result"
         self._cue_time = None
         self._penalty_end = None
-        self._next_cue_time = time.time() + self._random_delay()
         self._publish_state()
-
+        # Schedule transition to waiting after brief delay
+        self._result_end = time.time() + 1.0  # 1 second to show result
+        
     def _open_log(self) -> None:
         log_dir = self.get_parameter("log_dir").value
         os.makedirs(log_dir, exist_ok=True)
@@ -317,6 +346,24 @@ class ReactionDrillManager(Node):
             "best_reaction_time_s": min(self._results) if self._results else None,
             "baseline_velocity_mps": self._baseline_velocity_mps,
             "log_path": self._log_path,
+            "is_final": False,
+        }
+        msg = String()
+        msg.data = json.dumps(summary)
+        self.summary_pub.publish(msg)
+
+    def _publish_summary_final(self) -> None:
+        """Publish final summary when drill completes."""
+        summary = {
+            "trial_index": self._trial_index,
+            "total_trials": self._num_trials,
+            "last_reaction_time_s": self._results[-1] if self._results else None,
+            "mean_reaction_time_s": (sum(self._results) / len(self._results)) if self._results else None,
+            "median_reaction_time_s": (sorted(self._results)[len(self._results) // 2]) if self._results else None,
+            "best_reaction_time_s": min(self._results) if self._results else None,
+            "baseline_velocity_mps": self._baseline_velocity_mps,
+            "log_path": self._log_path,
+            "is_final": True,
         }
         msg = String()
         msg.data = json.dumps(summary)

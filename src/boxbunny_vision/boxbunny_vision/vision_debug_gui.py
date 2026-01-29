@@ -353,6 +353,10 @@ class VisionDebugGui(QtWidgets.QWidget):
              elif state == "early_penalty":
                   self.lbl_countdown.setText("EARLY!")
                   self.lbl_countdown.setStyleSheet("color: #ffa500; font-size: 48px; font-weight: bold;") # Orange
+             elif state == "result":
+                  # Show checkmark or brief feedback that punch was registered
+                  self.lbl_countdown.setText("✓")
+                  self.lbl_countdown.setStyleSheet("color: #3fb950; font-size: 48px; font-weight: bold;") # Green
 
     def _on_mode_changed(self, index):
         # Reset Button if it's still checked (safety when switching modes)
@@ -385,12 +389,14 @@ class VisionDebugGui(QtWidgets.QWidget):
         try:
             summary = json.loads(data)
             trials = summary.get("trial_index", 0)
+            total = summary.get("total_trials", 3)
             avg = summary.get("mean_reaction_time_s")
             last = summary.get("last_reaction_time_s")
+            is_final = summary.get("is_final", False)
             
             # Log specific result
             if last is not None:
-                item = f"Trial #{trials}: {last:.3f}s"
+                item = f"Trial #{trials}/{total}: {last:.3f}s"
                 self.log_list.addItem(item)
                 self.log_list.scrollToBottom()
 
