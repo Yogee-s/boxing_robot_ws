@@ -56,7 +56,10 @@ class ReactionDrillManager(Node):
         self._next_countdown_tick: Optional[float] = None
         self._baseline_end: Optional[float] = None
         self._baseline_velocity_mps = 0.0
+        self._baseline_velocity_mps = 0.0
         self._baseline_samples = deque(maxlen=200)
+        self._penalty_end: Optional[float] = None
+        self._last_state_pub = 0.0
 
         self.get_logger().info("Reaction drill manager ready")
 
@@ -97,7 +100,9 @@ class ReactionDrillManager(Node):
         self._next_cue_time = None
         self._cue_time = None
         self._countdown_end = None
+        self._countdown_end = None
         self._baseline_end = None
+        self._penalty_end = None
         self._publish_state()
         self._publish_event("drill_stop", value=0.0)
         self.get_logger().info(f"Drill stopped: {reason}")
@@ -113,11 +118,23 @@ class ReactionDrillManager(Node):
             return
 
         now = time.time()
+        
+        # Heartbeat: Republish state every 0.5s to keep GUI synced
+        if now - self._last_state_pub > 0.5:
+             self._publish_state()
 
         if self._state == "countdown":
             self._update_countdown(now)
             return
 
+        if self._state == "early_penalty":
+            if self._penalty_end is not None and now >= self._penalty_end:
+                 # Restart Waiting Phase
+                 self._state = "waiting"
+                 self._next_cue_time = now + self._random_delay()
+                 self._publish_state()
+            return
+            
         if self._state == "baseline":
             if self._baseline_end is not None and now >= self._baseline_end:
                 self._finalize_baseline()
@@ -184,7 +201,21 @@ class ReactionDrillManager(Node):
         self._advance_trial()
 
     def _on_punch(self, msg: PunchEvent) -> None:
-        if not self._running or self._state != "cue" or self._cue_time is None:
+        if not self._running:
+            return
+
+        # Check for Early Start (Punch before Cue)
+        if self._state in ["waiting", "countdown", "baseline"]:
+            # Use specific threshold to avoid noise triggering early warnings
+            if msg.approach_velocity_mps > 0.5:
+                self._publish_event("early_start", glove=msg.glove)
+                # Penalty Logic
+                self._state = "early_penalty"
+                self._penalty_end = time.time() + 1.5 # 1.5s penalty
+                self._publish_state()
+            return
+
+        if self._state != "cue" or self._cue_time is None:
             return
 
         reaction_time = time.time() - self._cue_time
@@ -199,13 +230,13 @@ class ReactionDrillManager(Node):
         self._publish_event("punch_detected", glove=msg.glove, value=reaction_time)
         self._advance_trial()
 
-    def _advance_trial(self) -> None:
         self._trial_index += 1
         if self._trial_index >= self._num_trials:
             self._stop_drill("Completed")
             return
         self._state = "waiting"
         self._cue_time = None
+        self._penalty_end = None
         self._next_cue_time = time.time() + self._random_delay()
         self._publish_state()
 
@@ -265,6 +296,7 @@ class ReactionDrillManager(Node):
         msg = String()
         msg.data = self._state
         self.state_pub.publish(msg)
+        self._last_state_pub = time.time()
 
     def _publish_event(self, event_type: str, glove: str = "", value: float = 0.0) -> None:
         event = DrillEvent()

@@ -6,3 +6,4 @@
     depth_module.profile: "640x480x30"
     rgb_camera.profile: "640x480x30"
     pointcloud.enable: false
+    serial_no: "216322072730"

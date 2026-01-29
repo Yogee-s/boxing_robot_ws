@@ -310,13 +310,13 @@ class RosImuHandler(threading.Thread):
         if labels:
             msg.class_labels = labels
             
-        self.node.action_pub.publish(msg)
+        self.action_pub.publish(msg)
 
     def publish_height(self, height: float):
         if not self.ready: return
         msg = Float32()
         msg.data = height
-        self.node.height_pub.publish(msg)
+        self.height_pub.publish(msg)
 
     def load_calibration(self) -> dict:
         """Load calibration data."""

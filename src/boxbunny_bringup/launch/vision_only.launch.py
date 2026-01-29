@@ -18,6 +18,7 @@ def generate_launch_description():
         name="camera",
         parameters=[realsense_config],
         output="screen",
+        prefix="env LD_PRELOAD=/usr/local/lib/librealsense2.so",
     )
 
     glove = Node(

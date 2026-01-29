@@ -3,6 +3,7 @@ import os
 import time
 from collections import deque
 from typing import Deque, Dict, Optional, Tuple
+import numpy as np
 
 import rclpy
 from rclpy.node import Node
@@ -23,11 +24,11 @@ class ImuPunchClassifier(Node):
         self.declare_parameter("enable_punch_classification", True)
         self.declare_parameter("window_size", 10)
         self.declare_parameter("cooldown_s", 0.5)
-        self.declare_parameter("gyro_threshold", 2.5)
-        self.declare_parameter("accel_threshold", 6.0)
-        self.declare_parameter("accel_peak_ratio", 2.0)
-        self.declare_parameter("gyro_peak_ratio", 2.0)
-        self.declare_parameter("axis_dominance_ratio", 1.3)
+        self.declare_parameter("gyro_threshold", 1.5)
+        self.declare_parameter("accel_threshold", 3.0)
+        self.declare_parameter("accel_peak_ratio", 1.05)
+        self.declare_parameter("gyro_peak_ratio", 1.05)
+        self.declare_parameter("axis_dominance_ratio", 1.0)
         self.declare_parameter("imu_hand", "right")
         self.declare_parameter("calibration_path", os.path.expanduser("~/.boxbunny/imu_calibration.json"))
         self.declare_parameter("use_calibration", True)
@@ -51,6 +52,11 @@ class ImuPunchClassifier(Node):
         self._templates = self._load_templates()
         self._calib_timer = self.create_timer(0.05, self._calibration_tick)
         self._loading_defaults = False
+        
+        # Gravity Calibration
+        self._gravity_samples = []
+        self._gravity_vector = np.array([0.0, 9.8, 0.0]) # Default
+        self._calibrated_gravity = False
         
         self.add_on_set_parameters_callback(self._on_params_changed)
 
@@ -195,31 +201,55 @@ class ImuPunchClassifier(Node):
         self._calibrating = None
 
     def _on_imu(self, msg: Imu) -> None:
+        # Gravity Calibration
+        ax_raw = msg.linear_acceleration.x
+        ay_raw = msg.linear_acceleration.y
+        az_raw = msg.linear_acceleration.z
+        gx_raw = msg.angular_velocity.x
+        gy_raw = msg.angular_velocity.y
+        gz_raw = msg.angular_velocity.z
+
+        if not self._calibrated_gravity:
+            if len(self._gravity_samples) < 50:
+                self._gravity_samples.append([ax_raw, ay_raw, az_raw])
+                if len(self._gravity_samples) % 10 == 0:
+                    self.get_logger().info(f"Calibrating gravity... {len(self._gravity_samples)}/50")
+                return
+            else:
+                self._gravity_vector = np.mean(self._gravity_samples, axis=0)
+                self._calibrated_gravity = True
+                norm = np.linalg.norm(self._gravity_vector)
+                self.get_logger().info(f"Gravity calibrated: {self._gravity_vector} (norm={norm:.2f})")
+
         if self._calibrating:
-            # Use individual axis values - keep sign for direction
-            ax_raw = msg.linear_acceleration.x
-            ay_raw = msg.linear_acceleration.y  # Gravity axis (~-9.8)
-            az_raw = msg.linear_acceleration.z
-            gx_raw = msg.angular_velocity.x
-            gy_raw = msg.angular_velocity.y
-            gz_raw = msg.angular_velocity.z
+            # Motion vector (Acceleration - Gravity)
+            acc_vec = np.array([ax_raw, ay_raw, az_raw])
+            motion_vec = acc_vec - self._gravity_vector
             
-            # The sensor is mounted such that Y has gravity (~9.8)
-            # ay_raw is typically ~-9.8 when still (facing down into sensor)
-            # Remove gravity from Y-axis for motion detection
-            gravity = 9.8
-            ay_motion = ay_raw + gravity  # When still, ay_raw ≈ -9.8, so ay_motion ≈ 0
+            # Components relative to gravity (parallel/perpendicular?)
+            # Ideally just magnitude of motion for "Motion Thresh"
+            
+            # Use raw magnitudes for "peak" tracking still? 
+            # Existing code tracked absolute axis values.
+            # To preserve existing logic structure but fix gravity:
+            
+            # ay_motion "was" the gravity axis. Now we calculate motion magnitude generally.
+            # We can project motion onto the gravity vector to simulate "vertical" vs "horizontal"?
+            # For simplicity, let's treat "ay" (in code logic) as the MAGNITUDE of linear motion 
+            # (since users treat ay as the main punch axis in this codebase usually).
+            
+            motion_mag = float(np.linalg.norm(motion_vec))
             
             # Absolute values for thresholding
-            ax = abs(ax_raw)
-            ay = abs(ay_motion)  # Motion only (gravity removed)
+            ax = abs(ax_raw) # Raw tracking still useful?
+            ay = motion_mag  # Use Motion Magnitude as primary 'ay' equivalent for threshold
             az = abs(az_raw)
             gx = abs(gx_raw)
             gy = abs(gy_raw)
             gz = abs(gz_raw)
             
-            # Peak axis values (use motion-corrected ay)
-            peak_a = max(ax, ay, az)
+            # Peak axis values
+            peak_a = motion_mag # Max motion
             peak_g = max(gx, gy, gz)
             
             if self._waiting_for_quiet:

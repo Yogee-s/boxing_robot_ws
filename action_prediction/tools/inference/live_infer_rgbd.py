@@ -1138,6 +1138,463 @@ class LiveRGBDInference:
                 pass
 
 
+class HeadlessInference:
+    """Headless version of LiveRGBDInference for ROS integration."""
+    def __init__(self, model_config, model_checkpoint, yolo_model, window_size, device, causal, fps, rgb_res, depth_res, detect_interval, enable_action_model=False, labels=None):
+        self.running = True
+        self.device = device
+        self.window_size = window_size
+        self.labels = labels or DEFAULT_LABELS
+        self.depth_scale = 0.001
+        self.model_config = model_config
+        self.model_checkpoint = model_checkpoint
+        
+        # Load Config
+        cfg = _load_config(model_config)
+        data_cfg = cfg.get('data', {})
+        self.crop_size = data_cfg.get('crop_size', 224)
+        self.max_depth = data_cfg.get('max_depth', 4.0)
+        self.use_delta = data_cfg.get('use_delta', False)
+        
+        # Buffers
+        self.frame_buffer = deque(maxlen=window_size)
+        self.pred_history = deque(maxlen=5)
+
+        # Pose Tracking
+        self.prev_keypoints = None
+        self.prev_time = 0.0
+        self.VEL_THRESH = 1.5 # m/s
+        self.last_trigger_time = 0.0
+        
+        # Color Tracking Params
+        self.color_enabled = True
+        self.glove_debug_pub = None # Will be created after node init
+        from boxbunny_msgs.msg import GloveDetections, GloveDetection
+        
+        # HSV Defaults
+        self.hsv_green_lower = np.array([45, 80, 50], dtype=np.uint8)
+        self.hsv_green_upper = np.array([85, 255, 255], dtype=np.uint8)
+        self.hsv_red_lower1 = np.array([0, 90, 50], dtype=np.uint8)
+        self.hsv_red_upper1 = np.array([10, 255, 255], dtype=np.uint8)
+        self.hsv_red_lower2 = np.array([160, 90, 50], dtype=np.uint8)
+        self.hsv_red_upper2 = np.array([180, 255, 255], dtype=np.uint8)
+        
+        # Tracking State
+        self.dist_hist = {"left": deque(maxlen=5), "right": deque(maxlen=5)}
+        self.vel_hist = {"left": deque(maxlen=3), "right": deque(maxlen=3)}
+        self.last_color_punch = {"left": 0.0, "right": 0.0}
+        
+        # Initialize ROS
+        self.imu_handler = RosImuHandler()
+        self.imu_handler.start()
+        
+        # Publisher
+        while self.imu_handler.node is None:
+             time.sleep(0.1)
+        self.node = self.imu_handler.node
+        
+        from sensor_msgs.msg import Image
+        from cv_bridge import CvBridge
+        from std_srvs.srv import Trigger
+        self.debug_pub = self.node.create_publisher(Image, '/action_debug_image', 10)
+        self.glove_debug_pub = self.node.create_publisher(Image, '/glove_debug_image', 10)
+        self.glove_det_pub = self.node.create_publisher(GloveDetections, 'glove_detections', 10)
+        self.bridge = CvBridge()
+        self.node.create_service(Trigger, 'action_predictor/load_model', self._handle_load_model)
+        
+        # Mode Subscription
+        from std_msgs.msg import String
+        self.pose_enabled = True # Default
+        self.mode_sub = self.node.create_subscription(String, '/boxbunny/detection_mode', self._on_mode_switch, 10)
+        
+        # Initialize Models
+        print("Loading Pose model...")
+        self.pose_wrapper = YOLOPoseWrapper(os.path.join(os.path.dirname(__file__), '../models/checkpoints/yolo26n-pose.pt'), device)
+        
+        self.action_model = None
+        self.cropper = None
+        
+        if enable_action_model:
+            self._load_action_model()
+            
+        if 'cuda' in self.device:
+            torch.backends.cudnn.benchmark = True
+        print("Starting camera...")
+        self.pipeline = rs.pipeline()
+        config = rs.config()
+        rw, rh = self._parse_res(rgb_res)
+        dw, dh = self._parse_res(depth_res)
+        config.enable_stream(rs.stream.color, rw, rh, rs.format.bgr8, fps)
+        config.enable_stream(rs.stream.depth, dw, dh, rs.format.z16, fps)
+        
+        profile = None
+        for i in range(5):
+            try:
+                profile = self.pipeline.start(config)
+                print("Camera started successfully.")
+                break
+            except RuntimeError as e:
+                print(f"Camera start failed (Attempt {i+1}/5): {e}. Retrying in 2s...")
+                time.sleep(2.0)
+        
+        if profile is None:
+             print("FATAL: Could not start camera after 5 attempts.")
+             self.running = False
+             return
+
+        self.depth_scale = profile.get_device().first_depth_sensor().get_depth_scale()
+        self.align = rs.align(rs.stream.color)
+        
+        # Intrinsics for velocity calc (pixels -> meters)
+        intr = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
+        self.fx, self.fy = intr.fx, intr.fy
+        
+        print("Headless Inference Running. Press Ctrl+C to stop.")
+        self._loop()
+
+    def _load_action_model(self):
+        if self.action_model is not None: return
+        print("Loading Action Model...")
+        self.cropper = YOLOPersonCrop(os.path.join(os.path.dirname(__file__), '../models/checkpoints/yolo26n.pt'), self.device, detect_interval=5)
+        self.model = load_model(self.model_config, self.model_checkpoint, self.device)
+        if 'cuda' in self.device and hasattr(self.model, 'half'):
+            self.model.half()
+        self.action_model = self.model
+        print("Action Model Loaded.")
+
+    def _handle_load_model(self, req, res):
+        self._load_action_model()
+        res.success = True
+        res.message = "Action Model Loaded"
+        return res
+
+    @staticmethod
+    def _parse_res(text):
+        parts = text.lower().split('x')
+        return int(parts[0].strip()), int(parts[1].strip())
+        
+    def _on_mode_switch(self, msg):
+        mode = msg.data.lower()
+        if "color" in mode:
+            self.color_enabled = True
+            self.pose_enabled = False
+            print("Switched to Color Tracking Mode")
+        else:
+            self.color_enabled = False
+            self.pose_enabled = True
+            print("Switched to Pose Model Mode")
+
+    def _loop(self):
+        try:
+            while self.running:
+                frames = self.pipeline.wait_for_frames()
+                aligned = self.align.process(frames)
+                color_frame = aligned.get_color_frame()
+                depth_frame = aligned.get_depth_frame()
+                
+                if not color_frame or not depth_frame:
+                    continue
+                    
+                rgb = np.asanyarray(color_frame.get_data())
+                rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
+                depth = np.asanyarray(depth_frame.get_data()).astype(np.float32) * self.depth_scale
+                
+                # Pose Estimation
+                kp = None
+                probs = None
+                bbox = None
+                
+                if self.pose_enabled:
+                    pose_res = self.pose_wrapper.predict(rgb)
+                    kp = pose_res.get('keypoints')
+                    
+                    # Calculate & Publish Height
+                    if kp is not None and len(kp) > 0:
+                        self._calculate_height(kp, depth)
+                    
+                    # Check for Sudden Pose Change (Velocity Trigger)
+                    trigger_label = self._check_velocity_trigger(kp, depth, time.time())
+                    if trigger_label:
+                         self.imu_handler.publish_action(trigger_label, 1.0, None, self.labels)
+
+                # Color Tracking
+                if self.color_enabled:
+                    self._process_color_tracking(rgb, depth)
+                    
+                # Action Model (Runs only if Pose is active usually, or if force enabled?)
+                # Logic: action model relies on pose crop? No, YOLOPersonCrop.
+                # If pose is disabled, do we run action model?
+                # Probably not. 'action' mode is usually pose+action.
+                if self.pose_enabled and self.action_model is not None and not trigger_label:
+                     probs, rgb_crop, depth_crop, bbox = self._process_frame(rgb, depth)
+                     if probs is not None:
+                        idx = np.argmax(probs)
+                        label = self.labels[idx]
+                        conf = float(probs[idx])
+                        self.imu_handler.publish_action(label, conf, probs.tolist(), self.labels)
+                
+                # Publish Debug Image (Pose Debug)
+                if self.pose_enabled:
+                    self._publish_debug(rgb, bbox, probs, kp)
+                
+        except KeyboardInterrupt:
+            pass
+        finally:
+            self.pipeline.stop()
+
+    def _check_velocity_trigger(self, kp, depth, current_time):
+        now = current_time
+        if kp is None:
+             self.prev_keypoints = None
+             return None
+             
+        # Indices: 9=L_Wrist, 10=R_Wrist
+        if self.prev_keypoints is None:
+             self.prev_keypoints = kp
+             self.prev_time = now
+             return None
+             
+        dt = now - self.prev_time
+        if dt <= 0: return None
+        if dt > 0.1: # Filter breaks
+             self.prev_keypoints = kp
+             self.prev_time = now
+             return None
+        if now - self.last_trigger_time < 0.5:
+             self.prev_keypoints = kp
+             self.prev_time = now
+             return None
+
+        h, w = depth.shape
+        detected_label = None
+        
+        for idx, label in [(9, 'jab'), (10, 'cross')]:
+             u, v, c = kp[idx]
+             pu, pv, pc = self.prev_keypoints[idx]
+             
+             if c < 0.5 or pc < 0.5: continue
+             
+             dist_px = np.sqrt((u-pu)**2 + (v-pv)**2)
+             vel_px = dist_px / dt
+             
+             u_i, v_i = int(u), int(v)
+             u_i = max(0, min(w-1, u_i))
+             v_i = max(0, min(h-1, v_i))
+             z = depth[v_i, u_i]
+             
+             # Heuristic: Fast pixels (approx 200px/s) and close range
+             if vel_px > 200 and z > 0 and z < 1.5:
+                  self.last_trigger_time = now
+                  detected_label = label
+                  break
+        
+        self.prev_time = now
+        self.prev_keypoints = kp
+        return detected_label
+
+    def _calculate_height(self, kp, depth):
+        # kp shape: (17, 3) or (N, 17, 3). Assume single person or first person.
+        # Ultralytics: (1, 17, 3) or (17, 3)
+        kp_arr = np.array(kp)
+        if kp_arr.ndim == 3:
+            kp_arr = kp_arr[0] # Take first person
+            
+        # Filter confident points (>0.5)
+        valid = kp_arr[:, 2] > 0.5
+        if np.sum(valid) < 4: return # Need at least some body parts
+        
+        pts = kp_arr[valid, :2]
+        ymin = np.min(pts[:, 1])
+        ymax = np.max(pts[:, 1])
+        h_px = ymax - ymin
+        
+        # Determine Depth (Median of valid points)
+        # Map (x,y) to integer coords
+        zs = []
+        h, w = depth.shape
+        for i in range(len(kp_arr)):
+            if valid[i]:
+                x, y = int(kp_arr[i, 0]), int(kp_arr[i, 1])
+                if 0 <= x < w and 0 <= y < h:
+                    z = depth[y, x]
+                    if z > 0: zs.append(z)
+        
+        if not zs: return
+        z_m = np.median(zs)
+        
+        # Calculate Height in Meters
+        # H = z * h_px / fy
+        # Note: This is an estimation. 
+        if self.fy > 0:
+            height_m = (z_m * h_px) / self.fy
+            # Publish
+            self.imu_handler.publish_height(height_m)
+
+    def _process_color_tracking(self, rgb, depth):
+        """Run color blob tracking logic."""
+        hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV) # RGB input
+        # Note: Tracker expects BGR-based HSV values usually? 
+        # OpenCV reads BGR. But rs gives RGB.
+        # If thresholds were tuned on BGR->HSV, then Red is around 0/180.
+        # If RGB->HSV, Red is still around 0/180. The Hue channel is consistent.
+        # But verify thresholds?
+        # Realsense gives RGB.
+        
+        detections = []
+        debug_img = rgb.copy() # RGB
+        
+        # Build Masks
+        green_mask = cv2.inRange(hsv, self.hsv_green_lower, self.hsv_green_upper)
+        red_mask1 = cv2.inRange(hsv, self.hsv_red_lower1, self.hsv_red_upper1)
+        red_mask2 = cv2.inRange(hsv, self.hsv_red_lower2, self.hsv_red_upper2)
+        red_mask = cv2.bitwise_or(red_mask1, red_mask2)
+        
+        # Improve Masks with Morphology
+        kernel = np.ones((5, 5), np.uint8)
+        green_mask = cv2.morphologyEx(green_mask, cv2.MORPH_OPEN, kernel)
+        green_mask = cv2.morphologyEx(green_mask, cv2.MORPH_CLOSE, kernel)
+        red_mask = cv2.morphologyEx(red_mask, cv2.MORPH_OPEN, kernel)
+        red_mask = cv2.morphologyEx(red_mask, cv2.MORPH_CLOSE, kernel)
+        
+        # User requested: Green=Right, Red=Left
+        masks = {"right": green_mask, "left": red_mask}
+        
+        now = time.time()
+        
+        for glove, mask in masks.items():
+            # Find Contours
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if not contours: continue
+            
+            contour = max(contours, key=cv2.contourArea)
+            area = cv2.contourArea(contour)
+            if area < 800: continue
+            
+            x, y, w, h = cv2.boundingRect(contour)
+            # Depth logic
+            roi_depth = depth[y:y+h, x:x+w]
+            dist_m = 0.0
+            valid = roi_depth[roi_depth > 0]
+            if valid.size > 10:
+                # depth is already in meters (scaled in _loop)
+                dist_m = float(np.median(valid))
+            else:
+                continue
+
+            # Tracking
+            from boxbunny_msgs.msg import GloveDetection
+            
+            self.dist_hist[glove].append(dist_m)
+            smooth_dist = np.mean(self.dist_hist[glove])
+            
+            # Velocity
+            velocity = 0.0
+            if len(self.dist_hist[glove]) >= 2:
+                prev = self.dist_hist[glove][-2]
+                velocity = (prev - smooth_dist) * 30.0 # ~30fps
+            self.vel_hist[glove].append(velocity)
+            
+            # Trigger Logic
+            # Thresholds: Vel > 0.8m/s (easier trigger), Dist < 0.8m
+            if velocity > 0.8 and smooth_dist < 0.8:
+                 if (now - self.last_color_punch[glove]) > 0.5:
+                     self.last_color_punch[glove] = now
+                     print(f"COLOR PUNCH: {glove} v={velocity:.2f}")
+                     # Trigger Drill
+                     label = 'jab' if glove == 'left' else 'cross'
+                     self.imu_handler.publish_action(label, 1.0, None, self.labels)
+            
+            # Draw
+            # Left=Red, Right=Green (RGB)
+            color = (255, 0, 0) if glove == 'left' else (0, 255, 0)
+            cv2.rectangle(debug_img, (x, y), (x+w, y+h), color, 2)
+            cv2.putText(debug_img, f"{glove} {smooth_dist:.2f}m", (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+
+            det = GloveDetection()
+            det.glove = glove
+            det.x, det.y, det.w, det.h = x, y, w, h
+            detections.append(det)
+
+        # Publish Debug
+        if self.color_enabled:
+             vis_bgr = cv2.cvtColor(debug_img, cv2.COLOR_RGB2BGR) # Publish as BGR for consistency
+             msg = self.bridge.cv2_to_imgmsg(vis_bgr, "bgr8")
+             self.glove_debug_pub.publish(msg)
+            
+    def _process_frame(self, rgb, depth):
+        # Same logic as main class
+        rgb_crop, depth_crop, bbox = self.cropper(rgb, depth, output_size=self.crop_size)
+        
+        rgbd = create_rgbd_tensor(rgb_crop, depth_crop, max_depth=self.max_depth)
+        rgbd = np.transpose(rgbd, (2, 0, 1))
+        self.frame_buffer.append(rgbd)
+        
+        probs = None
+        if len(self.frame_buffer) >= self.window_size:
+            frames = np.stack(list(self.frame_buffer))
+            if self.use_delta:
+                delta = np.diff(frames, axis=0, prepend=frames[:1])
+                frames = np.concatenate([frames, delta], axis=1)
+                
+            frames = torch.from_numpy(frames).float().unsqueeze(0).to(self.device)
+            if 'cuda' in self.device: frames = frames.half()
+            
+            with torch.inference_mode():
+                probs = self.model.predict(frames, return_probs=True)
+            
+            probs = probs.float().cpu().numpy()[0]
+            self.pred_history.append(probs)
+            probs = np.mean(list(self.pred_history), axis=0)
+            
+        return probs, rgb_crop, depth_crop, bbox
+
+    def _publish_debug(self, rgb, bbox, probs, keypoints=None):
+        vis = rgb.copy()
+        
+        # Draw Skeleton
+        if keypoints is not None:
+             self._draw_skeleton(vis, keypoints)
+             
+        if bbox is not None:
+             x1, y1, x2, y2 = bbox.astype(int)
+             cv2.rectangle(vis, (x1, y1), (x2, y2), (0, 255, 0), 2)
+             
+        if probs is not None:
+             idx = np.argmax(probs)
+             label = f"{self.labels[idx]}: {probs[idx]:.2f}"
+             cv2.putText(vis, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+        try:
+             vis_bgr = cv2.cvtColor(vis, cv2.COLOR_RGB2BGR)
+             msg = self.bridge.cv2_to_imgmsg(vis_bgr, "bgr8")
+             self.debug_pub.publish(msg)
+        except Exception:
+             pass
+
+    def _draw_skeleton(self, img, kp):
+        # Connect keypoints
+        # 5-7 (L-Shoulder to L-Elbow), 7-9 (L-Elbow to L-Wrist)
+        # 6-8 (R-Shoulder to R-Elbow), 8-10 (R-Elbow to R-Wrist)
+        # 5-6 (Shoulders)
+        connections = [(5,7), (7,9), (6,8), (8,10), (5,6), (5,11), (6,12), (11,12)]
+        
+        h, w, _ = img.shape
+        
+        for i, (p1, p2) in enumerate(connections):
+            if p1 < len(kp) and p2 < len(kp):
+                pt1 = kp[p1]
+                pt2 = kp[p2]
+                if pt1[2] > 0.5 and pt2[2] > 0.5:
+                    x1, y1 = int(pt1[0]), int(pt1[1])
+                    x2, y2 = int(pt2[0]), int(pt2[1])
+                    cv2.line(img, (x1, y1), (x2, y2), (0, 255, 255), 2)
+        
+        # Draw Points
+        for i, p in enumerate(kp):
+            if p[2] > 0.5:
+                 cv2.circle(img, (int(p[0]), int(p[1])), 4, (0, 0, 255), -1)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Live RGB-D Action Recognition GUI'
@@ -1167,7 +1624,28 @@ def main():
     parser.add_argument('--detect-interval', type=int, default=5,
                         help='Run YOLO detection every N frames (default: 5)')
     
+    parser.add_argument('--headless', action='store_true',
+                        help='Run without GUI and publish to ROS')
+    parser.add_argument('--enable-action-model', action='store_true',
+                        help='Enable Action Model in Headless mode')
+    
     args = parser.parse_args()
+    
+    if args.headless:
+        HeadlessInference(
+            model_config=args.model_config,
+            model_checkpoint=args.model_checkpoint,
+            yolo_model=args.yolo_model,
+            window_size=args.window_size,
+            device=args.device,
+            causal=args.causal,
+            fps=args.fps,
+            rgb_res=args.rgb_res,
+            depth_res=args.depth_res,
+            detect_interval=args.detect_interval,
+            enable_action_model=args.enable_action_model,
+        )
+        return
     
     # Create GUI
     root = tk.Tk()
@@ -1185,6 +1663,7 @@ def main():
         rgb_res=args.rgb_res,
         depth_res=args.depth_res,
         detect_interval=args.detect_interval,
+        enable_action_model=args.enable_action_model,
     )
     
     def on_close():
@@ -1193,7 +1672,6 @@ def main():
     
     root.protocol("WM_DELETE_WINDOW", on_close)
     root.mainloop()
-
 
 if __name__ == '__main__':
     main()
