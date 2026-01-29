@@ -9,7 +9,7 @@ from typing import Optional
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String, Int32
-from boxbunny_msgs.msg import DrillEvent, PunchEvent, GloveDetections
+from boxbunny_msgs.msg import DrillEvent, PunchEvent, GloveDetections, ActionPrediction
 from boxbunny_msgs.srv import StartStopDrill
 
 
@@ -38,6 +38,7 @@ class ReactionDrillManager(Node):
         glove_topic = self.get_parameter("glove_topic").value
         self.punch_sub = self.create_subscription(PunchEvent, punch_topic, self._on_punch, 10)
         self.det_sub = self.create_subscription(GloveDetections, glove_topic, self._on_detections, 10)
+        self.action_sub = self.create_subscription(ActionPrediction, "action_prediction", self._on_action, 10)
         self.service = self.create_service(StartStopDrill, "start_stop_drill", self._on_start_stop)
 
         self.timer = self.create_timer(0.05, self._tick)
@@ -165,6 +166,22 @@ class ReactionDrillManager(Node):
             return
         for det in msg.detections:
             self._baseline_samples.append(abs(det.approach_velocity_mps))
+
+    def _on_action(self, msg: ActionPrediction) -> None:
+        if not self._running or self._state != "cue" or self._cue_time is None:
+            return
+
+        # Only react to punches
+        if msg.action_label not in ["jab", "cross", "left_hook", "right_hook", "left_uppercut", "right_uppercut"]:
+             return
+
+        reaction_time = time.time() - self._cue_time
+        if reaction_time < float(self.get_parameter("min_reaction_time_s").value):
+            return
+
+        self._record_result(msg.action_label, reaction_time, None)
+        self._publish_event("punch_detected", glove=msg.action_label, value=reaction_time)
+        self._advance_trial()
 
     def _on_punch(self, msg: PunchEvent) -> None:
         if not self._running or self._state != "cue" or self._cue_time is None:

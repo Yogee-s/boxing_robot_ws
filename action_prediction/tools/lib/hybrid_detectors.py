@@ -170,8 +170,8 @@ class RosImuHandler(threading.Thread):
                 self.height_pub = node_self.create_publisher(Float32, '/player_height', 10)
                 
                 # New Services
-                node_self.create_service(SetBool, 'action_predictor/set_simple_mode', self._handle_simple_mode)
-                node_self.create_service(Trigger, 'action_predictor/calibrate_height', self._handle_calib_height)
+                node_self.create_service(SetBool, 'action_predictor/set_simple_mode', node_self._handle_simple_mode)
+                node_self.create_service(Trigger, 'action_predictor/calibrate_height', node_self._handle_calib_height)
                 
             def log(self, msg):
                 self.get_logger().info(msg)

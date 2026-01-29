@@ -62,10 +62,11 @@ class SimpleActionDetector:
         self.red_upper2 = np.array([180, 255, 255])
         
         self.min_area = 5000 # px
+        self.depth_threshold = 1.0 # meters
         self.cooldown = 0.5
         self.last_time = 0.0
         
-    def detect(self, rgb: np.ndarray) -> str:
+    def detect(self, rgb: np.ndarray, depth: np.ndarray) -> str:
         hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
         
         # Green
@@ -78,24 +79,41 @@ class SimpleActionDetector:
         area_g = np.count_nonzero(mask_g)
         area_r = np.count_nonzero(mask_r)
         
-        # Debug
-        # print(f"Area G: {area_g}, Area R: {area_r}")
+        # Determine candidate
+        candidate = "IDLE"
+        active_mask = None
+        if area_g > self.min_area and area_g > area_r:
+            candidate = "jab"
+            active_mask = mask_g
+        elif area_r > self.min_area and area_r > area_g:
+            candidate = "cross"
+            active_mask = mask_r
+            
+        if candidate == "IDLE":
+             return "IDLE"
+
+        # Check Depth
+        dist = self._get_median_depth(active_mask, depth)
+        if dist is None or dist > self.depth_threshold:
+             # print(f"Ignored {candidate} at {dist}m")
+             return "IDLE"
         
         now = time.time()
         if now - self.last_time < self.cooldown:
             return "IDLE"
             
-        label = "IDLE"
-        if area_g > self.min_area and area_g > area_r:
-            label = "jab"
-        elif area_r > self.min_area and area_r > area_g:
-            label = "cross"
-            
-        if label != "IDLE":
-             self.last_time = now
-             return label
-        
-        return "IDLE"
+        self.last_time = now
+        return candidate
+
+    def _get_median_depth(self, mask, depth):
+        if depth is None: return None
+        # Apply mask
+        valid_depth = depth[mask > 0]
+        if valid_depth.size == 0: return None
+        # Filter 0s
+        valid_depth = valid_depth[valid_depth > 0]
+        if valid_depth.size < 50: return None
+        return float(np.median(valid_depth))
 
 
 def _load_config(path: str) -> dict:
@@ -292,8 +310,8 @@ class LiveRGBDInference:
                 use_simple = self.imu_handler and self.imu_handler.simple_mode
                 
                 if use_simple:
-                    # Simple Color Mode
-                    label = self.simple_detector.detect(rgb)
+                    # Simple Color Mode with Depth Trigger
+                    label = self.simple_detector.detect(rgb, depth)
                     probs = np.zeros(len(self.labels), dtype=np.float32)
                     bbox = None
                     rgb_crop, depth_crop = None, None

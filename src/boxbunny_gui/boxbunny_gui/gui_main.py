@@ -844,8 +844,9 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 background: rgba(22, 27, 34, 0.6);
                 color: #8b949e;
                 border: 1px solid #30363d;
-                font-size: 13px;
-                padding: 8px 16px;
+                font-size: 14px;
+                padding: 12px 24px;
+                min-width: 260px;
                 border-radius: 8px;
             }
             QPushButton:hover {
@@ -863,49 +864,72 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
 
         # Advanced Panel (Hidden by default)
         self.advanced_panel = QtWidgets.QWidget()
-        adv_layout = QtWidgets.QHBoxLayout(self.advanced_panel)
-        adv_layout.setContentsMargins(0, 0, 0, 0)
-        adv_layout.setSpacing(8)
+        # Advanced Panel (Hidden by default)
+        self.advanced_panel = QtWidgets.QWidget()
+        adv_main_layout = QtWidgets.QVBoxLayout(self.advanced_panel)
+        adv_main_layout.setContentsMargins(0, 0, 0, 0)
+        adv_main_layout.setSpacing(8)
         
+        # Row 1: Sub-menus
+        row1_widget = QtWidgets.QWidget()
+        row1_layout = QtWidgets.QHBoxLayout(row1_widget)
+        row1_layout.setContentsMargins(0, 0, 0, 0)
+        row1_layout.setSpacing(8)
+
         btn_punch = self._create_menu_btn("📊 Stats", "", self.punch_tab)
         btn_llm = self._create_menu_btn("💬 AI", "", self.llm_tab)
         btn_calib = self._create_menu_btn("⚙️ Calib", "", self.calib_tab)
         
+        shared_style = """
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #30363d, stop:1 #21262d);
+                color: #e6edf3;
+                font-size: 13px;
+                padding: 8px;
+                border-radius: 8px;
+                border: 1px solid #484f58;
+                min-width: 80px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #484f58, stop:1 #30363d);
+                border-color: #8b949e;
+            }
+            QPushButton:checked {
+               background: #1f6feb;
+               border-color: #58a6ff;
+            }
+        """
+
         for btn in [btn_punch, btn_llm, btn_calib]:
             btn.setFixedHeight(45)
-            btn.setStyleSheet("""
-                QPushButton {
-                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                        stop:0 #30363d, stop:1 #21262d);
-                    color: #e6edf3;
-                    font-size: 13px;
-                    padding: 8px;
-                    border-radius: 8px;
-                    border: 1px solid #484f58;
-                }
-                QPushButton:hover {
-                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                        stop:0 #484f58, stop:1 #30363d);
-                    border-color: #8b949e;
-                }
-            """)
+            btn.setStyleSheet(shared_style)
+            row1_layout.addWidget(btn)
 
-        adv_layout.addWidget(btn_punch)
-        adv_layout.addWidget(btn_llm)
-        adv_layout.addWidget(btn_calib)
+        # Row 2: Toggles
+        row2_widget = QtWidgets.QWidget()
+        row2_layout = QtWidgets.QHBoxLayout(row2_widget)
+        row2_layout.setContentsMargins(0, 0, 0, 0)
+        row2_layout.setSpacing(8)
 
         # Mode Toggle
         self.mode_btn = QtWidgets.QPushButton("Mode: AI Model")
         self.mode_btn.setCheckable(True)
-        self.mode_btn.setStyleSheet("background-color: #21262d; border: 1px solid #484f58;")
+        self.mode_btn.setFixedHeight(45)
+        self.mode_btn.setStyleSheet(shared_style)
         self.mode_btn.clicked.connect(self._toggle_action_mode)
-        adv_layout.addWidget(self.mode_btn)
+        row2_layout.addWidget(self.mode_btn)
 
         # Height Calib
         self.height_btn = QtWidgets.QPushButton("📏 Calib Height")
-        self.height_btn.setStyleSheet("background-color: #21262d; border: 1px solid #484f58;")
+        self.height_btn.setFixedHeight(45)
+        self.height_btn.setStyleSheet(shared_style)
         self.height_btn.clicked.connect(self._start_height_calibration)
-        adv_layout.addWidget(self.height_btn)
+        row2_layout.addWidget(self.height_btn)
+
+        adv_main_layout.addWidget(row1_widget)
+        adv_main_layout.addWidget(row2_widget)
         
         self.advanced_panel.setVisible(False)
         main_layout.addWidget(self.advanced_panel)
@@ -951,7 +975,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """)
         
         cue_layout = QtWidgets.QVBoxLayout(self.cue_panel)
-        self.state_label = QtWidgets.QLabel("IDLE")
+        self.state_label = QtWidgets.QLabel("STOPPED")
         self.state_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.state_label.setStyleSheet("font-size: 48px; font-weight: bold; border: none; background: transparent;")
         
@@ -1046,12 +1070,13 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         # Right side with IMU data
         imu_layout = QtWidgets.QVBoxLayout()
         self.imu_label = QtWidgets.QLabel("IMU: --")
+        self.imu_label.setVisible(False) # Hidden by default
         self.punch_label = QtWidgets.QLabel("Last punch: --")
         imu_layout.addWidget(self.imu_label)
         imu_layout.addWidget(self.punch_label)
         imu_layout.addStretch(1)
 
-        layout.addWidget(self.punch_preview)
+        layout.addLayout(left_layout)
         layout.addLayout(imu_layout)
         self.punch_tab.setLayout(layout)
 
@@ -1483,7 +1508,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 border-radius: 16px;
                 border: 1px solid rgba(48, 54, 61, 0.8);
             """)
-            self.state_label.setText("IDLE")
+            self.state_label.setText("STOPPED")
 
         if state == "countdown":
             self.countdown_label.setText(f"Countdown: {countdown}")
@@ -1502,10 +1527,14 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         )
         self.trash_label.setText(f"Coach: {trash or '--'}")
 
-        if imu:
+        if imu and self.imu_input_enabled:
+            self.imu_label.setVisible(True)
             self.imu_label.setText(
                 f"IMU ax={imu.ax:.2f} ay={imu.ay:.2f} az={imu.az:.2f} | gx={imu.gx:.2f} gy={imu.gy:.2f} gz={imu.gz:.2f}"
             )
+        else:
+             self.imu_label.setVisible(False)
+
         if punch:
             self.punch_label.setText(
                 f"Last punch: {punch.glove} {punch.punch_type or 'unknown'} v={punch.approach_velocity_mps:.2f} d={punch.distance_m:.2f}"
@@ -1584,7 +1613,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             return
         req = StartDrill.Request()
         req.drill_type = "defence"
-        req.drill_name = self.defence_combo.currentText()
+        req.drill_name = "Random" # self.defence_combo removed
         req.repetitions = self.defence_count_spin.value()
         self.ros.defence_drill_client.call_async(req)
         self.defence_status_label.setText("Status: starting...")
@@ -1738,23 +1767,6 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.stack.setCurrentWidget(self.video_replay)
 
 
-def main() -> None:
-    rclpy.init()
-    ros_node = RosInterface()
-
-    app = QtWidgets.QApplication([])
-    gui = BoxBunnyGui(ros_node)
-    gui.show()
-
-    ros_thread = RosSpinThread(ros_node)
-    ros_thread.start()
-
-    app.exec()
-
-    ros_node.destroy_node()
-    rclpy.shutdown()
-
-
     def _toggle_action_mode(self) -> None:
         is_simple = self.mode_btn.isChecked()
         self.mode_btn.setText("Mode: Simple/Color" if is_simple else "Mode: AI Model")
@@ -1784,6 +1796,24 @@ def main() -> None:
              QtWidgets.QMessageBox.information(self, "Height", "Calibration request sent! Check logs/status.")
         else:
              QtWidgets.QMessageBox.warning(self, "Height", "Height service not ready")
+
+def main() -> None:
+    rclpy.init()
+    ros_node = RosInterface()
+
+    app = QtWidgets.QApplication([])
+    gui = BoxBunnyGui(ros_node)
+    gui.show()
+
+    ros_thread = RosSpinThread(ros_node)
+    ros_thread.start()
+
+    app.exec()
+
+    ros_node.destroy_node()
+    rclpy.shutdown()
+
+
 
 if __name__ == "__main__":
     main()

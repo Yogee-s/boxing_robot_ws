@@ -155,6 +155,10 @@ class GloveTracker(Node):
             debug_msg = self.bridge.cv2_to_imgmsg(debug_img, encoding="bgr8")
             debug_msg.header = color_msg.header
             self.debug_pub.publish(debug_msg)
+            
+            # Show local debug window
+            cv2.imshow("Glove Tracking (Green=Left, Red=Right)", debug_img)
+            cv2.waitKey(1)
         except Exception:
             pass
 
