@@ -9,6 +9,7 @@ import csv # Added by user instruction
 import cv2
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from rclpy.parameter import Parameter
 from std_msgs.msg import String, Int32, Bool, Float32
 from std_srvs.srv import SetBool, Trigger
@@ -120,19 +121,14 @@ class CheckboxProgressWidget(QtWidgets.QWidget):
     
     def __init__(self, count: int = 3, parent=None):
         super().__init__(parent)
+        self.setStyleSheet("background: transparent; border: none;")
         self.count = count
         self.current = 0
         self.checkboxes = []
         
         outer_layout = QtWidgets.QVBoxLayout(self)
         outer_layout.setSpacing(6)
-        outer_layout.setContentsMargins(0, 10, 0, 0)
-        
-        # Title label
-        title = QtWidgets.QLabel("PROGRESS")
-        title.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("font-size: 14px; font-weight: 700; color: #555; letter-spacing: 1px;")
-        outer_layout.addWidget(title)
+        outer_layout.setContentsMargins(0, 10, 0, 18)
         
         # Checkboxes row
         checkbox_row = QtWidgets.QHBoxLayout()
@@ -229,9 +225,10 @@ class CoachBarWidget(QtWidgets.QFrame):
         """)
 
         # Connect streaming callback
-        self.ros.stream_callback = self._on_stream_data
+        self.ros.add_stream_listener(self._on_stream_data)
         self._received_stream = False
         self._streaming_text = ""
+        self._stream_target = "coach_bar"
         
         layout = QtWidgets.QHBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
@@ -348,10 +345,13 @@ class CoachBarWidget(QtWidgets.QFrame):
         self._streaming_text = ""
         
         # Add callback for when response arrives
+        self.ros.stream_target = self._stream_target
         future.add_done_callback(self._on_coach_response)
         
     def _on_stream_data(self, text: str):
         """Handle incoming stream token."""
+        if getattr(self.ros, "stream_target", None) != self._stream_target:
+            return
         # Update on main thread
         QtCore.QMetaObject.invokeMethod(
             self, "_update_stream",
@@ -392,6 +392,7 @@ class CoachBarWidget(QtWidgets.QFrame):
                 QtCore.Qt.ConnectionType.QueuedConnection,
                 QtCore.Q_ARG(str, response)
             )
+        self.ros.stream_target = None
     
     @QtCore.Slot(str)
     def _start_stream(self, text: str):
@@ -413,6 +414,7 @@ class CoachBarWidget(QtWidgets.QFrame):
         """Add next chunk of characters to display."""
         if self._stream_index >= len(self._stream_text):
             self._stream_timer.stop()
+            self.ros.stream_target = None
             return
         
         # Add 2-3 characters at a time for smoother effect
@@ -529,6 +531,7 @@ class StartupLoadingScreen(QtWidgets.QWidget):
         with self.ros.lock:
             has_camera = (self.ros.last_image is not None or 
                           self.ros.last_color_image is not None or 
+                          self.ros.last_color_image_fallback is not None or
                           self.ros.last_pose_image is not None)
             
         if has_camera and not self.camera_ready:
@@ -807,13 +810,20 @@ class RosInterface(Node):
 
         self.declare_parameter("punch_topic", "punch_events")
         self.declare_parameter("color_topic", "/camera/color/image_raw")
+        self.declare_parameter("color_topic_fallback", "/camera/camera/color/image_raw")
 
         self.last_image = None
         self.last_color_image = None
+        self.last_color_image_stamp = None
+        self.last_color_image_fallback = None
+        self.last_color_image_fallback_stamp = None
         self.last_pose_image = None  # For pose skeleton from action_debug_image
         self.last_detections: Optional[GloveDetections] = None
         self.last_punch: Optional[PunchEvent] = None
         self.last_imu: Optional[ImuDebug] = None
+        self.last_shadow_punch: Optional[PunchEvent] = None
+        self.last_shadow_punch_stamp = None
+        self.shadow_punch_counter = 0
         self.drill_state = "idle"
         self.drill_summary = {}
         self.drill_countdown = 0
@@ -823,12 +833,25 @@ class RosInterface(Node):
 
         punch_topic = self.get_parameter("punch_topic").value
         color_topic = self.get_parameter("color_topic").value
+        color_fallback_topic = self.get_parameter("color_topic_fallback").value
 
-        self.debug_sub = self.create_subscription(Image, "glove_debug_image", self._on_image, 5)
-        self.color_sub = self.create_subscription(Image, color_topic, self._on_color_image, 5)
-        self.pose_sub = self.create_subscription(Image, "action_debug_image", self._on_pose_image, 5)
+        # Image topics are typically best-effort; use sensor data QoS to ensure matching.
+        self.debug_sub = self.create_subscription(
+            Image, "glove_debug_image", self._on_image, qos_profile_sensor_data
+        )
+        self.color_sub = self.create_subscription(
+            Image, color_topic, self._on_color_image, qos_profile_sensor_data
+        )
+        if color_fallback_topic and color_fallback_topic != color_topic:
+            self.color_fallback_sub = self.create_subscription(
+                Image, color_fallback_topic, self._on_color_image_fallback, qos_profile_sensor_data
+            )
+        self.pose_sub = self.create_subscription(
+            Image, "action_debug_image", self._on_pose_image, qos_profile_sensor_data
+        )
         self.det_sub = self.create_subscription(GloveDetections, "glove_detections", self._on_detections, 5)
         self.punch_sub = self.create_subscription(PunchEvent, punch_topic, self._on_punch, 5)
+        self.shadow_punch_sub = self.create_subscription(PunchEvent, "punch_events_raw", self._on_shadow_punch, 5)
         self.imu_sub = self.create_subscription(ImuDebug, "imu/debug", self._on_imu, 5)
         self.state_sub = self.create_subscription(String, "drill_state", self._on_state, 5)
         self.summary_sub = self.create_subscription(String, "drill_summary", self._on_summary, 5)
@@ -837,7 +860,8 @@ class RosInterface(Node):
 
         self.start_stop_client = self.create_client(StartStopDrill, "start_stop_drill")
         self.llm_client = self.create_client(GenerateLLM, "llm/generate")
-        self.shadow_drill_client = self.create_client(StartDrill, "start_drill")
+        self.shadow_drill_client = self.create_client(StartDrill, "/start_drill")
+        self.shadow_stop_client = self.create_client(Trigger, "/stop_shadow_drill")
         self.defence_drill_client = self.create_client(StartDrill, "start_defence_drill")
         self.imu_input_client = self.create_client(SetBool, "imu_input_selector/enable")
         self.tracker_param_client = self.create_client(SetParameters, "realsense_glove_tracker/set_parameters")
@@ -847,6 +871,9 @@ class RosInterface(Node):
         self.last_action: Optional[ActionPrediction] = None
         self.drill_progress: Optional[DrillProgress] = None
         self.imu_input_enabled = False
+        self.stream_target = None
+        
+        self._last_processed_punch_timestamp = None
         
         self.action_sub = self.create_subscription(ActionPrediction, "action_prediction", self._on_action, 5)
         self.progress_sub = self.create_subscription(DrillProgress, "drill_progress", self._on_progress, 5)
@@ -855,6 +882,7 @@ class RosInterface(Node):
         self.stream_sub = self.create_subscription(String, "llm/stream", self._on_llm_stream, 10)
         
         self.stream_callback = None
+        self.stream_listeners = []
         
         # New Services
         self.mode_client = self.create_client(SetBool, "action_predictor/set_simple_mode")
@@ -893,6 +921,16 @@ class RosInterface(Node):
             img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
             with self.lock:
                 self.last_color_image = img
+                self.last_color_image_stamp = (msg.header.stamp.sec, msg.header.stamp.nanosec)
+        except Exception:
+            pass
+
+    def _on_color_image_fallback(self, msg: Image) -> None:
+        try:
+            img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+            with self.lock:
+                self.last_color_image_fallback = img
+                self.last_color_image_fallback_stamp = (msg.header.stamp.sec, msg.header.stamp.nanosec)
         except Exception:
             pass
 
@@ -911,9 +949,17 @@ class RosInterface(Node):
 
     def _on_punch(self, msg: PunchEvent) -> None:
         with self.lock:
+            print(f"DEBUG: GUI received punch: {msg.punch_type} at {msg.approach_velocity_mps:.2f} m/s")
             self.last_punch = msg
             self.last_punch_stamp = (msg.stamp.sec, msg.stamp.nanosec)
             self.punch_counter += 1
+
+    def _on_shadow_punch(self, msg: PunchEvent) -> None:
+        with self.lock:
+            self.last_shadow_punch = msg
+            self.last_shadow_punch_stamp = (msg.stamp.sec, msg.stamp.nanosec)
+            if msg.is_punch:
+                self.shadow_punch_counter += 1
 
     def _on_imu(self, msg: ImuDebug) -> None:
         with self.lock:
@@ -941,6 +987,11 @@ class RosInterface(Node):
     def _on_llm_stream(self, msg: String) -> None:
         if self.stream_callback:
             self.stream_callback(msg.data)
+        for listener in self.stream_listeners:
+            listener(msg.data)
+
+    def add_stream_listener(self, listener) -> None:
+        self.stream_listeners.append(listener)
 
 
 
@@ -974,6 +1025,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self._replay_index = 0
         self._initialized = False
         self._camera_received = False
+        self._shadow_last_preview_ts = None
 
         self._apply_styles()
         
@@ -1844,7 +1896,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         video_frame = QtWidgets.QFrame()
         video_frame.setMinimumWidth(340)
         video_frame.setMaximumWidth(420)
-        video_frame.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Expanding)
+        video_frame.setMaximumHeight(340)
+        video_frame.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Preferred)
         video_frame.setStyleSheet("""
             QFrame {
                 background: #0a0a0a;
@@ -1904,26 +1957,25 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         
         # Cue Panel - prominent status display
         self.cue_panel = QtWidgets.QFrame()
-        self.cue_panel.setMinimumHeight(120)
-        self.cue_panel.setMaximumHeight(150)
+        self.cue_panel.setMinimumHeight(96)
+        self.cue_panel.setMaximumHeight(120)
         self.cue_panel.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
         self.cue_panel.setStyleSheet("""
             background: transparent;
             border: none;
-            border-top: 2px solid #333;
         """)
         cue_layout = QtWidgets.QVBoxLayout(self.cue_panel)
         cue_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        cue_layout.setContentsMargins(8, 24, 8, 16)
+        cue_layout.setContentsMargins(8, 16, 8, 12)
         cue_layout.setSpacing(4)
         
         self.state_label = QtWidgets.QLabel("READY")
         self.state_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.state_label.setStyleSheet("font-size: 52px; font-weight: 800; color: #ff8c00; background: transparent;")
+        self.state_label.setStyleSheet("font-size: 34px; font-weight: 800; color: #ff8c00; background: transparent;")
         
-        self.countdown_label = QtWidgets.QLabel("Press START to begin")
+        self.countdown_label = QtWidgets.QLabel("Throw a punch on cue")
         self.countdown_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.countdown_label.setStyleSheet("font-size: 16px; color: #ffa333; background: transparent;")
+        self.countdown_label.setStyleSheet("font-size: 13px; color: #ffa333; background: transparent;")
         
         cue_layout.addWidget(self.state_label)
         cue_layout.addWidget(self.countdown_label)
@@ -2082,102 +2134,6 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self._best_attempt_index = -1
         self._best_attempt_frames = []
         # self.attempt_labels is already populated above
-
-    def _setup_shadow_tab(self) -> None:
-        layout = QtWidgets.QVBoxLayout()
-        layout.setContentsMargins(20, 10, 20, 20)
-        layout.setSpacing(20)
-        self._add_back_btn(layout)
-        
-        # Header
-        header = QtWidgets.QLabel("🥊 SHADOW SPARRING: 1-1-2 COMBO")
-        header.setStyleSheet("font-size: 24px; font-weight: 800; color: #ff8c00; padding: 10px; letter-spacing: 2px;")
-        header.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(header)
-        
-        layout.addStretch(1)
-        
-        # Combo Steps Display (Horizontal)
-        combo_frame = QtWidgets.QFrame()
-        combo_frame.setStyleSheet("background: #1a1a1a; border-radius: 16px; border: 2px solid #333;")
-        combo_layout = QtWidgets.QHBoxLayout(combo_frame)
-        combo_layout.setContentsMargins(30, 30, 30, 30)
-        combo_layout.setSpacing(10)
-        
-        # Define steps for 1-1-2
-        steps = ["JAB", "JAB", "CROSS"]
-        self.shadow_step_labels = []
-        
-        for i, text in enumerate(steps):
-            # Step Container
-            step_box = QtWidgets.QLabel(text)
-            step_box.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-            step_box.setMinimumSize(160, 120)
-            step_box.setStyleSheet("""
-                font-size: 28px;
-                font-weight: 800;
-                color: #555;
-                background: #111;
-                border: 2px solid #333;
-                border-radius: 12px;
-            """)
-            combo_layout.addWidget(step_box)
-            self.shadow_step_labels.append(step_box)
-            
-            # Arrow (except last)
-            if i < len(steps) - 1:
-                arrow = QtWidgets.QLabel("➜")
-                arrow.setStyleSheet("font-size: 32px; color: #444; font-weight: bold;")
-                arrow.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-                combo_layout.addWidget(arrow)
-                
-        layout.addWidget(combo_frame)
-        
-        layout.addStretch(1)
-        
-        # Status / Feedback
-        self.shadow_status_label = QtWidgets.QLabel("Press START to Begin")
-        self.shadow_status_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.shadow_status_label.setStyleSheet("font-size: 32px; font-weight: 700; color: #888;")
-        layout.addWidget(self.shadow_status_label)
-        
-        layout.addStretch(1)
-        
-        # Controls
-        btn_row = QtWidgets.QHBoxLayout()
-        btn_row.setSpacing(20)
-        btn_row.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        
-        self.shadow_start_btn = QtWidgets.QPushButton("▶ START DRILL")
-        self.shadow_start_btn.setMinimumSize(200, 70)
-        self.shadow_start_btn.setStyleSheet(ButtonStyle.START)
-        
-        self.shadow_start_btn.clicked.connect(lambda: self._start_shadow_drill("1-1-2 Combo"))
-        
-        btn_row.addWidget(self.shadow_start_btn)
-        
-        layout.addLayout(btn_row)
-        layout.addStretch(1)
-        
-        self.shadow_tab.setLayout(layout)
-
-    def _start_shadow_drill(self, drill_name: str):
-        """Start the shadow sparring drill."""
-        if not self.ros.shadow_drill_client.service_is_ready():
-            self.shadow_status_label.setText("⚠️ Service Not Ready")
-            return
-            
-        req = StartDrill.Request()
-        req.drill_name = drill_name
-        future = self.ros.shadow_drill_client.call_async(req)
-        
-        # Reset UI
-        for lbl in self.shadow_step_labels:
-            lbl.setStyleSheet("""
-                font-size: 28px; font-weight: 800; color: #555;
-                background: #111; border: 2px solid #333; border-radius: 12px;
-            """)
-        self.shadow_status_label.setText("Starting...")
 
     def _setup_punch_tab(self) -> None:
         layout = QtWidgets.QVBoxLayout()
@@ -2709,7 +2665,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
     def _setup_shadow_tab(self) -> None:
         """Setup shadow sparring drill tab - with camera feed."""
         outer_layout = QtWidgets.QVBoxLayout(self.shadow_tab)
-        outer_layout.setContentsMargins(10, 6, 10, 6)
+        outer_layout.setContentsMargins(8, 6, 8, 6)
         outer_layout.setSpacing(6)
         self._add_back_btn(outer_layout)
         
@@ -2720,14 +2676,15 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         # === LEFT: Camera Feed ===
         left_col = QtWidgets.QVBoxLayout()
         left_col.setSpacing(4)
-        
-        # Add stretch to center camera vertically
+
+        # Center camera vertically (match reaction layout)
         left_col.addStretch(1)
         
         video_frame = QtWidgets.QFrame()
         video_frame.setMinimumWidth(340)
         video_frame.setMaximumWidth(420)
-        video_frame.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Expanding)
+        video_frame.setMaximumHeight(340)
+        video_frame.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Preferred)
         video_frame.setStyleSheet("""
             QFrame {
                 background: #0a0a0a;
@@ -2740,18 +2697,15 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         video_inner.setSpacing(4)
         
         video_header = QtWidgets.QHBoxLayout()
-        shadow_video_title = QtWidgets.QLabel("🥊 SHADOW SPARRING")
-        shadow_video_title.setStyleSheet("font-size: 16px; font-weight: 700; color: #ff8c00; padding: 4px;")
-        video_header.addWidget(shadow_video_title)
-        video_header.addStretch()
-        self.shadow_video_status = QtWidgets.QLabel("● LIVE")
-        self.shadow_video_status.setStyleSheet("font-size: 12px; font-weight: 700; color: #00cc00; padding: 4px;")
+        self.shadow_video_status = QtWidgets.QLabel("📹 LIVE")
+        self.shadow_video_status.setStyleSheet("font-size: 16px; font-weight: 700; color: #00cc00; padding: 4px;")
         video_header.addWidget(self.shadow_video_status)
+        video_header.addStretch()
         video_inner.addLayout(video_header)
         
         self.shadow_preview = QtWidgets.QLabel()
-        self.shadow_preview.setMinimumSize(320, 230)
-        self.shadow_preview.setMaximumSize(400, 280)
+        self.shadow_preview.setMinimumSize(320, 240)
+        self.shadow_preview.setMaximumSize(400, 300)
         self.shadow_preview.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding)
         self.shadow_preview.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.shadow_preview.setText("⏳ Connecting...")
@@ -2770,43 +2724,43 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         
         # === RIGHT: Controls & Action Display ===
         right_col = QtWidgets.QVBoxLayout()
-        right_col.setSpacing(8)
-        
-        # Add stretch at top to center content
-        right_col.addStretch(1)
+        right_col.setSpacing(4)
         
         # Action prediction card - prominent display
         self.action_card = QtWidgets.QFrame()
-        self.action_card.setMinimumHeight(120)
-        self.action_card.setMaximumHeight(150)
+        self.action_card.setMinimumHeight(76)
+        self.action_card.setMaximumHeight(96)
         self.action_card.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
         self.action_card.setStyleSheet("""
             QFrame {
                 background: transparent;
                 border: none;
-                border-top: 2px solid #333;
             }
         """)
         ac_layout = QtWidgets.QVBoxLayout(self.action_card)
         ac_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        ac_layout.setContentsMargins(8, 24, 8, 16)
+        ac_layout.setContentsMargins(8, 16, 8, 12)
         ac_layout.setSpacing(2)
         
         self.action_label = QtWidgets.QLabel("READY")
         self.action_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.action_label.setStyleSheet("font-size: 52px; font-weight: 800; color: #ff8c00; background: transparent;")
+        self.action_label.setStyleSheet("font-size: 34px; font-weight: 800; color: #ff8c00; background: transparent;")
         ac_layout.addWidget(self.action_label)
         
-        self.action_conf_label = QtWidgets.QLabel("Throw: JAB - JAB - CROSS (x3)")
+        self.action_conf_label = QtWidgets.QLabel("Complete the selected combo")
         self.action_conf_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.action_conf_label.setStyleSheet("font-size: 15px; color: #ffa333; background: transparent;")
+        self.action_conf_label.setStyleSheet("font-size: 13px; color: #ffa333; background: transparent;")
         ac_layout.addWidget(self.action_conf_label)
         
         right_col.addWidget(self.action_card)
         
-        # Big START button at top
-        self.shadow_start_btn = QtWidgets.QPushButton("▶  START DRILL")
-        self.shadow_start_btn.setMinimumHeight(54)
+        # Start/Stop row (aligned with Reaction drill layout)
+        btn_row = QtWidgets.QHBoxLayout()
+        btn_row.setSpacing(10)
+        
+        self.shadow_start_btn = QtWidgets.QPushButton("▶  START")
+        self.shadow_start_btn.setMinimumHeight(48)
+        self.shadow_start_btn.setMinimumWidth(120)
         self.shadow_start_btn.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
         self.shadow_start_btn.clicked.connect(self._start_shadow_drill)
         self.shadow_start_btn.setStyleSheet("""
@@ -2816,17 +2770,41 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 font-size: 18px;
                 font-weight: 700;
                 border-radius: 10px;
-                padding: 14px 24px;
+                padding: 14px 20px;
             }
             QPushButton:hover { background: #ffa333; }
             QPushButton:pressed { background: #cc7000; }
         """)
+        self._shadow_start_style = self.shadow_start_btn.styleSheet()
         self.shadow_start_btn.setAttribute(QtCore.Qt.WidgetAttribute.WA_AcceptTouchEvents, True)
-        right_col.addWidget(self.shadow_start_btn)
+        
+        self.shadow_stop_btn = QtWidgets.QPushButton("⬛  STOP")
+        self.shadow_stop_btn.setMinimumHeight(48)
+        self.shadow_stop_btn.setMinimumWidth(120)
+        self.shadow_stop_btn.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
+        self.shadow_stop_btn.clicked.connect(self._stop_shadow_drill)
+        self.shadow_stop_btn.setStyleSheet("""
+            QPushButton {
+                background: #2a2a2a;
+                color: #888;
+                font-size: 18px;
+                font-weight: 700;
+                border-radius: 10px;
+                border: 1px solid #333;
+                padding: 14px 20px;
+            }
+            QPushButton:hover { background: #333; color: #fff; }
+            QPushButton:pressed { background: #222; }
+        """)
+        self.shadow_stop_btn.setEnabled(False)
+        
+        btn_row.addWidget(self.shadow_start_btn, stretch=1)
+        btn_row.addWidget(self.shadow_stop_btn, stretch=1)
+        right_col.addLayout(btn_row)
         
         # Combo selector (optional advanced)
         combo_frame = QtWidgets.QFrame()
-        combo_frame.setStyleSheet("background: #151515; border-radius: 8px; border: 1px solid #282828;")
+        combo_frame.setStyleSheet("background: #151515; border-radius: 8px; border: none;")
         combo_inner = QtWidgets.QHBoxLayout(combo_frame)
         combo_inner.setContentsMargins(12, 8, 12, 8)
         combo_inner.setSpacing(10)
@@ -2836,62 +2814,161 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         combo_inner.addWidget(combo_label)
         
         self.shadow_combo = QtWidgets.QComboBox()
-        self.shadow_combo.addItems([
-            "1-1-2 (Jab-Jab-Cross)",
-        ])
         self.shadow_combo.setStyleSheet("font-size: 13px; padding: 6px;")
+        self._shadow_drill_defs = self._load_shadow_drill_definitions()
+        self._shadow_drill_map = {drill["name"]: drill for drill in self._shadow_drill_defs}
+        for drill in self._shadow_drill_defs:
+            seq_label = " - ".join(step.replace("_", " ").upper() for step in drill["sequence"])
+            label = f"{drill['name']} ({seq_label})" if seq_label else drill["name"]
+            self.shadow_combo.addItem(label, drill["name"])
+        if self.shadow_combo.count() == 0:
+            self.shadow_combo.addItem("1-1-2 Combo (JAB - JAB - CROSS)", "1-1-2 Combo")
+        self.shadow_combo.currentIndexChanged.connect(self._on_shadow_combo_changed)
         combo_inner.addWidget(self.shadow_combo, stretch=1)
         
         right_col.addWidget(combo_frame)
         
-        # Progress info
+        # Progress stats grid (compact, no overlap)
         progress_frame = QtWidgets.QFrame()
-        progress_frame.setStyleSheet("background: #151515; border-radius: 8px; border: 1px solid #282828;")
-        prog_layout = QtWidgets.QGridLayout(progress_frame)
-        prog_layout.setSpacing(6)
-        prog_layout.setContentsMargins(12, 10, 12, 10)
+        progress_frame.setMinimumHeight(130)
+        progress_frame.setStyleSheet("background: #151515; border-radius: 8px; padding: 0px; border: none;")
         
-        self.shadow_progress_label = QtWidgets.QLabel("Step: -/-")
-        self.shadow_progress_label.setStyleSheet("font-size: 17px; font-weight: 700; color: #ff8c00;")
-        self.shadow_expected_label = QtWidgets.QLabel("Next: --")
-        self.shadow_expected_label.setStyleSheet("font-size: 14px; color: #ffa333;")
+        # Use VBox instead of Grid to prevent overlapping
+        prog_layout = QtWidgets.QVBoxLayout(progress_frame)
+        prog_layout.setContentsMargins(12, 12, 12, 12)
+        prog_layout.setSpacing(8)
+        
+        # Row 1: Status (Top)
+        self.shadow_status_label = QtWidgets.QLabel("Status: IDLE")
+        self.shadow_status_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.shadow_status_label.setStyleSheet("font-size: 14px; color: #888; font-weight: 600; letter-spacing: 1px; background: transparent; border: none;")
+        prog_layout.addWidget(self.shadow_status_label)
+        
+        # Row 2: Stats Row (Rep + Time)
+        stats_row = QtWidgets.QHBoxLayout()
+        self.shadow_progress_label = QtWidgets.QLabel("Step: 0/0")
+        self.shadow_progress_label.setStyleSheet("font-size: 16px; font-weight: 700; color: #ff8c00; background: transparent; border: none;")
+        stats_row.addWidget(self.shadow_progress_label)
+        
+        stats_row.addStretch()
+        
+        self.shadow_punch_count_label = QtWidgets.QLabel("Punches: 0")
+        self.shadow_punch_count_label.setStyleSheet("font-size: 13px; color: #888; background: transparent; border: none;")
+        stats_row.addWidget(self.shadow_punch_count_label)
+        
+        stats_row.addStretch()
+        
         self.shadow_elapsed_label = QtWidgets.QLabel("Time: 0.0s")
-        self.shadow_elapsed_label.setStyleSheet("font-size: 14px; color: #888;")
-        self.shadow_status_label = QtWidgets.QLabel("Status: idle")
-        self.shadow_status_label.setStyleSheet("font-size: 14px; color: #666;")
+        self.shadow_elapsed_label.setStyleSheet("font-size: 13px; color: #aaa; background: transparent; border: none;")
+        stats_row.addWidget(self.shadow_elapsed_label)
+        prog_layout.addLayout(stats_row)
         
-        prog_layout.addWidget(self.shadow_progress_label, 0, 0)
-        prog_layout.addWidget(self.shadow_expected_label, 0, 1)
-        prog_layout.addWidget(self.shadow_elapsed_label, 1, 0)
-        prog_layout.addWidget(self.shadow_status_label, 1, 1)
+        # Row 3: Expected Punch
+        self.shadow_expected_label = QtWidgets.QLabel("Next: --")
+        self.shadow_expected_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.shadow_expected_label.setStyleSheet("font-size: 14px; color: #ccc; border-top: 1px solid #333; padding-top: 6px; margin-top: 4px; background: transparent;")
+        prog_layout.addWidget(self.shadow_expected_label)
         
         right_col.addWidget(progress_frame)
+
+        # Detected label in its own compact frame
+        detected_frame = QtWidgets.QFrame()
+        detected_frame.setStyleSheet("background: #151515; border-radius: 8px; border: none;")
+        detected_layout = QtWidgets.QVBoxLayout(detected_frame)
+        detected_layout.setContentsMargins(12, 8, 12, 8)
         
-        # Sequence display
-        self.shadow_sequence_label = QtWidgets.QLabel("Sequence: --")
-        self.shadow_sequence_label.setWordWrap(True)
-        self.shadow_sequence_label.setStyleSheet("""
-            font-size: 12px;
-            color: #8b949e;
-            padding: 10px;
-            background: #151515;
-            border-radius: 8px;
-            border: 1px solid #282828;
+        self.shadow_detected_label = QtWidgets.QLabel("DETECTED: --")
+        self.shadow_detected_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.shadow_detected_label.setMinimumHeight(44)
+        self.shadow_detected_label.setStyleSheet("""
+            QLabel {
+                background: #222;
+                color: #555;
+                font-size: 22px;
+                font-weight: 800;
+                border-radius: 8px;
+                padding: 8px;
+                border: none;
+            }
         """)
-        right_col.addWidget(self.shadow_sequence_label)
+        self._shadow_detected_style = self.shadow_detected_label.styleSheet()
+        detected_layout.addWidget(self.shadow_detected_label)
+        right_col.addWidget(detected_frame)
         
-        # Checkbox progress indicator (3 reps for 1-1-2)
+        # Checkbox progress indicator (dynamic per combo length)
+        self.shadow_checkbox_container = QtWidgets.QFrame()
+        self.shadow_checkbox_container.setStyleSheet("background: transparent;")
+        self.shadow_checkbox_layout = QtWidgets.QVBoxLayout(self.shadow_checkbox_container)
+        self.shadow_checkbox_layout.setContentsMargins(0, 0, 0, 12)
+        self.shadow_checkbox_layout.setSpacing(0)
         self.shadow_checkbox_progress = CheckboxProgressWidget(count=3)
-        right_col.addWidget(self.shadow_checkbox_progress)
+        self.shadow_checkbox_layout.addWidget(self.shadow_checkbox_progress)
+        right_col.addWidget(self.shadow_checkbox_container)
         
-        right_col.addStretch(1)
         content.addLayout(right_col, stretch=1)
         
         outer_layout.addLayout(content, stretch=1)
         
         # === BOTTOM: Coach Bar ===
         self.shadow_coach_bar = CoachBarWidget(self.ros)
+        self.shadow_coach_bar.setMinimumHeight(70)
+        self.shadow_coach_bar.setMaximumHeight(90)
         outer_layout.addWidget(self.shadow_coach_bar)
+
+        # Initialize combo-dependent UI once labels exist
+        self._on_shadow_combo_changed()
+
+    def _load_shadow_drill_definitions(self) -> List[dict]:
+        """Load shadow sparring drill definitions for combo selection."""
+        try:
+            from ament_index_python.packages import get_package_share_directory
+            import yaml
+            
+            config_path = os.path.join(
+                get_package_share_directory("boxbunny_drills"),
+                "config",
+                "drill_definitions.yaml",
+            )
+            with open(config_path, "r") as f:
+                config = yaml.safe_load(f) or {}
+            drills = []
+            for drill in config.get("shadow_sparring_drills", []):
+                name = drill.get("name")
+                sequence = drill.get("sequence") or []
+                if name and isinstance(sequence, list):
+                    drills.append({"name": name, "sequence": sequence})
+            return drills
+        except Exception:
+            return [{"name": "1-1-2 Combo", "sequence": ["jab", "jab", "cross"]}]
+
+    def _on_shadow_combo_changed(self) -> None:
+        """Update labels when the combo selection changes."""
+        drill_name = self.shadow_combo.currentData()
+        drill = self._shadow_drill_map.get(drill_name)
+        if not drill:
+            return
+        sequence = drill["sequence"]
+        self._set_shadow_checkbox_count(max(1, len(sequence)))
+        if sequence:
+            self.shadow_expected_label.setText(f"Next: {sequence[0].replace('_', ' ').upper()}")
+            self.action_conf_label.setText(f"Step 1/{len(sequence)}")
+        else:
+            self.shadow_expected_label.setText("Next: --")
+            self.action_conf_label.setText("Step --")
+
+    def _set_shadow_checkbox_count(self, count: int) -> None:
+        """Rebuild checkbox progress widget for the current combo length."""
+        if not hasattr(self, "shadow_checkbox_progress"):
+            return
+        if self.shadow_checkbox_progress.count == count:
+            return
+        while self.shadow_checkbox_layout.count():
+            item = self.shadow_checkbox_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+        self.shadow_checkbox_progress = CheckboxProgressWidget(count=count)
+        self.shadow_checkbox_layout.addWidget(self.shadow_checkbox_progress)
 
     
     def _setup_defence_tab(self) -> None:
@@ -2928,18 +3005,15 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         video_inner.setSpacing(4)
         
         video_header = QtWidgets.QHBoxLayout()
-        defence_video_title = QtWidgets.QLabel("🛡️ DEFENCE DRILL")
-        defence_video_title.setStyleSheet("font-size: 16px; font-weight: 700; color: #ff8c00; padding: 4px;")
-        video_header.addWidget(defence_video_title)
-        video_header.addStretch()
-        self.defence_video_status = QtWidgets.QLabel("● LIVE")
-        self.defence_video_status.setStyleSheet("font-size: 12px; font-weight: 700; color: #00cc00; padding: 4px;")
+        self.defence_video_status = QtWidgets.QLabel("📹 LIVE")
+        self.defence_video_status.setStyleSheet("font-size: 16px; font-weight: 700; color: #00cc00; padding: 4px;")
         video_header.addWidget(self.defence_video_status)
+        video_header.addStretch()
         video_inner.addLayout(video_header)
         
         self.defence_preview = QtWidgets.QLabel()
-        self.defence_preview.setMinimumSize(320, 230)
-        self.defence_preview.setMaximumSize(400, 280)
+        self.defence_preview.setMinimumSize(320, 240)
+        self.defence_preview.setMaximumSize(400, 300)
         self.defence_preview.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding)
         self.defence_preview.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.defence_preview.setText("⏳ Connecting...")
@@ -2965,29 +3039,28 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         
         # Block indicator - prominent display
         self.block_indicator = QtWidgets.QFrame()
-        self.block_indicator.setMinimumHeight(120)
-        self.block_indicator.setMaximumHeight(150)
+        self.block_indicator.setMinimumHeight(96)
+        self.block_indicator.setMaximumHeight(120)
         self.block_indicator.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
         self.block_indicator.setStyleSheet("""
             QFrame {
                 background: transparent;
                 border: none;
-                border-top: 2px solid #333;
             }
         """)
         bi_layout = QtWidgets.QVBoxLayout(self.block_indicator)
         bi_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        bi_layout.setContentsMargins(8, 24, 8, 16)
+        bi_layout.setContentsMargins(8, 16, 8, 12)
         bi_layout.setSpacing(2)
         
         self.defence_action_label = QtWidgets.QLabel("READY")
         self.defence_action_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.defence_action_label.setStyleSheet("font-size: 52px; font-weight: 800; color: #ff8c00; background: transparent;")
+        self.defence_action_label.setStyleSheet("font-size: 34px; font-weight: 800; color: #ff8c00; background: transparent;")
         bi_layout.addWidget(self.defence_action_label)
         
-        self.defence_sub_label = QtWidgets.QLabel("Goal: Block 3 attacks")
+        self.defence_sub_label = QtWidgets.QLabel("Block all incoming attacks")
         self.defence_sub_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.defence_sub_label.setStyleSheet("font-size: 15px; color: #ffa333; background: transparent;")
+        self.defence_sub_label.setStyleSheet("font-size: 13px; color: #ffa333; background: transparent;")
         bi_layout.addWidget(self.defence_sub_label)
         
         right_col.addWidget(self.block_indicator)
@@ -3208,9 +3281,18 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             punch = self.ros.last_punch
             img = self.ros.last_image
             color_img = self.ros.last_color_image
+            color_stamp = self.ros.last_color_image_stamp
+            color_fallback_img = self.ros.last_color_image_fallback
+            color_fallback_stamp = self.ros.last_color_image_fallback_stamp
+            if color_fallback_img is not None:
+                if color_stamp is None or (
+                    color_fallback_stamp is not None and color_fallback_stamp > color_stamp
+                ):
+                    color_img = color_fallback_img
             pose_img = self.ros.last_pose_image  # Pose skeleton image
-            # Use debug image if raw color not available (live_infer_rgbd publishes to debug topic)
-            display_img = color_img if color_img is not None else img
+            debug_img = img
+            # Prefer debug overlays for color tracking views
+            shadow_display_img = debug_img if debug_img is not None else color_img
             countdown = self.ros.drill_countdown
             punch_counter = self.ros.punch_counter
             
@@ -3245,51 +3327,10 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 count = summary.get("total_attempts", 0)
                 self.total_attempts_label.setText(f"Attempts: {count}")
 
-            # Update Shadow Sparring Progress
-            if self.ros.drill_progress and hasattr(self, 'shadow_step_labels'):
-                prog = self.ros.drill_progress
-                if prog.status == 'success':
-                    self.shadow_status_label.setText("✅ COMBO COMPLETE!")
-                    self.shadow_status_label.setStyleSheet("font-size: 32px; font-weight: 800; color: #00ff00;")
-                elif prog.status == 'timeout':
-                    self.shadow_status_label.setText("⏰ TIME OUT!")
-                    self.shadow_status_label.setStyleSheet("font-size: 32px; font-weight: 800; color: #ff3333;")
-                else:
-                    # In progress
-                    current_idx = prog.current_step
-                    action_vocab = {"jab": "JAB", "cross": "CROSS", "left_hook": "L HOOK", "right_hook": "R HOOK"}
-                    
-                    # Update Step Colors
-                    for i, lbl in enumerate(self.shadow_step_labels):
-                        if i < current_idx:
-                            # Completed
-                            lbl.setStyleSheet("""
-                                font-size: 28px; font-weight: 800; color: #000;
-                                background: #26d0ce; border: 2px solid #26d0ce; border-radius: 12px;
-                            """)
-                        elif i == current_idx:
-                            # Current
-                            lbl.setStyleSheet("""
-                                font-size: 32px; font-weight: 800; color: #ff8c00;
-                                background: #2a2a2a; border: 4px solid #ff8c00; border-radius: 12px;
-                            """)
-                        else:
-                            # Future
-                            lbl.setStyleSheet("""
-                                font-size: 28px; font-weight: 800; color: #555;
-                                background: #111; border: 2px solid #333; border-radius: 12px;
-                            """)
-                    
-                    # Update Status Text
-                    if current_idx < len(prog.expected_actions):
-                        next_move = prog.expected_actions[current_idx]
-                        display_move = action_vocab.get(next_move, next_move.upper())
-                        self.shadow_status_label.setText(f"PUNCH: {display_move}!")
-                        self.shadow_status_label.setStyleSheet("font-size: 36px; font-weight: 900; color: #ff8c00;")
-        
-        # Determine which image to show for reaction preview (pose skeleton for reaction drill)
-        # Use pose image if available, otherwise fall back to color tracking
-        reaction_display_img = pose_img if pose_img is not None else display_img
+        # Determine which image to show for reaction preview (pose skeleton preferred)
+        reaction_display_img = (
+            pose_img if pose_img is not None else (debug_img if debug_img is not None else color_img)
+        )
 
         # Update cue panel styling based on state - ORANGE/BLACK THEME
         if state == "cue":
@@ -3372,8 +3413,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
 
         # Update attempt tracking
         last_rt = summary.get("last_reaction_time_s") if isinstance(summary, dict) else None
-        mean_rt = summary.get("mean_reaction_time_s") if isinstance(summary, dict) else None
-        best_rt = summary.get("best_reaction_time_s") if isinstance(summary, dict) else None
+        mean_rt = summary.get("avg_time") if isinstance(summary, dict) else None
+        best_rt = summary.get("best_time") if isinstance(summary, dict) else None
         reaction_times = summary.get("reaction_times", []) if isinstance(summary, dict) else []
         
         # Update individual attempt labels (3 attempts)
@@ -3446,10 +3487,6 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 f"Velocity: {punch.approach_velocity_mps:.2f} m/s\n"
                 f"Distance: {punch.distance_m:.2f} m"
             )
-            
-            # Process punch for shadow sparring drill (using glove color)
-            if hasattr(self, '_shadow_running') and self._shadow_running:
-                self._process_shadow_punch(punch.glove)
 
         # Update punch counter display
         if hasattr(self, 'punch_count_display'):
@@ -3477,9 +3514,9 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 pix_pose.scaled(self.reaction_preview.size(), QtCore.Qt.AspectRatioMode.KeepAspectRatio)
             )
         
-        # Shadow and defence use color tracking image
-        if display_img is not None:
-            qimg2 = self._to_qimage(display_img)
+        # Shadow and defence use color tracking debug image when available
+        if shadow_display_img is not None:
+            qimg2 = self._to_qimage(shadow_display_img)
             pix2 = QtGui.QPixmap.fromImage(qimg2)
             
             # Update shadow and defence previews with color tracking
@@ -3491,9 +3528,15 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 self.defence_preview.setPixmap(
                     pix2.scaled(self.defence_preview.size(), QtCore.Qt.AspectRatioMode.KeepAspectRatio)
                 )
+            if hasattr(self, 'shadow_video_status'):
+                self.shadow_video_status.setText("📹 LIVE")
+                self.shadow_video_status.setStyleSheet("font-size: 16px; font-weight: 700; color: #00cc00; padding: 4px;")
+            if hasattr(self, 'defence_video_status'):
+                self.defence_video_status.setText("📹 LIVE")
+                self.defence_video_status.setStyleSheet("font-size: 16px; font-weight: 700; color: #00cc00; padding: 4px;")
         
         # Check for connecting status only when neither image is available
-        if reaction_display_img is None and display_img is None:
+        if reaction_display_img is None and shadow_display_img is None:
             if not self._camera_received:
                 self.video_status_label.setText("● CONNECTING...")
                 self.video_status_label.setStyleSheet("font-size: 10px; font-weight: 700; color: #ffaa00;")
@@ -3505,6 +3548,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         # Update new drill tabs
         self._update_shadow_ui()
         self._update_defence_ui()
+        self._update_shadow_service_status()
 
     def _capture_replay_clip(self) -> None:
         if not self._frame_buffer:
@@ -3539,164 +3583,53 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         return QtGui.QImage(rgb.data, w, h, QtGui.QImage.Format.Format_RGB888)
     
     def _start_shadow_drill(self) -> None:
-        """Start shadow sparring drill - 1-1-2 combo x3 repetitions."""
-        # Initialize shadow drill state
-        self._shadow_running = True
-        self._shadow_rep = 0
-        self._shadow_total_reps = 3
-        self._shadow_combo_index = 0
-        self._shadow_combo = ["jab", "jab", "cross"]  # 1-1-2
-        self._shadow_results = []  # Track correct/wrong for each rep
-        self._shadow_start_time = time.time()
-        self._shadow_last_punch_time = 0
-        
-        # Reset UI
+        """Start shadow sparring drill via ROS service."""
+        if not self.ros.shadow_drill_client.wait_for_service(timeout_sec=2.0):
+            self.shadow_status_label.setText("Status: NOT READY")
+            self.shadow_coach_bar.set_message("Shadow drill service not ready.")
+            return
+
+        drill_name = self.shadow_combo.currentData() or self.shadow_combo.currentText()
+        req = StartDrill.Request()
+        req.drill_name = drill_name
+        self.ros.shadow_drill_client.call_async(req)
+
+        self._reset_shadow_ui()
+        self.shadow_status_label.setText("Status: STARTING")
+
+        drill = self._shadow_drill_map.get(drill_name)
+        if drill and drill["sequence"]:
+            sequence = drill["sequence"]
+            first_display = sequence[0].replace("_", " ").upper()
+            self.shadow_expected_label.setText(f"Next: {first_display}")
+            self.action_label.setText(first_display)
+            self.action_conf_label.setText(f"Step 1/{len(sequence)}")
+
+    def _reset_shadow_ui(self) -> None:
+        """Reset shadow sparring UI to a clean state."""
+        self._last_shadow_step = 0
         self.shadow_checkbox_progress.reset()
-        self.action_label.setText("JAB")
-        self.action_label.setStyleSheet("font-size: 42px; font-weight: 800; color: #26d0ce; background: transparent;")
-        self.action_conf_label.setText("Rep 1/3 - Punch 1/3")
-        self.shadow_progress_label.setText(f"Rep: 1/{self._shadow_total_reps}")
-        self.shadow_expected_label.setText("Throw: JAB")
-        self.shadow_status_label.setText("Status: IN PROGRESS")
-        self.shadow_sequence_label.setText("Combo: JAB → JAB → CROSS")
-        self.shadow_coach_bar.set_message("Let's go! Throw that 1-1-2! 🥊")
-        
-        # Update button to show stop
-        self.shadow_start_btn.setText("⬛  STOP")
-        self.shadow_start_btn.setStyleSheet("""
-            QPushButton {
-                background: #333;
-                color: #fff;
-                font-size: 16px;
-                font-weight: 700;
-                border-radius: 10px;
-                padding: 12px 24px;
-            }
-            QPushButton:hover { background: #444; }
-        """)
-        self.shadow_start_btn.clicked.disconnect()
-        self.shadow_start_btn.clicked.connect(self._stop_shadow_drill)
-    
+        self.shadow_detected_label.setText("DETECTED: --")
+        if hasattr(self, "_shadow_detected_style"):
+            self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
+        self.shadow_progress_label.setText("Step: 0/0")
+        self.shadow_elapsed_label.setText("Time: 0.0s")
+        self.shadow_status_label.setText("Status: IDLE")
+        self.shadow_expected_label.setText("Next: --")
+        self.action_label.setText("READY")
+        self.action_label.setStyleSheet("font-size: 34px; font-weight: 800; color: #ff8c00; background: transparent;")
+        self.action_conf_label.setText("Select combo • Press START")
+
     def _stop_shadow_drill(self) -> None:
-        """Stop shadow sparring drill."""
-        self._shadow_running = False
-        self.action_label.setText("STOPPED")
-        self.action_label.setStyleSheet("font-size: 36px; font-weight: 800; color: #888; background: transparent;")
-        self.shadow_status_label.setText("Status: stopped")
-        
-        # Reset button
-        self.shadow_start_btn.setText("▶  START DRILL")
-        self.shadow_start_btn.setStyleSheet("""
-            QPushButton {
-                background: #ff8c00;
-                color: #000000;
-                font-size: 16px;
-                font-weight: 700;
-                border-radius: 10px;
-                padding: 12px 24px;
-            }
-            QPushButton:hover { background: #ffa333; }
-        """)
-        self.shadow_start_btn.clicked.disconnect()
-        self.shadow_start_btn.clicked.connect(self._start_shadow_drill)
-    
-    def _process_shadow_punch(self, punch_type: str) -> None:
-        """Process a detected punch for shadow sparring drill."""
-        if not hasattr(self, '_shadow_running') or not self._shadow_running:
+        """Stop shadow sparring drill via ROS service."""
+        if not self.ros.shadow_stop_client.wait_for_service(timeout_sec=2.0):
+            self.shadow_status_label.setText("Status: STOP NOT READY")
             return
-        
-        now = time.time()
-        # Debounce - ignore punches within 0.3s
-        if now - self._shadow_last_punch_time < 0.3:
-            return
-        self._shadow_last_punch_time = now
-        
-        expected = self._shadow_combo[self._shadow_combo_index]
-        
-        # Normalize punch type (left=jab, right=cross for color tracking)
-        detected = punch_type.lower()
-        if detected in ["left", "green"]:
-            detected = "jab"
-        elif detected in ["right", "red"]:
-            detected = "cross"
-        
-        if detected == expected:
-            # Correct punch!
-            self._shadow_combo_index += 1
-            
-            if self._shadow_combo_index >= len(self._shadow_combo):
-                # Completed one rep
-                self._shadow_results.append(True)
-                self.shadow_checkbox_progress.tick(self._shadow_rep)
-                self._shadow_rep += 1
-                self._shadow_combo_index = 0
-                
-                if self._shadow_rep >= self._shadow_total_reps:
-                    # Drill complete!
-                    self._complete_shadow_drill()
-                    return
-                else:
-                    # Next rep
-                    self.action_label.setText("✓ GOOD!")
-                    self.action_label.setStyleSheet("font-size: 42px; font-weight: 800; color: #00ff00; background: transparent;")
-                    QtCore.QTimer.singleShot(500, lambda: self._show_next_shadow_punch())
-                    self.shadow_coach_bar.set_message(f"Nice combo! Rep {self._shadow_rep + 1} coming up!")
-            else:
-                # Next punch in combo
-                self._show_next_shadow_punch()
-        else:
-            # Wrong punch
-            self.action_label.setText(f"✗ WRONG!")
-            self.action_label.setStyleSheet("font-size: 42px; font-weight: 800; color: #ff4757; background: transparent;")
-            self.action_conf_label.setText(f"Expected {expected.upper()}, got {detected.upper()}")
-            self.shadow_coach_bar.set_message(f"That was a {detected}! I need a {expected}!")
-            # Don't advance, let them try again
-            QtCore.QTimer.singleShot(800, lambda: self._show_next_shadow_punch())
-    
-    def _show_next_shadow_punch(self) -> None:
-        """Update UI to show the next expected punch."""
-        if not hasattr(self, '_shadow_running') or not self._shadow_running:
-            return
-        
-        expected = self._shadow_combo[self._shadow_combo_index]
-        self.action_label.setText(expected.upper())
-        
-        # Color code: jab = green/teal, cross = orange
-        if expected == "jab":
-            self.action_label.setStyleSheet("font-size: 42px; font-weight: 800; color: #26d0ce; background: transparent;")
-        else:
-            self.action_label.setStyleSheet("font-size: 42px; font-weight: 800; color: #ff8c00; background: transparent;")
-        
-        self.action_conf_label.setText(f"Rep {self._shadow_rep + 1}/{self._shadow_total_reps} - Punch {self._shadow_combo_index + 1}/{len(self._shadow_combo)}")
-        self.shadow_progress_label.setText(f"Rep: {self._shadow_rep + 1}/{self._shadow_total_reps}")
-        self.shadow_expected_label.setText(f"Throw: {expected.upper()}")
-    
-    def _complete_shadow_drill(self) -> None:
-        """Complete the shadow sparring drill."""
-        self._shadow_running = False
-        elapsed = time.time() - self._shadow_start_time
-        
-        self.action_label.setText("COMPLETE! 🏆")
-        self.action_label.setStyleSheet("font-size: 36px; font-weight: 800; color: #00ff00; background: transparent;")
-        self.action_conf_label.setText(f"3 reps in {elapsed:.1f}s")
-        self.shadow_status_label.setText("Status: COMPLETE")
-        self.shadow_coach_bar.set_message(f"Awesome work! 3 combos in {elapsed:.1f} seconds! 💪")
-        
-        # Reset button
-        self.shadow_start_btn.setText("▶  START DRILL")
-        self.shadow_start_btn.setStyleSheet("""
-            QPushButton {
-                background: #ff8c00;
-                color: #000000;
-                font-size: 16px;
-                font-weight: 700;
-                border-radius: 10px;
-                padding: 12px 24px;
-            }
-            QPushButton:hover { background: #ffa333; }
-        """)
-        self.shadow_start_btn.clicked.disconnect()
-        self.shadow_start_btn.clicked.connect(self._start_shadow_drill)
+        self.ros.shadow_stop_client.call_async(Trigger.Request())
+        self.shadow_status_label.setText("Status: STOPPING")
+        self.shadow_start_btn.setText("▶  START")
+        if hasattr(self, "_shadow_start_style"):
+            self.shadow_start_btn.setStyleSheet(self._shadow_start_style)
     
     def _start_defence_drill(self) -> None:
         """Start defence drill - block 3 incoming attacks."""
@@ -3876,46 +3809,182 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.ros.imu_input_client.call_async(req)
     
     def _update_shadow_ui(self) -> None:
-        """Update shadow sparring tab UI - only if NOT running local drill."""
-        # Skip ROS updates if our local drill is running
-        if hasattr(self, '_shadow_running') and self._shadow_running:
-            return
-        
+        """Update shadow sparring tab UI from ROS drill progress."""
         with self.ros.lock:
-            action = self.ros.last_action
             progress = self.ros.drill_progress
+            last_punch = self.ros.last_punch
+            last_punch_stamp = self.ros.last_punch_stamp
+            shadow_punch = self.ros.last_shadow_punch
+            shadow_punch_stamp = self.ros.last_shadow_punch_stamp
+            shadow_punch_counter = self.ros.shadow_punch_counter
         
-        # Action prediction display (only show if not in local drill mode)
-        if action is not None and not (hasattr(self, '_shadow_running') and self._shadow_running):
-            pass  # Let local drill control the display
+        if progress is None or not progress.drill_name:
+            self._update_shadow_preview_from_punch(
+                shadow_punch or last_punch, shadow_punch_stamp or last_punch_stamp
+            )
+            if hasattr(self, "shadow_punch_count_label"):
+                self.shadow_punch_count_label.setText(f"Punches: {shadow_punch_counter}")
+            self._update_shadow_detected_from_punch(shadow_punch or last_punch)
+            return
+
+        current_step = progress.current_step
+        total_steps = max(progress.total_steps, len(progress.expected_actions))
+        expected = progress.expected_actions[current_step] if current_step < len(progress.expected_actions) else None
+        status = progress.status
+
+        self.shadow_progress_label.setText(f"Step: {current_step}/{total_steps}")
+        self.shadow_elapsed_label.setText(f"Time: {progress.elapsed_time_s:.1f}s")
+        self.shadow_status_label.setText(f"Status: {status.upper()}")
+        self.shadow_punch_count_label.setText(f"Punches: {shadow_punch_counter}")
+
+        if expected:
+            display_expected = expected.replace("_", " ").upper()
+            self.shadow_expected_label.setText(f"Next: {display_expected}")
+            color = "#26d0ce" if expected == "jab" else "#ff8c00" if expected == "cross" else "#ffa333"
+            self.action_label.setText(display_expected)
+            self.action_label.setStyleSheet(f"font-size: 42px; font-weight: 800; color: {color}; background: transparent;")
+            self.action_conf_label.setText(f"Step {current_step + 1}/{total_steps}")
+        else:
+            self.shadow_expected_label.setText("Throw: --")
+
+        if status == "success":
+            self.action_label.setText("COMPLETE! 🏆")
+            self.action_label.setStyleSheet("font-size: 36px; font-weight: 800; color: #00ff00; background: transparent;")
+            self.action_conf_label.setText(f"Time {progress.elapsed_time_s:.1f}s")
+            self.shadow_detected_label.setText("DETECTED: --")
+            if hasattr(self, "_shadow_detected_style"):
+                self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
+        elif status == "timeout":
+            self.action_label.setText("TIME OUT")
+            self.action_label.setStyleSheet("font-size: 36px; font-weight: 800; color: #ff4757; background: transparent;")
+            self.shadow_detected_label.setText("DETECTED: --")
+            if hasattr(self, "_shadow_detected_style"):
+                self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
+        elif status == "failed":
+            self.action_label.setText("TRY AGAIN")
+            self.action_label.setStyleSheet("font-size: 36px; font-weight: 800; color: #ff4757; background: transparent;")
+            self.shadow_detected_label.setText("DETECTED: --")
+            if hasattr(self, "_shadow_detected_style"):
+                self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
         
-        # Drill progress from ROS (legacy support)
-        if progress is not None and progress.drill_name:
-            current_step = progress.current_step
-            total_steps = progress.total_steps
-            
-            self.shadow_progress_label.setText(f"Step: {current_step}/{total_steps}")
-            if current_step < len(progress.expected_actions):
-                expected = progress.expected_actions[current_step]
-                self.shadow_expected_label.setText(f"Expected: {expected.upper()}")
-            self.shadow_elapsed_label.setText(f"Elapsed: {progress.elapsed_time_s:.1f}s")
-            self.shadow_status_label.setText(f"Status: {progress.status}")
-            self.shadow_sequence_label.setText(
-                f"Sequence: {' → '.join(progress.expected_actions)}")
-            
-            # Update checkbox progress - tick checkboxes for completed steps
-            if not hasattr(self, '_last_shadow_step'):
-                self._last_shadow_step = 0
-            if current_step > self._last_shadow_step:
-                # Tick checkboxes for newly completed steps
-                for i in range(self._last_shadow_step, min(current_step, 5)):
-                    self.shadow_checkbox_progress.tick(i)
-            self._last_shadow_step = current_step
-            
-            # Reset checkboxes when drill completes or restarts
-            if progress.status == 'complete' or progress.status == 'idle':
-                self._last_shadow_step = 0
-                self.shadow_checkbox_progress.reset()
+        if status == "in_progress":
+            self.shadow_start_btn.setText("▶  START")
+            self.shadow_stop_btn.setEnabled(True)
+        else:
+            self.shadow_start_btn.setText("▶  START")
+            if hasattr(self, "_shadow_start_style"):
+                self.shadow_start_btn.setStyleSheet(self._shadow_start_style)
+            self.shadow_stop_btn.setEnabled(False)
+            self._update_shadow_preview_from_punch(shadow_punch or last_punch, shadow_punch_stamp or last_punch_stamp)
+
+        # Detected action feedback
+        detected = progress.detected_actions[-1] if progress.detected_actions else None
+        if detected:
+            detected_display = detected.replace("_", " ").upper()
+            match_ok = False
+            if current_step > 0 and current_step - 1 < len(progress.expected_actions):
+                match_ok = detected == progress.expected_actions[current_step - 1]
+            color = "#00ff00" if match_ok else "#ff4757"
+            self.shadow_detected_label.setText(f"DETECTED: {detected_display}")
+            self.shadow_detected_label.setStyleSheet(f"""
+                QLabel {{
+                    background: #222;
+                    color: {color};
+                    font-size: 32px;
+                    font-weight: 800;
+                    border-radius: 8px;
+                    padding: 10px;
+                    margin: 4px 0px;
+                    border: 2px solid {color};
+                }}
+            """)
+        else:
+            if not self._update_shadow_detected_from_punch(shadow_punch or last_punch):
+                self.shadow_detected_label.setText("DETECTED: --")
+                if hasattr(self, "_shadow_detected_style"):
+                    self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
+
+        # Update checkbox progress for completed steps
+        completed = sum(progress.step_completed) if progress.step_completed else 0
+        if not hasattr(self, "_last_shadow_step"):
+            self._last_shadow_step = 0
+        if completed > self._last_shadow_step:
+            for i in range(self._last_shadow_step, min(completed, total_steps)):
+                self.shadow_checkbox_progress.tick(i)
+        self._last_shadow_step = completed
+
+    def _update_shadow_service_status(self) -> None:
+        """Enable/disable shadow drill controls based on service availability."""
+        if not hasattr(self, "shadow_start_btn"):
+            return
+        with self.ros.lock:
+            progress = self.ros.drill_progress
+        if progress and progress.status in {"in_progress", "success", "failed", "timeout"}:
+            return
+        ready = self.ros.shadow_drill_client.service_is_ready()
+        self.shadow_start_btn.setEnabled(ready)
+        self.shadow_stop_btn.setEnabled(ready)
+        if not ready:
+            self.shadow_status_label.setText("Status: NOT READY")
+        else:
+            if self.shadow_status_label.text().endswith("NOT READY"):
+                self.shadow_status_label.setText("Status: IDLE")
+
+    def _update_shadow_preview_from_punch(self, punch, punch_stamp) -> None:
+        """Show last detected punch even when drill not running."""
+        if punch is None or punch_stamp is None:
+            return
+        if not punch.is_punch:
+            return
+        if self._shadow_last_preview_ts == punch_stamp:
+            return
+        self._shadow_last_preview_ts = punch_stamp
+        detected, display, color = self._shadow_label_for_punch(punch)
+        if not detected:
+            return
+        self.action_label.setText(display)
+        self.action_conf_label.setText("Last punch")
+        self.action_label.setStyleSheet(
+            f"font-size: 34px; font-weight: 800; color: {color}; background: transparent;"
+        )
+
+    def _shadow_label_for_punch(self, punch):
+        """Return (detected, display, color) for a punch event."""
+        detected = ""
+        if punch and punch.punch_type and punch.punch_type != "unknown":
+            detected = punch.punch_type.lower()
+        else:
+            glove = (punch.glove or "").lower() if punch else ""
+            if glove in ("left", "red"):
+                detected = "jab"
+            elif glove in ("right", "green"):
+                detected = "cross"
+        if not detected:
+            return "", "", ""
+        display = detected.replace("_", " ").upper()
+        color = "#26d0ce" if detected == "jab" else "#ff8c00" if detected == "cross" else "#ffa333"
+        return detected, display, color
+
+    def _update_shadow_detected_from_punch(self, punch) -> bool:
+        """Update detected label from the latest punch event."""
+        if punch is None or not getattr(punch, "is_punch", False):
+            return False
+        detected, display, color = self._shadow_label_for_punch(punch)
+        if not detected:
+            return False
+        self.shadow_detected_label.setText(f"DETECTED: {display}")
+        self.shadow_detected_label.setStyleSheet(f"""
+            QLabel {{
+                background: #222;
+                color: {color};
+                font-size: 28px;
+                font-weight: 800;
+                border-radius: 8px;
+                padding: 8px;
+                border: 2px solid {color};
+            }}
+        """)
+        return True
     
     def _update_defence_ui(self) -> None:
         """Update defence drill tab UI - only if NOT running local drill."""
