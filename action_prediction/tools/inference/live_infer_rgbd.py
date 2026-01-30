@@ -40,6 +40,14 @@ except ImportError:
     print("Error: Pillow not found. Install with: pip install pillow", file=sys.stderr)
     sys.exit(1)
 
+try:
+    from cv_bridge import CvBridge
+    from sensor_msgs.msg import Image
+except ImportError:
+    print("Warning: cv_bridge or sensor_msgs not found. ROS publishing disabled.", file=sys.stderr)
+    CvBridge = None
+    Image = None
+
 import torch
 from tools.lib.yolo_person_crop import YOLOPersonCrop, create_rgbd_tensor
 from tools.lib.rgbd_model import load_model
@@ -264,7 +272,8 @@ class LiveRGBDInference:
         self.intrinsics = {'fx': 610.0, 'fy': 610.0, 'cx': 320.0, 'cy': 240.0}
         
         # Height Publishing
-        self.height_pub = None 
+        self.height_pub = None
+        self.glove_debug_pub = None 
         
         # Theme
         self.c_bg_main = '#0d1117'
@@ -293,6 +302,7 @@ class LiveRGBDInference:
         self.pose_wrapper = None
         self.imu_handler = None
         self.simple_detector = SimpleActionDetector()
+        self.bridge = CvBridge() if CvBridge else None
         
         # Buffers
         self.frame_buffer = deque(maxlen=window_size)
@@ -382,6 +392,16 @@ class LiveRGBDInference:
                     if probs is not None and self.imu_handler:
                          idx = np.argmax(probs)
                          self.imu_handler.publish_action(self.labels[idx], float(probs[idx]), probs.tolist(), self.labels)
+                    
+                    # Publish Debug Image (AI Mode)
+                    if self.glove_debug_pub:
+                        try:
+                            # Convert RGB to BGR for ROS
+                            bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+                            msg = self.bridge.cv2_to_imgmsg(bgr, "bgr8")
+                            self.glove_debug_pub.publish(msg)
+                        except Exception:
+                            pass
                 
                 
                 # Put result (non-blocking, drop old result if main thread is slow)
@@ -645,6 +665,8 @@ class LiveRGBDInference:
                 if self.imu_handler.node:
                     from std_msgs.msg import Float32
                     self.height_pub = self.imu_handler.node.create_publisher(Float32, '/player_height', 10)
+                    if Image:
+                        self.glove_debug_pub = self.imu_handler.node.create_publisher(Image, 'glove_debug_image', 10)
                 
                 # 2. Load Models
                 # Only load Pose Wrapper by default for Hybrid Mode
@@ -1380,6 +1402,17 @@ class HeadlessInference:
     def _loop(self):
         try:
             while self.running:
+                # Sync mode from IMU Handler (Service Driven)
+                if self.imu_handler:
+                    if self.imu_handler.simple_mode and not self.color_enabled:
+                        self.color_enabled = True
+                        self.pose_enabled = False
+                        print("Service Sync: Switched to Color Tracking Mode")
+                    elif not self.imu_handler.simple_mode and self.color_enabled:
+                        self.color_enabled = False
+                        self.pose_enabled = True
+                        print("Service Sync: Switched to Pose Model Mode")
+
                 frames = self.pipeline.wait_for_frames()
                 aligned = self.align.process(frames)
                 color_frame = aligned.get_color_frame()

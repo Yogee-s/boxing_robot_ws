@@ -525,9 +525,12 @@ class StartupLoadingScreen(QtWidgets.QWidget):
         # Check camera - look for image data from either topic
         # live_infer_rgbd.py publishes to /glove_debug_image (last_image)
         # realsense node publishes to /camera/color/image_raw (last_color_image)
+        # pose mode publishes to /action_debug_image (last_pose_image) - CRITICAL FIX
         with self.ros.lock:
-            has_camera = self.ros.last_image is not None or self.ros.last_color_image is not None
-        
+            has_camera = (self.ros.last_image is not None or 
+                          self.ros.last_color_image is not None or 
+                          self.ros.last_pose_image is not None)
+            
         if has_camera and not self.camera_ready:
             self.camera_ready = True
             self.camera_status.setText("✅ Camera: Ready")
