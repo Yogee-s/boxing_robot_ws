@@ -859,6 +859,9 @@ class RosInterface(Node):
         # New Services
         self.mode_client = self.create_client(SetBool, "action_predictor/set_simple_mode")
         self.height_trigger_client = self.create_client(Trigger, "action_predictor/calibrate_height")
+        
+        # Publisher for motor commands
+        self.motor_pub = self.create_publisher(String, '/robot/motor_command', 10)
 
     def _on_height(self, msg: Float32) -> None:
         pass # Optional: could update a status label somewhere
@@ -870,6 +873,8 @@ class RosInterface(Node):
     def _on_progress(self, msg: DrillProgress) -> None:
         with self.lock:
             self.drill_progress = msg
+            
+
     
     def _on_imu_enabled(self, msg: Bool) -> None:
         with self.lock:
@@ -3701,7 +3706,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self._defence_total_blocks = 3
         self._defence_start_time = time.time()
         self._defence_attack_index = 0
-        self._defence_attacks = ["JAB", "CROSS", "JAB"]  # Sequence of attacks
+        self._defence_attacks = ["JAB", "JAB", "CROSS"]  # Sequence of attacks
         
         # Reset UI
         self.defence_checkbox_progress.reset()
@@ -3763,6 +3768,13 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             return
         
         attack = self._defence_attacks[self._defence_attack_index]
+        
+        # Publish command to motors
+        if hasattr(self.ros, 'motor_pub'):
+            cmd_msg = String()
+            cmd_msg.data = attack
+            self.ros.motor_pub.publish(cmd_msg)
+            
         self.defence_action_label.setText(f"🛡️ BLOCK {attack}!")
         self.defence_action_label.setStyleSheet("font-size: 32px; font-weight: 800; color: #ff4757; background: transparent;")
         self.defence_sub_label.setText(f"Attack {self._defence_attack_index + 1} of {self._defence_total_blocks}")
