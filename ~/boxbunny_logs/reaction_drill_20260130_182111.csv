@@ -1,0 +1,4 @@
+trial_index,cue_time_unix,detection_time_unix,reaction_time_s,glove,confidence,velocity_mps,punch_type,imu_confirmed,baseline_velocity_mps
+0,1769768481.1449366,1769768481.7986271,0.6536679267883301,cross,0.0,0.0,,False,0.0
+1,1769768487.2947338,1769768487.8913426,0.5965907573699951,jab,0.0,0.0,,False,0.0
+2,1769768490.7448049,1769768491.9675767,1.2227540016174316,jab,0.0,0.0,,False,0.0
