@@ -1036,6 +1036,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self._pending_replay_time = None
         self._reaction_clips = []
         self._best_reaction_clip = None
+        self._replay_active = False
 
         self._apply_styles()
         
@@ -3494,7 +3495,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self.punch_preview.setPixmap(pix.scaled(self.punch_preview.size(), QtCore.Qt.AspectRatioMode.KeepAspectRatio))
 
         # Update reaction preview with POSE image (skeleton), others with color tracking
-        if reaction_display_img is not None:
+        if reaction_display_img is not None and not self._replay_active:
             # First frame received - update status
             if not self._camera_received:
                 self._camera_received = True
@@ -3613,6 +3614,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         # Bind last clip to last reaction time
         if last_rt is not None and self._pending_replay_clip is not None:
             self._commit_reaction_clip(float(last_rt))
+        if hasattr(self, "replay_btn"):
+            self.replay_btn.setEnabled(self._best_reaction_clip is not None)
 
     def _capture_replay_clip(self) -> None:
         if not self._frame_buffer:
@@ -3641,6 +3644,9 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self._replay_index = 0
         if not self._replay_frames:
             return
+        self._replay_active = True
+        if hasattr(self, "replay_btn"):
+            self.replay_btn.setEnabled(False)
         fps = 8
         interval_ms = int(1000 / fps)
         self.replay_timer.start(interval_ms)
@@ -3648,6 +3654,9 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
     def _play_replay(self) -> None:
         if self._replay_index >= len(self._replay_frames):
             self.replay_timer.stop()
+            self._replay_active = False
+            if hasattr(self, "replay_btn"):
+                self.replay_btn.setEnabled(True)
             return
         frame = self._replay_frames[self._replay_index]
         self._replay_index += 1
@@ -3797,7 +3806,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             QFrame {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 rgba(255, 71, 87, 0.6), stop:1 rgba(200, 50, 60, 0.6));
-                border: 2px solid #ff4757;
+                border: none;
                 border-radius: 12px;
             }
         """)
@@ -3822,7 +3831,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             QFrame {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 rgba(0, 255, 0, 0.4), stop:1 rgba(0, 180, 0, 0.4));
-                border: 2px solid #00ff00;
+                border: none;
                 border-radius: 12px;
             }
         """)
@@ -3859,7 +3868,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             QFrame {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #1a1a1a, stop:1 #0d0d0d);
-                border: 2px solid #00ff00;
+                border: none;
                 border-radius: 12px;
             }
         """)
@@ -4118,7 +4127,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                 stop:0 rgba(33, 150, 243, 0.8), stop:1 rgba(21, 101, 192, 0.8));
             border-radius: 16px;
-            border: 1px solid #2196F3;
+            border: none;
         """)
         self.defence_action_label.setText(f"Selected: {zone_name}")
         self.defence_action_label.setStyleSheet("""
