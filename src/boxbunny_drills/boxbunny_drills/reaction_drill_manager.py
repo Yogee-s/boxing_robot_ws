@@ -3,8 +3,9 @@ import json
 import os
 import random
 import time
+from datetime import datetime
 from collections import deque
-from typing import Optional
+from typing import Optional, List
 
 import rclpy
 from rclpy.node import Node
@@ -60,7 +61,9 @@ class ReactionDrillManager(Node):
         self._baseline_samples = deque(maxlen=200)
         self._penalty_end: Optional[float] = None
         self._result_end: Optional[float] = None
+        self._result_end: Optional[float] = None
         self._last_state_pub = 0.0
+        self._last_penalty_time = 0.0
 
         self.get_logger().info("Reaction drill manager ready")
 
@@ -133,6 +136,8 @@ class ReactionDrillManager(Node):
             if self._penalty_end is not None and now >= self._penalty_end:
                  # Restart Waiting Phase
                  self._state = "waiting"
+                 self._last_penalty_time = now
+                 self._next_cue_time = now + self._random_delay()
                  self._next_cue_time = now + self._random_delay()
                  self._publish_state()
             return
@@ -205,6 +210,10 @@ class ReactionDrillManager(Node):
 
         # Check for Early Start (Punch before Cue)
         if self._state in ["waiting", "baseline"]:
+            # Debounce early penalty to prevent looping
+            if (time.time() - self._last_penalty_time) < 1.0:
+                return
+
             self._publish_event("early_start", glove=msg.action_label)
             # Penalty Logic
             self._state = "early_penalty"
@@ -230,8 +239,12 @@ class ReactionDrillManager(Node):
 
         # Check for Early Start (Punch before Cue)
         if self._state in ["waiting", "countdown", "baseline"]:
-            # Use specific threshold to avoid noise triggering early warnings
-            if msg.approach_velocity_mps > 0.5:
+            # Debounce early penalty to prevent looping
+            if (time.time() - self._last_penalty_time) < 1.0:
+                return
+
+            # Use specific threshold to avoid noise triggering early warnings - LOWERED for sensitivity
+            if msg.approach_velocity_mps > 0.1:
                 self._publish_event("early_start", glove=msg.glove)
                 # Penalty Logic
                 self._state = "early_penalty"
@@ -338,13 +351,13 @@ class ReactionDrillManager(Node):
 
     def _publish_summary(self, last_reaction: Optional[float]) -> None:
         summary = {
+            "drill_name": "reaction_drill",
             "trial_index": self._trial_index,
-            "total_trials": self._num_trials,
+            "total_attempts": len(self._results),
+            "reaction_times": self._results,
             "last_reaction_time_s": last_reaction,
-            "mean_reaction_time_s": (sum(self._results) / len(self._results)) if self._results else None,
-            "median_reaction_time_s": (sorted(self._results)[len(self._results) // 2]) if self._results else None,
-            "best_reaction_time_s": min(self._results) if self._results else None,
-            "baseline_velocity_mps": self._baseline_velocity_mps,
+            "avg_time": (sum(self._results) / len(self._results)) if self._results else None,
+            "best_time": min(self._results) if self._results else None,
             "log_path": self._log_path,
             "is_final": False,
         }
@@ -355,19 +368,46 @@ class ReactionDrillManager(Node):
     def _publish_summary_final(self) -> None:
         """Publish final summary when drill completes."""
         summary = {
+            "drill_name": "reaction_drill",
             "trial_index": self._trial_index,
-            "total_trials": self._num_trials,
+            "total_attempts": len(self._results),
+            "reaction_times": self._results,
             "last_reaction_time_s": self._results[-1] if self._results else None,
-            "mean_reaction_time_s": (sum(self._results) / len(self._results)) if self._results else None,
-            "median_reaction_time_s": (sorted(self._results)[len(self._results) // 2]) if self._results else None,
-            "best_reaction_time_s": min(self._results) if self._results else None,
-            "baseline_velocity_mps": self._baseline_velocity_mps,
+            "avg_time": (sum(self._results) / len(self._results)) if self._results else None,
+            "best_time": min(self._results) if self._results else None,
             "log_path": self._log_path,
             "is_final": True,
         }
         msg = String()
         msg.data = json.dumps(summary)
         self.summary_pub.publish(msg)
+        
+        # Log to CSV
+        self._log_result_to_csv(summary)
+
+    def _log_result_to_csv(self, summary: dict) -> None:
+        """Append session result to CSV file."""
+        home_dir = os.path.expanduser("~")
+        file_path = os.path.join(home_dir, "boxbunny_stats.csv")
+        file_exists = os.path.exists(file_path)
+        
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        with open(file_path, mode='a', newline='') as f:
+            writer = csv.writer(f)
+            # Write header if new file
+            if not file_exists:
+                writer.writerow(["Timestamp", "Drill", "Attempts", "Best (s)", "Avg (s)"])
+            
+            # Write data row
+            writer.writerow([
+                timestamp,
+                "Reaction Drill",
+                summary.get("total_attempts", 0),
+                f"{summary.get('best_time', 0):.3f}",
+                f"{summary.get('avg_time', 0):.3f}"
+            ])
+        self.get_logger().info(f"Saved stats to {file_path}")
 
     def _publish_countdown(self, seconds_left: int) -> None:
         msg = Int32()

@@ -4,6 +4,7 @@ import threading
 import time
 from collections import deque
 from typing import Optional, List
+import csv # Added by user instruction
 
 import cv2
 import rclpy
@@ -206,6 +207,11 @@ class CoachBarWidget(QtWidgets.QFrame):
                 border: 2px solid rgba(255, 140, 0, 0.3);
             }
         """)
+
+        # Connect streaming callback
+        self.ros.stream_callback = self._on_stream_data
+        self._received_stream = False
+        self._streaming_text = ""
         
         layout = QtWidgets.QHBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
@@ -317,8 +323,35 @@ class CoachBarWidget(QtWidgets.QFrame):
         req.prompt = prompt
         future = self.ros.llm_client.call_async(req)
         
+        # Reset stream state
+        self._received_stream = False
+        self._streaming_text = ""
+        
         # Add callback for when response arrives
         future.add_done_callback(self._on_coach_response)
+        
+    def _on_stream_data(self, text: str):
+        """Handle incoming stream token."""
+        # Update on main thread
+        QtCore.QMetaObject.invokeMethod(
+            self, "_update_stream",
+            QtCore.Qt.ConnectionType.QueuedConnection,
+            QtCore.Q_ARG(str, text)
+        )
+
+    @QtCore.Slot(str)
+    def _update_stream(self, text: str):
+        """Update display with new token."""
+        # Check if we need to clear the "Thinking..." message
+        # We do this if it's the first token OR if the current text is still the loading message
+        current_text = self.message_label.text()
+        if not self._received_stream or "Thinking" in current_text:
+            self._received_stream = True
+            self.message_label.setText("")
+            self._streaming_text = ""
+        
+        self._streaming_text += text
+        self.message_label.setText(self._streaming_text)
         
     def _on_coach_response(self, future):
         """Handle LLM response callback - called from ROS thread."""
@@ -331,12 +364,14 @@ class CoachBarWidget(QtWidgets.QFrame):
         except Exception as e:
             response = f"⚠️ Error: {str(e)[:30]}"
         
-        # Start streaming the text character by character
-        QtCore.QMetaObject.invokeMethod(
-            self, "_start_stream",
-            QtCore.Qt.ConnectionType.QueuedConnection,
-            QtCore.Q_ARG(str, response)
-        )
+        # Only use fallback display if we didn't receive a stream
+        if not self._received_stream:
+            # Start streaming the text character by character (fake stream for non-LLM responses)
+            QtCore.QMetaObject.invokeMethod(
+                self, "_start_stream",
+                QtCore.Qt.ConnectionType.QueuedConnection,
+                QtCore.Q_ARG(str, response)
+            )
     
     @QtCore.Slot(str)
     def _start_stream(self, text: str):
@@ -794,6 +829,9 @@ class RosInterface(Node):
         self.progress_sub = self.create_subscription(DrillProgress, "drill_progress", self._on_progress, 5)
         self.imu_enabled_sub = self.create_subscription(Bool, "imu_input_enabled", self._on_imu_enabled, 5)
         self.height_sub = self.create_subscription(Float32, "/player_height", self._on_height, 5)
+        self.stream_sub = self.create_subscription(String, "llm/stream", self._on_llm_stream, 10)
+        
+        self.stream_callback = None
         
         # New Services
         self.mode_client = self.create_client(SetBool, "action_predictor/set_simple_mode")
@@ -872,6 +910,11 @@ class RosInterface(Node):
         with self.lock:
             self.trash_talk = msg.text
 
+    def _on_llm_stream(self, msg: String) -> None:
+        if self.stream_callback:
+            self.stream_callback(msg.data)
+
+
 
 class RosSpinThread(QtCore.QThread):
     def __init__(self, node: RosInterface) -> None:
@@ -919,10 +962,10 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.header_frame.setStyleSheet("""
             QFrame#headerFrame {
                 background: #0d0d0d;
-                border: none;
-                border-bottom: 3px solid #ff8c00;
-                margin: 0px;
-                padding: 0px;
+                border: 3px solid #ff8c00;
+                border-radius: 12px;
+                margin: 8px;
+                padding: 4px;
             }
         """)
         header_row = QtWidgets.QHBoxLayout(self.header_frame)
@@ -1093,23 +1136,24 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         scale = max(0.6, min(scale, 2.0))  # Clamp between 0.6x and 2x
         
         # Dynamic header height
-        header_h = int(40 * scale)
-        header_h = max(36, min(header_h, 64))
+        # Dynamic header height - INCREASED SIGNIFICANTLY
+        header_h = int(80 * scale)
+        header_h = max(70, min(header_h, 120))
         self.header_frame.setFixedHeight(header_h)
         
-        # Dynamic font sizes
-        title_size = int(16 * scale)
-        title_size = max(14, min(title_size, 28))
+        # Dynamic font sizes - INCREASED SIGNIFICANTLY
+        title_size = int(32 * scale)
+        title_size = max(24, min(title_size, 48))
         
-        btn_size = int(11 * scale)
-        btn_size = max(10, min(btn_size, 16))
+        btn_size = int(18 * scale)
+        btn_size = max(14, min(btn_size, 24))
         
-        icon_size = int(14 * scale)
-        icon_size = max(12, min(icon_size, 22))
+        icon_size = int(24 * scale)
+        icon_size = max(18, min(icon_size, 32))
         
-        # Update header title font
+        # Update header title font - REDUCED SLIGHTLY TO FIT
         self.header.setStyleSheet(f"""
-            font-size: {title_size}px;
+            font-size: {max(20, int(title_size * 0.9))}px;
             font-weight: 800;
             letter-spacing: {max(1, int(2 * scale))}px;
             color: #ff8c00;
@@ -1117,19 +1161,21 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             border: none;
         """)
         
-        # Update back button
-        back_w = int(80 * scale)
-        back_h = int(36 * scale)
-        self.header_back_btn.setFixedSize(max(70, back_w), max(32, back_h))
+        # Update back button - FIXED SYMMETRY
+        # We need exact symmetry for the title to be centered
+        side_btn_w = int(140 * scale)  # Generous width for "EXIT"/"BACK"
+        side_btn_h = int(50 * scale)
+        
+        self.header_back_btn.setFixedSize(side_btn_w, side_btn_h)
         self.header_back_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent;
                 color: #ff8c00;
-                font-size: {max(12, btn_size)}px;
+                font-size: {max(16, btn_size + 4)}px;
                 font-weight: 700;
                 border: 2px solid #ff8c00;
-                border-radius: {max(4, int(6 * scale))}px;
-                padding: 4px 12px;
+                border-radius: 8px;
+                padding: 0px;
             }}
             QPushButton:hover {{
                 background: #ff8c00;
@@ -1137,21 +1183,20 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             }}
         """)
         
-        # Update spacer to match back button width
-        self.header_left_spacer.setFixedWidth(self.header_back_btn.width())
+        # Update spacer to match EXACTLY
+        self.header_left_spacer.setFixedSize(side_btn_w, 0)
         
-        # Update fullscreen button
-        fs_size = int(40 * scale)
-        self.fullscreen_btn.setFixedSize(max(56, fs_size + 16), max(32, back_h))
+        # Update fullscreen button - MATCH SIDE WIDTH
+        self.fullscreen_btn.setFixedSize(side_btn_w, side_btn_h)
         self.fullscreen_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent;
                 color: #888;
                 border: 2px solid #555;
-                border-radius: {max(4, int(6 * scale))}px;
-                font-size: {max(12, btn_size)}px;
+                border-radius: 8px;
+                font-size: {max(14, btn_size)}px;
                 font-weight: 600;
-                padding: 4px 12px;
+                padding: 0px;
             }}
             QPushButton:hover {{
                 color: #ff8c00;
@@ -1212,9 +1257,10 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 font-size: 12px;
                 font-weight: 700;
                 border: 2px solid #ff8c00;
-                border-radius: 4px;
-                padding: 4px 10px;
-                min-width: 60px;
+                border-radius: 6px;
+                padding: 8px 32px;
+                min-width: 110px;
+                margin: 4px;
             }
             QPushButton#headerBackBtn:hover {
                 background: #ff8c00;
@@ -1229,8 +1275,9 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 border-radius: 4px;
                 font-size: 11px;
                 font-weight: 600;
-                padding: 4px 10px;
-                min-width: 40px;
+                padding: 8px 32px;
+                min-width: 90px;
+                margin: 4px;
             }
             QPushButton#fullscreenBtn:hover {
                 color: #ff8c00;
@@ -1435,13 +1482,25 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         layout.setContentsMargins(20, 12, 20, 10)
         layout.setSpacing(8)
         
-        # Center everything vertically
-        layout.addStretch(1)
+        # === MAIN CONTENT ROW (Horizontal) ===
+        content_row = QtWidgets.QHBoxLayout()
+        content_row.setContentsMargins(0, 0, 0, 0)
+        content_row.setSpacing(20)
         
-        # === MAIN DRILL BUTTONS (centered) ===
+        # Add stretch to center the left column when right is hidden
+        content_row.addStretch(1)
+        
+        # --- LEFT COLUMN: Buttons ---
+        left_col = QtWidgets.QVBoxLayout()
+        left_col.setSpacing(10)
+        left_col.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        
+        # Center everything vertically in left col
+        left_col.addStretch(1)
+        
+        # Drills Buttons
         drills_container = QtWidgets.QWidget()
-        drills_container.setMaximumWidth(700)
-        drills_container.setMinimumWidth(500)
+        drills_container.setFixedWidth(500)  # Fixed width for stability
         drills_layout = QtWidgets.QVBoxLayout(drills_container)
         drills_layout.setSpacing(10)
         drills_layout.setContentsMargins(0, 0, 0, 0)
@@ -1455,14 +1514,13 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             btn.setMaximumHeight(95)
             drills_layout.addWidget(btn)
         
-        layout.addWidget(drills_container, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
+        left_col.addWidget(drills_container)
         
-        layout.addSpacing(14)
+        left_col.addSpacing(14)
         
-        # === QUICK ACCESS ROW (horizontal) ===
+        # Quick Access Buttons
         quick_container = QtWidgets.QWidget()
-        quick_container.setMaximumWidth(700)
-        quick_container.setMinimumWidth(500)
+        quick_container.setFixedWidth(500)
         quick_row = QtWidgets.QHBoxLayout(quick_container)
         quick_row.setSpacing(12)
         quick_row.setContentsMargins(0, 0, 0, 0)
@@ -1472,22 +1530,16 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         btn_calib = self._create_quick_btn("⚙️", "SETUP", self.calib_tab)
         
         for btn in [btn_stats, btn_llm, btn_calib]:
-            quick_row.addWidget(btn, stretch=1)
+            quick_row.addWidget(btn)
         
-        layout.addWidget(quick_container, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
+        left_col.addWidget(quick_container)
         
-        layout.addSpacing(8)
+        left_col.addSpacing(8)
         
-        # === ADVANCED TOGGLE ===
-        adv_container = QtWidgets.QWidget()
-        adv_container.setMaximumWidth(700)
-        adv_container.setMinimumWidth(500)
-        adv_layout = QtWidgets.QVBoxLayout(adv_container)
-        adv_layout.setContentsMargins(0, 0, 0, 0)
-        adv_layout.setSpacing(6)
-        
+        # Advanced Toggle
         self.advanced_btn = QtWidgets.QPushButton("⚗️ ADVANCED ▾")
         self.advanced_btn.setCheckable(True)
+        self.advanced_btn.setFixedWidth(500)
         self.advanced_btn.setMinimumHeight(42)
         self.advanced_btn.setStyleSheet("""
             QPushButton {
@@ -1504,9 +1556,24 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """)
         self.advanced_btn.setAttribute(QtCore.Qt.WidgetAttribute.WA_AcceptTouchEvents, True)
         self.advanced_btn.toggled.connect(self._toggle_advanced)
-        adv_layout.addWidget(self.advanced_btn)
-
-        # Advanced Panel (Hidden by default) - More user friendly layout
+        left_col.addWidget(self.advanced_btn)
+        
+        left_col.addStretch(1)
+        
+        content_row.addLayout(left_col)
+        
+        # Spacer between columns
+        self.col_spacer = QtWidgets.QSpacerItem(20, 20, QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Minimum)
+        content_row.addItem(self.col_spacer)
+        
+        # --- RIGHT COLUMN: Advanced Panel ---
+        self.right_col_container = QtWidgets.QWidget()
+        self.right_col_container.setFixedWidth(300)
+        self.right_col_container.setVisible(False) # Hidden by default
+        right_col_layout = QtWidgets.QVBoxLayout(self.right_col_container)
+        right_col_layout.setContentsMargins(0, 0, 0, 0)
+        right_col_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        
         self.advanced_panel = QtWidgets.QFrame()
         self.advanced_panel.setStyleSheet("""
             QFrame {
@@ -1519,52 +1586,36 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         adv_panel_layout.setContentsMargins(16, 14, 16, 14)
         adv_panel_layout.setSpacing(12)
         
-        # Detection mode section
-        mode_section = QtWidgets.QHBoxLayout()
-        mode_section.setSpacing(12)
-        
+        # Detection mode section (Vertical now to fit sidebar)
         mode_label = QtWidgets.QLabel("Detection:")
-        mode_label.setStyleSheet("font-size: 12px; color: #ff8c00; font-weight: 700;")
-        mode_section.addWidget(mode_label)
+        mode_label.setStyleSheet("font-size: 16px; color: #ff8c00; font-weight: 700;")
+        adv_panel_layout.addWidget(mode_label)
         
-        self.color_mode_radio = QtWidgets.QRadioButton("Color")
+        self.color_mode_radio = QtWidgets.QRadioButton("Color Mode")
         self.color_mode_radio.setChecked(True)
         self.color_mode_radio.setStyleSheet("""
             QRadioButton {
-                font-size: 11px;
-                color: #fff;
-                padding: 4px 8px;
-                background: rgba(255, 140, 0, 0.2);
-                border-radius: 4px;
+                font-size: 15px; color: #e6edf3; spacing: 8px; padding: 4px;
             }
-            QRadioButton:checked {
-                background: rgba(255, 140, 0, 0.4);
-                color: #ff8c00;
-                font-weight: 600;
+            QRadioButton::indicator {
+                width: 20px; height: 20px; border-radius: 10px; border: 2px solid #555; background: #1a1a1a;
             }
+            QRadioButton::indicator:checked { border: 2px solid #ff8c00; background: #ff8c00; }
         """)
         self.color_mode_radio.toggled.connect(self._on_detection_mode_changed)
-        mode_section.addWidget(self.color_mode_radio)
+        adv_panel_layout.addWidget(self.color_mode_radio)
         
-        self.action_mode_radio = QtWidgets.QRadioButton("AI")
+        self.action_mode_radio = QtWidgets.QRadioButton("AI Mode")
         self.action_mode_radio.setStyleSheet("""
             QRadioButton {
-                font-size: 11px;
-                color: #888;
-                padding: 4px 8px;
-                background: rgba(100, 100, 100, 0.2);
-                border-radius: 4px;
+                font-size: 15px; color: #e6edf3; spacing: 8px; padding: 4px;
             }
-            QRadioButton:checked {
-                background: rgba(255, 140, 0, 0.4);
-                color: #ff8c00;
-                font-weight: 600;
+            QRadioButton::indicator {
+                width: 20px; height: 20px; border-radius: 10px; border: 2px solid #555; background: #1a1a1a;
             }
+            QRadioButton::indicator:checked { border: 2px solid #ff8c00; background: #ff8c00; }
         """)
-        mode_section.addWidget(self.action_mode_radio)
-        
-        mode_section.addStretch()
-        adv_panel_layout.addLayout(mode_section)
+        adv_panel_layout.addWidget(self.action_mode_radio)
         
         # Separator
         sep = QtWidgets.QFrame()
@@ -1572,54 +1623,42 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         sep.setStyleSheet("background: #444;")
         adv_panel_layout.addWidget(sep)
         
-        # Options row - improved layout with clearer labels
-        options_row = QtWidgets.QHBoxLayout()
-        options_row.setSpacing(10)
-        
-        self.imu_toggle = QtWidgets.QCheckBox("IMU Input")
+        self.imu_toggle = QtWidgets.QCheckBox("Enable IMU Input")
         self.imu_toggle.setStyleSheet("""
             QCheckBox {
-                font-size: 11px;
-                color: #ccc;
-                padding: 4px 8px;
+                font-size: 15px; color: #e6edf3; spacing: 8px; padding: 4px;
             }
-            QCheckBox:checked {
-                color: #ff8c00;
+            QCheckBox::indicator {
+                width: 20px; height: 20px; border-radius: 4px; border: 2px solid #555; background: #1a1a1a;
             }
+            QCheckBox::indicator:checked { border: 2px solid #ff8c00; background: #ff8c00; }
         """)
         self.imu_toggle.toggled.connect(self._toggle_imu_input)
-        options_row.addWidget(self.imu_toggle)
+        adv_panel_layout.addWidget(self.imu_toggle)
         
-        options_row.addStretch()
+        adv_panel_layout.addSpacing(10)
         
         self.height_btn = QtWidgets.QPushButton("Calibrate Height")
-        self.height_btn.setMinimumWidth(130)
-        self.height_btn.setFixedHeight(36)
+        self.height_btn.setFixedHeight(45)
         self.height_btn.setStyleSheet("""
             QPushButton {
-                background: #ff8c00;
-                color: #000;
-                font-size: 12px;
-                font-weight: 700;
-                border-radius: 6px;
-                padding: 6px 14px;
+                background: #ff8c00; color: #000; font-size: 14px; font-weight: 700; border-radius: 8px;
             }
             QPushButton:hover { background: #ffa333; }
             QPushButton:pressed { background: #cc7000; }
         """)
         self.height_btn.clicked.connect(self._start_height_calibration)
-        options_row.addWidget(self.height_btn)
+        adv_panel_layout.addWidget(self.height_btn)
         
-        adv_panel_layout.addLayout(options_row)
+        right_col_layout.addWidget(self.advanced_panel)
+        right_col_layout.addStretch(1) # Push to top
         
-        self.advanced_panel.setVisible(False)
-        adv_layout.addWidget(self.advanced_panel)
+        content_row.addWidget(self.right_col_container)
+        content_row.addStretch(1)
         
-        layout.addWidget(adv_container, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
+        layout.addLayout(content_row)
         
-        layout.addStretch(1)
-        
-        # Status indicator at bottom
+        # Status indicator
         self.status_indicator = QtWidgets.QLabel("● Ready")
         self.status_indicator.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.status_indicator.setStyleSheet("font-size: 14px; color: #00cc00; font-weight: 600; padding: 6px;")
@@ -1636,10 +1675,10 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 #ff8c00, stop:1 #e67300);
                 color: #000000;
-                font-size: 26px;
+                font-size: 28px;
                 font-weight: 800;
-                padding: 20px 32px;
-                border-radius: 16px;
+                padding: 24px 48px;
+                border-radius: 18px;
                 border: 2px solid rgba(255, 255, 255, 0.15);
                 letter-spacing: 3px;
             }
@@ -1650,8 +1689,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             }
             QPushButton:pressed {
                 background: #cc7000;
-                padding-top: 22px;
-                padding-bottom: 18px;
+                padding-top: 26px;
+                padding-bottom: 22px;
             }
         """)
         btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
@@ -1662,17 +1701,18 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
     def _create_quick_btn(self, icon: str, title: str, target_widget):
         """Create a quick access button with icon and title."""
         btn = QtWidgets.QPushButton(f"{icon}\n{title}")
-        btn.setMinimumHeight(75)
-        btn.setMinimumWidth(110)
-        btn.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
+        btn.setMinimumHeight(140)
+        btn.setMinimumWidth(140)
+        # Use Minimum policy to preventing shrinking below min-height
+        btn.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Minimum)
         btn.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #1e1e1e, stop:1 #151515);
                 color: #ff8c00;
-                font-size: 16px;
+                font-size: 20px;
                 font-weight: 700;
-                padding: 14px 20px;
+                padding: 10px 20px;
                 border-radius: 14px;
                 border: 2px solid #333333;
             }
@@ -1710,6 +1750,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self.ros.mode_client.call_async(req)
 
     def _toggle_advanced(self, checked: bool) -> None:
+        if hasattr(self, 'right_col_container'):
+            self.right_col_container.setVisible(checked)
         self.advanced_panel.setVisible(checked)
         self.advanced_btn.setText("⚗️ Advanced ▴" if checked else "⚗️ Advanced ▾")
     
@@ -1993,7 +2035,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self._reaction_attempts = []
         self._best_attempt_index = -1
         self._best_attempt_frames = []
-        self.attempt_labels = []
+        # self.attempt_labels is already populated above
 
     def _setup_punch_tab(self) -> None:
         layout = QtWidgets.QVBoxLayout()
@@ -3041,6 +3083,37 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             display_img = color_img if color_img is not None else img
             countdown = self.ros.drill_countdown
             punch_counter = self.ros.punch_counter
+            
+            # Update Reaction Drill attempts from summary
+            if summary and summary.get("drill_name") == "reaction_drill":
+                # DEBUG: Inspect the summary payload
+                # print(f"DEBUG SUMMARY: {summary}") # Uncomment to debug
+                times = summary.get("reaction_times", [])
+                
+                # Update attempt labels
+                if hasattr(self, 'attempt_labels'):
+                    for i, lbl in enumerate(self.attempt_labels):
+                        if i < len(times):
+                            lbl.setText(f"{times[i]:.3f}s")
+                            lbl.setStyleSheet("font-size: 20px; font-weight: 700; color: #ff8c00;")
+                        else:
+                            lbl.setText("--")
+                            lbl.setStyleSheet("font-size: 20px; font-weight: 700; color: #555;")
+                
+                # Best time
+                best = summary.get("best_time")
+                if best is not None:
+                    self.best_attempt_label.setText(f"{best:.3f}s")
+                    self.session_best_label.setText(f"Best: {best:.3f}s")
+                
+                # Average
+                avg = summary.get("avg_time")
+                if avg is not None:
+                    self.avg_reaction_label.setText(f"Avg: {avg:.3f}s")
+                
+                # Count
+                count = summary.get("total_attempts", 0)
+                self.total_attempts_label.setText(f"Attempts: {count}")
         
         # Determine which image to show for reaction preview (pose skeleton for reaction drill)
         # Use pose image if available, otherwise fall back to color tracking

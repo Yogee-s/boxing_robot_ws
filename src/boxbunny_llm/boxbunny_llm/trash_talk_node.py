@@ -44,6 +44,7 @@ class TrashTalkNode(Node):
         self.summary_sub = self.create_subscription(String, "drill_summary", self._on_summary, 10)
         self.stats_sub = self.create_subscription(String, "punch_stats", self._on_stats, 10)
         self.srv = self.create_service(GenerateLLM, "llm/generate", self._on_generate)
+        self.stream_pub = self.create_publisher(String, "llm/stream", 10)
 
         self._llm = None
         self._persona_examples = self._load_persona_examples()
@@ -160,13 +161,26 @@ class TrashTalkNode(Node):
             prompt_text += f"User: {prompt}\nCoach:"
 
         try:
-            result = self._llm(
+            # Enable streaming
+            stream = self._llm(
                 prompt_text,
                 max_tokens=int(self.get_parameter("max_tokens").value),
                 temperature=float(self.get_parameter("temperature").value),
                 stop=["\n"],
+                stream=True  # ENABLE STREAMING
             )
-            text = result["choices"][0]["text"].strip()
+            
+            full_text = ""
+            for chunk in stream:
+                token = chunk["choices"][0]["text"]
+                full_text += token
+                
+                # Publish individual token for streaming UI
+                stream_msg = String()
+                stream_msg.data = token
+                self.stream_pub.publish(stream_msg)
+                
+            text = full_text.strip()
             return text if text else ""
         except Exception as e:
             self.get_logger().error(f"LLM generation error: {e}")
