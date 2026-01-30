@@ -252,6 +252,25 @@ class ShadowSparringDrill(Node):
             self.get_logger().info(
                 f"Step {self.current_step + 1}: Expected {expected}, got {action}"
             )
+            # Publish a failed update so UI can show the miss, then reset combo
+            msg = DrillProgress()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.drill_name = self.current_drill['name']
+            msg.current_step = self.current_step
+            msg.total_steps = len(self.current_drill['sequence'])
+            msg.expected_actions = self.current_drill['sequence']
+            msg.detected_actions = self.detected_actions + [action]
+            msg.step_completed = self.step_completed
+            msg.elapsed_time_s = float(time.time() - self.start_time)
+            msg.status = 'failed'
+            self.progress_pub.publish(msg)
+
+            # Reset combo on wrong punch so user can try again
+            self.current_step = 0
+            self.step_completed = [False] * len(self.current_drill['sequence'])
+            self.detected_actions = []
+            self.action_locked = False
+            self.start_time = time.time()
     
     def _update(self):
         """Timer callback to check drill state and publish progress."""

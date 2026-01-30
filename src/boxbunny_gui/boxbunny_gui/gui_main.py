@@ -2771,7 +2771,10 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         
         self.action_label = QtWidgets.QLabel("READY")
         self.action_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.action_label.setStyleSheet("font-size: 34px; font-weight: 800; color: #ff8c00; background: transparent;")
+        self.action_label.setStyleSheet(
+            "font-size: 34px; font-weight: 800; color: #ff8c00; "
+            "background: transparent; padding-bottom: 2px;"
+        )
         ac_layout.addWidget(self.action_label)
         
         self.action_conf_label = QtWidgets.QLabel("Complete the selected combo")
@@ -3721,7 +3724,10 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.shadow_status_label.setText("Status: IDLE")
         self.shadow_expected_label.setText("Next: --")
         self.action_label.setText("READY")
-        self.action_label.setStyleSheet("font-size: 34px; font-weight: 800; color: #ff8c00; background: transparent;")
+        self.action_label.setStyleSheet(
+            "font-size: 34px; font-weight: 800; color: #ff8c00; "
+            "background: transparent; padding-bottom: 2px;"
+        )
         self.action_conf_label.setText("Select combo • Press START")
 
     def _stop_shadow_drill(self) -> None:
@@ -3950,30 +3956,44 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self.shadow_expected_label.setText(f"Next: {display_expected}")
             color = "#26d0ce" if expected == "jab" else "#ff8c00" if expected == "cross" else "#ffa333"
             self.action_label.setText(display_expected)
-            self.action_label.setStyleSheet(f"font-size: 42px; font-weight: 800; color: {color}; background: transparent;")
+            self.action_label.setStyleSheet(
+                f"font-size: 42px; font-weight: 800; color: {color}; "
+                "background: transparent; padding-bottom: 2px;"
+            )
             self.action_conf_label.setText(f"Step {current_step + 1}/{total_steps}")
         else:
             self.shadow_expected_label.setText("Throw: --")
 
         if status == "success":
             self.action_label.setText("COMPLETE! 🏆")
-            self.action_label.setStyleSheet("font-size: 36px; font-weight: 800; color: #00ff00; background: transparent;")
+            self.action_label.setStyleSheet(
+                "font-size: 36px; font-weight: 800; color: #00ff00; "
+                "background: transparent; padding-bottom: 2px;"
+            )
             self.action_conf_label.setText(f"Time {progress.elapsed_time_s:.1f}s")
             self.shadow_detected_label.setText("DETECTED: --")
             if hasattr(self, "_shadow_detected_style"):
                 self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
         elif status == "timeout":
             self.action_label.setText("TIME OUT")
-            self.action_label.setStyleSheet("font-size: 36px; font-weight: 800; color: #ff4757; background: transparent;")
+            self.action_label.setStyleSheet(
+                "font-size: 36px; font-weight: 800; color: #ff4757; "
+                "background: transparent; padding-bottom: 2px;"
+            )
             self.shadow_detected_label.setText("DETECTED: --")
             if hasattr(self, "_shadow_detected_style"):
                 self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
         elif status == "failed":
             self.action_label.setText("TRY AGAIN")
-            self.action_label.setStyleSheet("font-size: 36px; font-weight: 800; color: #ff4757; background: transparent;")
+            self.action_label.setStyleSheet(
+                "font-size: 36px; font-weight: 800; color: #ff4757; "
+                "background: transparent; padding-bottom: 2px;"
+            )
             self.shadow_detected_label.setText("DETECTED: --")
             if hasattr(self, "_shadow_detected_style"):
                 self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
+            self.shadow_checkbox_progress.reset()
+            self._last_shadow_step = 0
         
         if status == "in_progress":
             self.shadow_start_btn.setText("▶  START")
@@ -4059,7 +4079,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.action_label.setText(display)
         self.action_conf_label.setText("Last punch")
         self.action_label.setStyleSheet(
-            f"font-size: 34px; font-weight: 800; color: {color}; background: transparent;"
+            f"font-size: 34px; font-weight: 800; color: {color}; "
+            "background: transparent; padding-bottom: 2px;"
         )
         return True
 
@@ -4112,7 +4133,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.action_label.setText(display)
         self.action_conf_label.setText("Live")
         self.action_label.setStyleSheet(
-            f"font-size: 34px; font-weight: 800; color: {color}; background: transparent;"
+            f"font-size: 34px; font-weight: 800; color: {color}; "
+            "background: transparent; padding-bottom: 2px;"
         )
         return True
 
