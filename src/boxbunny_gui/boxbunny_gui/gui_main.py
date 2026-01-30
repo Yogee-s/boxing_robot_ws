@@ -2906,15 +2906,19 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         
         self.shadow_detected_label = QtWidgets.QLabel("DETECTED: --")
         self.shadow_detected_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.shadow_detected_label.setMinimumHeight(44)
+        self.shadow_detected_label.setMinimumHeight(56)
+        self.shadow_detected_label.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Fixed
+        )
         self.shadow_detected_label.setStyleSheet("""
             QLabel {
                 background: #222;
                 color: #555;
-                font-size: 22px;
+                font-size: 24px;
                 font-weight: 800;
                 border-radius: 8px;
-                padding: 8px;
+                padding: 6px 10px;
                 border: none;
             }
         """)
@@ -3672,8 +3676,19 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         return QtGui.QImage(rgb.data, w, h, QtGui.QImage.Format.Format_RGB888)
     
     def _start_shadow_drill(self) -> None:
-        """Start shadow sparring drill via ROS service."""
+        """Start shadow sparring drill with a short countdown."""
         if not self.ros.shadow_drill_client.service_is_ready():
+            self.shadow_status_label.setText("Status: NOT READY")
+            self.shadow_coach_bar.set_message("Shadow drill service not ready.")
+            return
+        self.shadow_countdown.set_status("Get ready…")
+        self.shadow_countdown.start(3)
+        self.stack.setCurrentWidget(self.shadow_countdown)
+
+    def _begin_shadow_drill_service(self) -> None:
+        """Call shadow sparring drill service after countdown."""
+        if not self.ros.shadow_drill_client.service_is_ready():
+            self.stack.setCurrentWidget(self.shadow_tab)
             self.shadow_status_label.setText("Status: NOT READY")
             self.shadow_coach_bar.set_message("Shadow drill service not ready.")
             return
@@ -3987,11 +4002,10 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 QLabel {{
                     background: #222;
                     color: {color};
-                    font-size: 32px;
+                    font-size: 26px;
                     font-weight: 800;
                     border-radius: 8px;
-                    padding: 10px;
-                    margin: 4px 0px;
+                    padding: 6px 10px;
                     border: 2px solid {color};
                 }}
             """)
@@ -4078,10 +4092,10 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             QLabel {{
                 background: #222;
                 color: {color};
-                font-size: 28px;
+                font-size: 24px;
                 font-weight: 800;
                 border-radius: 8px;
-                padding: 8px;
+                padding: 6px 10px;
                 border: 2px solid {color};
             }}
         """)
@@ -4115,10 +4129,10 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             QLabel {{
                 background: #222;
                 color: {color};
-                font-size: 28px;
+                font-size: 24px;
                 font-weight: 800;
                 border-radius: 8px;
-                padding: 8px;
+                padding: 6px 10px;
                 border: 2px solid {color};
             }}
         """)
@@ -4155,7 +4169,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
     def _on_shadow_countdown_done(self) -> None:
         """Handle shadow countdown completion - start the actual drill."""
         self.stack.setCurrentWidget(self.shadow_tab)
-        self._start_shadow_drill()
+        self._begin_shadow_drill_service()
     
     def _on_defence_countdown_done(self) -> None:
         """Handle defence countdown completion - start the actual drill."""

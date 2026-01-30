@@ -56,6 +56,7 @@ def generate_launch_description():
     glove_config = PathJoinSubstitution([FindPackageShare("boxbunny_vision"), "config", "glove_tracker.yaml"])
     fusion_config = PathJoinSubstitution([FindPackageShare("boxbunny_fusion"), "config", "fusion.yaml"])
     drill_config = PathJoinSubstitution([FindPackageShare("boxbunny_drills"), "config", "drill.yaml"])
+    shadow_config = PathJoinSubstitution([FindPackageShare("boxbunny_drills"), "config", "drill_definitions.yaml"])
     imu_config = PathJoinSubstitution([FindPackageShare("boxbunny_imu"), "config", "imu.yaml"])
     analytics_config = PathJoinSubstitution([FindPackageShare("boxbunny_analytics"), "config", "analytics.yaml"])
     llm_config = PathJoinSubstitution([FindPackageShare("boxbunny_llm"), "config", "llm.yaml"])
@@ -138,6 +139,14 @@ def generate_launch_description():
         package="boxbunny_drills",
         executable="reaction_drill_manager",
         parameters=[drill_config],
+        output="screen",
+    )
+
+    # Shadow Sparring Drill
+    shadow_drill = Node(
+        package="boxbunny_drills",
+        executable="shadow_sparring_drill",
+        parameters=[{"drill_config": shadow_config}],
         output="screen",
     )
 
@@ -224,6 +233,7 @@ def generate_launch_description():
 
         # Common nodes
         drill_manager,
+        shadow_drill,
         analytics,
 
         # Optional experimental features
