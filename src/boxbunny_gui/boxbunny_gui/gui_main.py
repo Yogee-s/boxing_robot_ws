@@ -1899,8 +1899,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         
         # Cue Panel - prominent status display
         self.cue_panel = QtWidgets.QFrame()
-        self.cue_panel.setMinimumHeight(90)
-        self.cue_panel.setMaximumHeight(130)
+        self.cue_panel.setMinimumHeight(120)
+        self.cue_panel.setMaximumHeight(150)
         self.cue_panel.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
         self.cue_panel.setStyleSheet("""
             background: transparent;
@@ -1909,7 +1909,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """)
         cue_layout = QtWidgets.QVBoxLayout(self.cue_panel)
         cue_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        cue_layout.setContentsMargins(8, 12, 8, 8)
+        cue_layout.setContentsMargins(8, 24, 8, 16)
         cue_layout.setSpacing(4)
         
         self.state_label = QtWidgets.QLabel("READY")
@@ -1918,7 +1918,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         
         self.countdown_label = QtWidgets.QLabel("Press START to begin")
         self.countdown_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.countdown_label.setStyleSheet("font-size: 16px; color: #666; background: transparent;")
+        self.countdown_label.setStyleSheet("font-size: 16px; color: #ffa333; background: transparent;")
         
         cue_layout.addWidget(self.state_label)
         cue_layout.addWidget(self.countdown_label)
@@ -2772,8 +2772,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         
         # Action prediction card - prominent display
         self.action_card = QtWidgets.QFrame()
-        self.action_card.setMinimumHeight(80)
-        self.action_card.setMaximumHeight(100)
+        self.action_card.setMinimumHeight(120)
+        self.action_card.setMaximumHeight(150)
         self.action_card.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
         self.action_card.setStyleSheet("""
             QFrame {
@@ -2784,7 +2784,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """)
         ac_layout = QtWidgets.QVBoxLayout(self.action_card)
         ac_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        ac_layout.setContentsMargins(8, 12, 8, 6)
+        ac_layout.setContentsMargins(8, 24, 8, 16)
         ac_layout.setSpacing(2)
         
         self.action_label = QtWidgets.QLabel("READY")
@@ -2947,8 +2947,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """)
         video_inner.addWidget(self.defence_preview, stretch=1)
         
-        left_col.addWidget(video_frame, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
-        left_col.addStretch()
+        left_col.addWidget(video_frame)
+        left_col.addStretch(1)
         content.addLayout(left_col)
         
         # === RIGHT: Controls & Block Indicator ===
@@ -2960,8 +2960,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         
         # Block indicator - prominent display
         self.block_indicator = QtWidgets.QFrame()
-        self.block_indicator.setMinimumHeight(80)
-        self.block_indicator.setMaximumHeight(100)
+        self.block_indicator.setMinimumHeight(120)
+        self.block_indicator.setMaximumHeight(150)
         self.block_indicator.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
         self.block_indicator.setStyleSheet("""
             QFrame {
@@ -2972,52 +2972,40 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """)
         bi_layout = QtWidgets.QVBoxLayout(self.block_indicator)
         bi_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        bi_layout.setContentsMargins(8, 12, 8, 6)
+        bi_layout.setContentsMargins(8, 24, 8, 16)
         bi_layout.setSpacing(2)
         
         self.defence_action_label = QtWidgets.QLabel("READY")
         self.defence_action_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.defence_action_label.setStyleSheet("font-size: 52px; font-weight: 800; color: #888; background: transparent;")
+        self.defence_action_label.setStyleSheet("font-size: 52px; font-weight: 800; color: #ff8c00; background: transparent;")
         bi_layout.addWidget(self.defence_action_label)
         
-        self.defence_sub_label = QtWidgets.QLabel("Block incoming attacks!")
+        self.defence_sub_label = QtWidgets.QLabel("Goal: Block 3 attacks")
         self.defence_sub_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.defence_sub_label.setStyleSheet("font-size: 15px; color: #555; background: transparent;")
+        self.defence_sub_label.setStyleSheet("font-size: 15px; color: #ffa333; background: transparent;")
         bi_layout.addWidget(self.defence_sub_label)
         
         right_col.addWidget(self.block_indicator)
         
-        # Drill controls row - simplified for 3 blocks
-        controls_frame = QtWidgets.QFrame()
-        controls_frame.setStyleSheet("background: #151515; border-radius: 6px; border: 1px solid #282828;")
-        controls_inner = QtWidgets.QHBoxLayout(controls_frame)
-        controls_inner.setContentsMargins(10, 8, 10, 8)
-        controls_inner.setSpacing(8)
-        
-        defence_info = QtWidgets.QLabel("🛡️ Block 3 attacks")
-        defence_info.setStyleSheet("font-size: 14px; color: #888; padding: 4px;")
-        controls_inner.addWidget(defence_info, stretch=1)
-        
-        self.defence_start_btn = QtWidgets.QPushButton("▶  START")
-        self.defence_start_btn.setMinimumSize(120, 48)
-        self.defence_start_btn.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Preferred)
+        # Big START button at top (Standardized)
+        self.defence_start_btn = QtWidgets.QPushButton("▶  START DRILL")
+        self.defence_start_btn.setMinimumHeight(54)
+        self.defence_start_btn.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
         self.defence_start_btn.clicked.connect(self._start_defence_drill)
         self.defence_start_btn.setStyleSheet("""
             QPushButton {
                 background: #ff8c00;
                 color: #000000;
-                font-size: 16px;
+                font-size: 18px;
                 font-weight: 700;
-                border-radius: 8px;
-                padding: 10px 18px;
+                border-radius: 10px;
+                padding: 14px 24px;
             }
             QPushButton:hover { background: #ffa333; }
             QPushButton:pressed { background: #cc7000; }
         """)
         self.defence_start_btn.setAttribute(QtCore.Qt.WidgetAttribute.WA_AcceptTouchEvents, True)
-        controls_inner.addWidget(self.defence_start_btn)
-        
-        right_col.addWidget(controls_frame)
+        right_col.addWidget(self.defence_start_btn)
         
         # Progress info
         progress_frame = QtWidgets.QFrame()
