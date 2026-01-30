@@ -326,7 +326,11 @@ class CoachBarWidget(QtWidgets.QFrame):
         prompts = prompt_variations.get(mode, prompt_variations["tip"])
         prompt = random.choice(prompts)
         
-        # Show loading state
+        # Reset any previous stream and show loading state
+        if hasattr(self, "_stream_timer") and self._stream_timer.isActive():
+            self._stream_timer.stop()
+        self._received_stream = False
+        self._streaming_text = ""
         self.message_label.setText("🤔 Thinking...")
         
         # Check if service is ready
@@ -1026,6 +1030,12 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self._initialized = False
         self._camera_received = False
         self._shadow_last_preview_ts = None
+        self._last_reaction_frame_ts = 0.0
+        self._last_reaction_summary_key = None
+        self._pending_replay_clip = None
+        self._pending_replay_time = None
+        self._reaction_clips = []
+        self._best_reaction_clip = None
 
         self._apply_styles()
         
@@ -1164,11 +1174,16 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
 
         self.replay_timer = QtCore.QTimer()
         self.replay_timer.timeout.connect(self._play_replay)
+
+        self.stats_timer = QtCore.QTimer()
+        self.stats_timer.timeout.connect(self._update_reaction_stats)
+        self.stats_timer.start(200)
     
     def _on_screen_changed(self, index: int):
         """Update header title and back button when screen changes."""
         current_widget = self.stack.widget(index)
         self._update_header_for_screen(current_widget)
+        self._reset_llm_outputs()
         
         # Auto-switch detection mode based on verify screen requirements
         # Reaction Drill -> Needs Pose (AI Mode)
@@ -1197,6 +1212,17 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self.video_status_label.setText("📹 LIVE ●")
             self.video_status_label.setStyleSheet("font-size: 12px; font-weight: 700; color: #00ff00;")
         self.stack.setCurrentWidget(self.home_screen)
+
+    def _reset_llm_outputs(self) -> None:
+        """Clear coach/LLM outputs when switching screens."""
+        if hasattr(self, 'reaction_coach_bar'):
+            self.reaction_coach_bar.set_message("Tap a button for coaching tips!")
+        if hasattr(self, 'shadow_coach_bar'):
+            self.shadow_coach_bar.set_message("Tap a button for coaching tips!")
+        if hasattr(self, 'defence_coach_bar'):
+            self.defence_coach_bar.set_message("Tap a button for coaching tips!")
+        if hasattr(self.ros, "stream_target"):
+            self.ros.stream_target = None
 
     def _update_header_for_screen(self, widget):
         """Update header title and back button visibility."""
@@ -3296,37 +3322,6 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             countdown = self.ros.drill_countdown
             punch_counter = self.ros.punch_counter
             
-            # Update Reaction Drill attempts from summary
-            if summary and summary.get("drill_name") == "reaction_drill":
-                # DEBUG: Inspect the summary payload
-                # print(f"DEBUG SUMMARY: {summary}") # Uncomment to debug
-                times = summary.get("reaction_times", [])
-                
-                # Update attempt labels
-                if hasattr(self, 'attempt_labels'):
-                    for i, lbl in enumerate(self.attempt_labels):
-                        if i < len(times):
-                            lbl.setText(f"{times[i]:.3f}s")
-                            lbl.setStyleSheet("font-size: 20px; font-weight: 700; color: #ff8c00;")
-                        else:
-                            lbl.setText("--")
-                            lbl.setStyleSheet("font-size: 20px; font-weight: 700; color: #555;")
-                
-                # Best time
-                best = summary.get("best_time")
-                if best is not None:
-                    self.best_attempt_label.setText(f"{best:.3f}s")
-                    self.session_best_label.setText(f"Best: {best:.3f}s")
-                
-                # Average
-                avg = summary.get("avg_time")
-                if avg is not None:
-                    self.avg_reaction_label.setText(f"Avg: {avg:.3f}s")
-                
-                # Count
-                count = summary.get("total_attempts", 0)
-                self.total_attempts_label.setText(f"Attempts: {count}")
-
         # Determine which image to show for reaction preview (pose skeleton preferred)
         reaction_display_img = (
             pose_img if pose_img is not None else (debug_img if debug_img is not None else color_img)
@@ -3507,12 +3502,18 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 self.video_status_label.setStyleSheet("font-size: 10px; font-weight: 700; color: #00ff00;")
             
             now = time.time()
-            self._frame_buffer.append((now, reaction_display_img.copy()))
-            qimg_pose = self._to_qimage(reaction_display_img)
-            pix_pose = QtGui.QPixmap.fromImage(qimg_pose)
-            self.reaction_preview.setPixmap(
-                pix_pose.scaled(self.reaction_preview.size(), QtCore.Qt.AspectRatioMode.KeepAspectRatio)
-            )
+            if now - self._last_reaction_frame_ts >= 1.0 / 15.0:
+                self._last_reaction_frame_ts = now
+                self._frame_buffer.append((now, reaction_display_img))
+                qimg_pose = self._to_qimage(reaction_display_img)
+                pix_pose = QtGui.QPixmap.fromImage(qimg_pose)
+                self.reaction_preview.setPixmap(
+                    pix_pose.scaled(
+                        self.reaction_preview.size(),
+                        QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                        QtCore.Qt.TransformationMode.FastTransformation,
+                    )
+                )
         
         # Shadow and defence use color tracking debug image when available
         if shadow_display_img is not None:
@@ -3522,11 +3523,19 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             # Update shadow and defence previews with color tracking
             if hasattr(self, 'shadow_preview'):
                 self.shadow_preview.setPixmap(
-                    pix2.scaled(self.shadow_preview.size(), QtCore.Qt.AspectRatioMode.KeepAspectRatio)
+                    pix2.scaled(
+                        self.shadow_preview.size(),
+                        QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                        QtCore.Qt.TransformationMode.FastTransformation,
+                    )
                 )
             if hasattr(self, 'defence_preview'):
                 self.defence_preview.setPixmap(
-                    pix2.scaled(self.defence_preview.size(), QtCore.Qt.AspectRatioMode.KeepAspectRatio)
+                    pix2.scaled(
+                        self.defence_preview.size(),
+                        QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                        QtCore.Qt.TransformationMode.FastTransformation,
+                    )
                 )
             if hasattr(self, 'shadow_video_status'):
                 self.shadow_video_status.setText("📹 LIVE")
@@ -3550,18 +3559,89 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self._update_defence_ui()
         self._update_shadow_service_status()
 
+    def _update_reaction_stats(self) -> None:
+        with self.ros.lock:
+            summary = self.ros.drill_summary
+        if not summary or summary.get("drill_name") != "reaction_drill":
+            return
+        
+        times = summary.get("reaction_times", [])
+        summary_key = (
+            summary.get("trial_index"),
+            summary.get("last_reaction_time_s"),
+            summary.get("best_time"),
+            summary.get("avg_time"),
+            len(times),
+        )
+        if summary_key == self._last_reaction_summary_key:
+            return
+        self._last_reaction_summary_key = summary_key
+
+        last_rt = summary.get("last_reaction_time_s")
+        mean_rt = summary.get("avg_time")
+        best_rt = summary.get("best_time")
+
+        # Update attempt labels
+        if hasattr(self, 'attempt_labels'):
+            for i, lbl in enumerate(self.attempt_labels):
+                if i < len(times):
+                    rt = times[i]
+                    is_best = (best_rt is not None and abs(rt - best_rt) < 0.001)
+                    if is_best:
+                        lbl.setText(f"{rt:.3f}s")
+                        lbl.setStyleSheet("font-size: 16px; color: #ff8c00; font-weight: 700;")
+                    else:
+                        lbl.setText(f"{rt:.3f}s")
+                        lbl.setStyleSheet("font-size: 16px; color: #f0f0f0; font-weight: 700;")
+                else:
+                    lbl.setText("--")
+                    lbl.setStyleSheet("font-size: 16px; color: #555; font-weight: 700;")
+
+        if hasattr(self, 'best_attempt_label'):
+            self.best_attempt_label.setText(f"{best_rt:.3f}s" if best_rt is not None else "--")
+        self.last_reaction_label.setText(f"{last_rt:.3f}s" if last_rt is not None else "--")
+        self.summary_label.setText(f"{mean_rt:.3f}s" if mean_rt is not None else "--")
+        
+        # Update session stats panel
+        if hasattr(self, 'total_attempts_label'):
+            self.total_attempts_label.setText(f"Attempts: {len(times)}")
+        if hasattr(self, 'avg_reaction_label'):
+            self.avg_reaction_label.setText(f"Avg: {mean_rt:.3f}s" if mean_rt is not None else "Avg: --")
+        if hasattr(self, 'session_best_label'):
+            self.session_best_label.setText(f"Best: {best_rt:.3f}s" if best_rt is not None else "Best: --")
+
+        # Bind last clip to last reaction time
+        if last_rt is not None and self._pending_replay_clip is not None:
+            self._commit_reaction_clip(float(last_rt))
+
     def _capture_replay_clip(self) -> None:
         if not self._frame_buffer:
             return
         now = time.time()
-        clip = [frame for ts, frame in self._frame_buffer if now - ts <= 2.0]
+        clip = [frame for ts, frame in self._frame_buffer if now - ts <= 1.2]
         self._replay_frames = clip
         self._replay_index = 0
+        self._pending_replay_clip = clip
+
+    def _commit_reaction_clip(self, reaction_time: float) -> None:
+        if not self._pending_replay_clip:
+            return
+        clip = self._pending_replay_clip
+        self._pending_replay_clip = None
+        # Keep only the last 0.8s of the clip
+        tail_len = max(1, int(len(clip) * 0.66))
+        clip = clip[-tail_len:]
+        self._reaction_clips.append({"time": reaction_time, "frames": clip})
+        if self._best_reaction_clip is None or reaction_time <= self._best_reaction_clip["time"]:
+            self._best_reaction_clip = {"time": reaction_time, "frames": clip}
 
     def _start_replay(self) -> None:
+        if self._best_reaction_clip and self._best_reaction_clip["frames"]:
+            self._replay_frames = self._best_reaction_clip["frames"]
+            self._replay_index = 0
         if not self._replay_frames:
             return
-        fps = max(5, int(self.replay_speed.value()))
+        fps = 8
         interval_ms = int(1000 / fps)
         self.replay_timer.start(interval_ms)
 
