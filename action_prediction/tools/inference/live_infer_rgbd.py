@@ -1608,7 +1608,7 @@ class HeadlessInference:
                 continue
 
             # Tracking
-            from boxbunny_msgs.msg import GloveDetection
+            from boxbunny_msgs.msg import GloveDetection, GloveDetections
             
             self.dist_hist[glove].append(dist_m)
             smooth_dist = np.mean(self.dist_hist[glove])
@@ -1638,14 +1638,23 @@ class HeadlessInference:
 
             det = GloveDetection()
             det.glove = glove
-            det.x, det.y, det.w, det.h = x, y, w, h
+            det.distance_m = float(smooth_dist)
+            det.approach_velocity_mps = float(velocity)
+            det.confidence = float(min(1.0, area / 20000.0))
+            det.x, det.y, det.w, det.h = int(x), int(y), int(w), int(h)
             detections.append(det)
+
+        if detections and self.glove_det_pub:
+            det_msg = GloveDetections()
+            det_msg.stamp = self.node.get_clock().now().to_msg()
+            det_msg.detections = detections
+            self.glove_det_pub.publish(det_msg)
 
         # Publish Debug
         if self.color_enabled:
-             vis_bgr = cv2.cvtColor(debug_img, cv2.COLOR_RGB2BGR) # Publish as BGR for consistency
-             msg = self.bridge.cv2_to_imgmsg(vis_bgr, "bgr8")
-             self.glove_debug_pub.publish(msg)
+            vis_bgr = cv2.cvtColor(debug_img, cv2.COLOR_RGB2BGR) # Publish as BGR for consistency
+            msg = self.bridge.cv2_to_imgmsg(vis_bgr, "bgr8")
+            self.glove_debug_pub.publish(msg)
             
     def _process_frame(self, rgb, depth):
         # Same logic as main class

@@ -3673,7 +3673,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
     
     def _start_shadow_drill(self) -> None:
         """Start shadow sparring drill via ROS service."""
-        if not self.ros.shadow_drill_client.wait_for_service(timeout_sec=2.0):
+        if not self.ros.shadow_drill_client.service_is_ready():
             self.shadow_status_label.setText("Status: NOT READY")
             self.shadow_coach_bar.set_message("Shadow drill service not ready.")
             return
@@ -3906,14 +3906,18 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             shadow_punch = self.ros.last_shadow_punch
             shadow_punch_stamp = self.ros.last_shadow_punch_stamp
             shadow_punch_counter = self.ros.shadow_punch_counter
+            last_action = self.ros.last_action
         
         if progress is None or not progress.drill_name:
-            self._update_shadow_preview_from_punch(
+            updated = self._update_shadow_preview_from_punch(
                 shadow_punch or last_punch, shadow_punch_stamp or last_punch_stamp
             )
+            if not updated:
+                self._update_shadow_preview_from_action(last_action)
             if hasattr(self, "shadow_punch_count_label"):
                 self.shadow_punch_count_label.setText(f"Punches: {shadow_punch_counter}")
-            self._update_shadow_detected_from_punch(shadow_punch or last_punch)
+            if not self._update_shadow_detected_from_punch(shadow_punch or last_punch):
+                self._update_shadow_detected_from_action(last_action)
             return
 
         current_step = progress.current_step
@@ -3964,7 +3968,11 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             if hasattr(self, "_shadow_start_style"):
                 self.shadow_start_btn.setStyleSheet(self._shadow_start_style)
             self.shadow_stop_btn.setEnabled(False)
-            self._update_shadow_preview_from_punch(shadow_punch or last_punch, shadow_punch_stamp or last_punch_stamp)
+            updated = self._update_shadow_preview_from_punch(
+                shadow_punch or last_punch, shadow_punch_stamp or last_punch_stamp
+            )
+            if not updated:
+                self._update_shadow_preview_from_action(last_action)
 
         # Detected action feedback
         detected = progress.detected_actions[-1] if progress.detected_actions else None
@@ -3989,9 +3997,10 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             """)
         else:
             if not self._update_shadow_detected_from_punch(shadow_punch or last_punch):
-                self.shadow_detected_label.setText("DETECTED: --")
-                if hasattr(self, "_shadow_detected_style"):
-                    self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
+                if not self._update_shadow_detected_from_action(last_action):
+                    self.shadow_detected_label.setText("DETECTED: --")
+                    if hasattr(self, "_shadow_detected_style"):
+                        self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
 
         # Update checkbox progress for completed steps
         completed = sum(progress.step_completed) if progress.step_completed else 0
@@ -4011,31 +4020,34 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         if progress and progress.status in {"in_progress", "success", "failed", "timeout"}:
             return
         ready = self.ros.shadow_drill_client.service_is_ready()
-        self.shadow_start_btn.setEnabled(ready)
-        self.shadow_stop_btn.setEnabled(ready)
+        # Keep START enabled; show readiness in status only
+        self.shadow_start_btn.setEnabled(True)
         if not ready:
+            self.shadow_stop_btn.setEnabled(False)
             self.shadow_status_label.setText("Status: NOT READY")
         else:
+            self.shadow_stop_btn.setEnabled(True)
             if self.shadow_status_label.text().endswith("NOT READY"):
                 self.shadow_status_label.setText("Status: IDLE")
 
-    def _update_shadow_preview_from_punch(self, punch, punch_stamp) -> None:
+    def _update_shadow_preview_from_punch(self, punch, punch_stamp) -> bool:
         """Show last detected punch even when drill not running."""
         if punch is None or punch_stamp is None:
-            return
+            return False
         if not punch.is_punch:
-            return
+            return False
         if self._shadow_last_preview_ts == punch_stamp:
-            return
+            return False
         self._shadow_last_preview_ts = punch_stamp
         detected, display, color = self._shadow_label_for_punch(punch)
         if not detected:
-            return
+            return False
         self.action_label.setText(display)
         self.action_conf_label.setText("Last punch")
         self.action_label.setStyleSheet(
             f"font-size: 34px; font-weight: 800; color: {color}; background: transparent;"
         )
+        return True
 
     def _shadow_label_for_punch(self, punch):
         """Return (detected, display, color) for a punch event."""
@@ -4061,6 +4073,43 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         detected, display, color = self._shadow_label_for_punch(punch)
         if not detected:
             return False
+        self.shadow_detected_label.setText(f"DETECTED: {display}")
+        self.shadow_detected_label.setStyleSheet(f"""
+            QLabel {{
+                background: #222;
+                color: {color};
+                font-size: 28px;
+                font-weight: 800;
+                border-radius: 8px;
+                padding: 8px;
+                border: 2px solid {color};
+            }}
+        """)
+        return True
+
+    def _update_shadow_preview_from_action(self, action) -> bool:
+        if action is None:
+            return False
+        label = getattr(action, "action_label", None)
+        if not label or label == "idle":
+            return False
+        display = label.replace("_", " ").upper()
+        color = "#26d0ce" if label == "jab" else "#ff8c00" if label == "cross" else "#ffa333"
+        self.action_label.setText(display)
+        self.action_conf_label.setText("Live")
+        self.action_label.setStyleSheet(
+            f"font-size: 34px; font-weight: 800; color: {color}; background: transparent;"
+        )
+        return True
+
+    def _update_shadow_detected_from_action(self, action) -> bool:
+        if action is None:
+            return False
+        label = getattr(action, "action_label", None)
+        if not label or label == "idle":
+            return False
+        display = label.replace("_", " ").upper()
+        color = "#26d0ce" if label == "jab" else "#ff8c00" if label == "cross" else "#ffa333"
         self.shadow_detected_label.setText(f"DETECTED: {display}")
         self.shadow_detected_label.setStyleSheet(f"""
             QLabel {{

@@ -15,7 +15,7 @@ import rclpy
 from rclpy.node import Node
 from ament_index_python.packages import get_package_share_directory
 from std_msgs.msg import String
-from boxbunny_msgs.msg import ActionPrediction, DrillProgress, DrillDefinition
+from boxbunny_msgs.msg import ActionPrediction, DrillProgress, DrillDefinition, GloveDetections
 from boxbunny_msgs.srv import StartDrill, GenerateLLM
 
 
@@ -34,11 +34,21 @@ class ShadowSparringDrill(Node):
         self.declare_parameter('drill_config', '')
         self.declare_parameter('idle_threshold_s', 1.0)  # Time to consider action complete
         self.declare_parameter('confidence_threshold', 0.5)
+        self.declare_parameter('use_color_tracking', True)
+        self.declare_parameter('glove_topic', 'glove_detections')
+        self.declare_parameter('glove_distance_threshold_m', 0.8)
+        self.declare_parameter('glove_velocity_threshold_mps', 1.0)
+        self.declare_parameter('glove_debounce_s', 0.35)
         
         # Get parameters
         config_path = self.get_parameter('drill_config').value
         self.idle_threshold = self.get_parameter('idle_threshold_s').value
         self.confidence_threshold = self.get_parameter('confidence_threshold').value
+        self.use_color_tracking = self.get_parameter('use_color_tracking').value
+        self.glove_topic = self.get_parameter('glove_topic').value
+        self.glove_distance_threshold_m = float(self.get_parameter('glove_distance_threshold_m').value)
+        self.glove_velocity_threshold_mps = float(self.get_parameter('glove_velocity_threshold_mps').value)
+        self.glove_debounce_s = float(self.get_parameter('glove_debounce_s').value)
         
         # Load drill definitions
         self.drills: Dict[str, Dict] = {}
@@ -54,6 +64,7 @@ class ShadowSparringDrill(Node):
         self.last_action = 'idle'
         self.last_action_time = 0.0
         self.action_locked = False  # Prevent rapid duplicate detections
+        self._last_glove_punch_time = {"left": 0.0, "right": 0.0}
         
         # Publishers
         self.progress_pub = self.create_publisher(DrillProgress, 'drill_progress', 10)
@@ -62,6 +73,9 @@ class ShadowSparringDrill(Node):
         # Subscribers
         self.action_sub = self.create_subscription(
             ActionPrediction, 'action_prediction', self._on_action, 10)
+        if self.use_color_tracking:
+            self.glove_sub = self.create_subscription(
+                GloveDetections, self.glove_topic, self._on_glove_detections, 10)
         
         # Services
         self.start_srv = self.create_service(
@@ -165,6 +179,8 @@ class ShadowSparringDrill(Node):
         """Handle action prediction message."""
         if not self.active or self.current_drill is None:
             return
+        if self.use_color_tracking:
+            return
         
         action = msg.action_label
         confidence = msg.confidence
@@ -193,18 +209,43 @@ class ShadowSparringDrill(Node):
         self.last_action = action
         self.last_action_time = time.time()
         
-        # Check if action matches
+        self._handle_detected_action(action, lock_after=True)
+
+    def _on_glove_detections(self, msg: GloveDetections) -> None:
+        """Handle glove detections (color tracking) as jab/cross."""
+        if not self.active or self.current_drill is None:
+            return
+        now = time.time()
+        for det in msg.detections:
+            if det.distance_m > self.glove_distance_threshold_m:
+                continue
+            if det.approach_velocity_mps < self.glove_velocity_threshold_mps:
+                continue
+            if now - self._last_glove_punch_time[det.glove] < self.glove_debounce_s:
+                continue
+            self._last_glove_punch_time[det.glove] = now
+            action = "jab" if det.glove == "left" else "cross"
+            self._handle_detected_action(action, lock_after=False)
+
+    def _handle_detected_action(self, action: str, lock_after: bool) -> None:
+        """Check detected action against the expected sequence."""
+        if self.current_step >= len(self.current_drill['sequence']):
+            return
+        expected = self.current_drill['sequence'][self.current_step]
+
+        self.detected_actions.append(action)
+        self.last_action = action
+        self.last_action_time = time.time()
+
         if action == expected:
             self.step_completed[self.current_step] = True
             self.current_step += 1
-            self.action_locked = True  # Wait for idle before next action
-            
+            if lock_after:
+                self.action_locked = True
             self.get_logger().info(
                 f"Step {self.current_step}/{len(self.current_drill['sequence'])}: "
                 f"Detected {action} ✓"
             )
-            
-            # Check if drill complete
             if self.current_step >= len(self.current_drill['sequence']):
                 self._complete_drill(success=True)
         else:
