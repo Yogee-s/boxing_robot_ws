@@ -19,6 +19,26 @@ from cv_bridge import CvBridge
 from boxbunny_msgs.msg import GloveDetections, PunchEvent, ImuDebug, TrashTalk, ActionPrediction, DrillProgress
 from boxbunny_msgs.srv import StartStopDrill, GenerateLLM, StartDrill
 
+# Fix for Qt Platform Plugin "xcb" error (OpenCV vs PySide6 conflict)
+# Must set this BEFORE importing PySide6
+import sys
+if "boxing_ai" in sys.executable:
+    # Point to Conda's Qt plugins (avoiding OpenCV's bundled Qt)
+    conda_p = os.path.dirname(sys.executable)
+    # Different possible locations depending on OS/Conda layout
+    possible_roots = [
+        os.path.join(conda_p, "../lib/qt6/plugins"),
+        os.path.join(conda_p, "../plugins"),
+        os.path.join(conda_p, "Library/plugins") # Windows
+    ]
+    for p in possible_roots:
+        if os.path.exists(os.path.join(p, "platforms/libqxcb.so")):
+            os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = p
+            # Unset plugin path to prevent conflicting lookups
+            if "QT_PLUGIN_PATH" in os.environ:
+                del os.environ["QT_PLUGIN_PATH"]
+            break
+
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import QUrl
 
@@ -1089,6 +1109,24 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """Update header title and back button when screen changes."""
         current_widget = self.stack.widget(index)
         self._update_header_for_screen(current_widget)
+        
+        # Auto-switch detection mode based on verify screen requirements
+        # Reaction Drill -> Needs Pose (AI Mode)
+        # Shadow/Defence -> Needs Color Tracking (Simple Mode)
+        if current_widget == self.reaction_tab:
+            if hasattr(self, 'action_mode_radio') and not self.action_mode_radio.isChecked():
+                self.action_mode_radio.setChecked(True)
+                # self._on_detection_mode_changed() # Triggered by setChecked signal?
+                # Signal might not fire if not user interaction, let's force call if needed
+                # But typically setChecked fires toggled.
+        elif current_widget == self.shadow_tab or current_widget == self.defence_tab:
+            if hasattr(self, 'color_mode_radio') and not self.color_mode_radio.isChecked():
+                self.color_mode_radio.setChecked(True)
+        elif current_widget == self.home_screen:
+            # Revert to AI mode on home screen for general usage? Or keep last?
+            # Let's default to Pose (AI) as it's the more robust default
+             if hasattr(self, 'action_mode_radio') and not self.action_mode_radio.isChecked():
+                self.action_mode_radio.setChecked(True)
     
     def _on_startup_complete(self):
         """Called when startup loading is complete."""
@@ -1257,9 +1295,9 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 font-size: 12px;
                 font-weight: 700;
                 border: 2px solid #ff8c00;
-                border-radius: 6px;
-                padding: 8px 32px;
-                min-width: 110px;
+                border-radius: 8px;
+                padding: 12px 42px;
+                min-width: 130px;
                 margin: 4px;
             }
             QPushButton#headerBackBtn:hover {
@@ -1275,8 +1313,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 border-radius: 4px;
                 font-size: 11px;
                 font-weight: 600;
-                padding: 8px 32px;
-                min-width: 90px;
+                padding: 12px 42px;
+                min-width: 100px;
                 margin: 4px;
             }
             QPushButton#fullscreenBtn:hover {
@@ -2036,6 +2074,102 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self._best_attempt_index = -1
         self._best_attempt_frames = []
         # self.attempt_labels is already populated above
+
+    def _setup_shadow_tab(self) -> None:
+        layout = QtWidgets.QVBoxLayout()
+        layout.setContentsMargins(20, 10, 20, 20)
+        layout.setSpacing(20)
+        self._add_back_btn(layout)
+        
+        # Header
+        header = QtWidgets.QLabel("🥊 SHADOW SPARRING: 1-1-2 COMBO")
+        header.setStyleSheet("font-size: 24px; font-weight: 800; color: #ff8c00; padding: 10px; letter-spacing: 2px;")
+        header.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(header)
+        
+        layout.addStretch(1)
+        
+        # Combo Steps Display (Horizontal)
+        combo_frame = QtWidgets.QFrame()
+        combo_frame.setStyleSheet("background: #1a1a1a; border-radius: 16px; border: 2px solid #333;")
+        combo_layout = QtWidgets.QHBoxLayout(combo_frame)
+        combo_layout.setContentsMargins(30, 30, 30, 30)
+        combo_layout.setSpacing(10)
+        
+        # Define steps for 1-1-2
+        steps = ["JAB", "JAB", "CROSS"]
+        self.shadow_step_labels = []
+        
+        for i, text in enumerate(steps):
+            # Step Container
+            step_box = QtWidgets.QLabel(text)
+            step_box.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            step_box.setMinimumSize(160, 120)
+            step_box.setStyleSheet("""
+                font-size: 28px;
+                font-weight: 800;
+                color: #555;
+                background: #111;
+                border: 2px solid #333;
+                border-radius: 12px;
+            """)
+            combo_layout.addWidget(step_box)
+            self.shadow_step_labels.append(step_box)
+            
+            # Arrow (except last)
+            if i < len(steps) - 1:
+                arrow = QtWidgets.QLabel("➜")
+                arrow.setStyleSheet("font-size: 32px; color: #444; font-weight: bold;")
+                arrow.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+                combo_layout.addWidget(arrow)
+                
+        layout.addWidget(combo_frame)
+        
+        layout.addStretch(1)
+        
+        # Status / Feedback
+        self.shadow_status_label = QtWidgets.QLabel("Press START to Begin")
+        self.shadow_status_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.shadow_status_label.setStyleSheet("font-size: 32px; font-weight: 700; color: #888;")
+        layout.addWidget(self.shadow_status_label)
+        
+        layout.addStretch(1)
+        
+        # Controls
+        btn_row = QtWidgets.QHBoxLayout()
+        btn_row.setSpacing(20)
+        btn_row.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        
+        self.shadow_start_btn = QtWidgets.QPushButton("▶ START DRILL")
+        self.shadow_start_btn.setMinimumSize(200, 70)
+        self.shadow_start_btn.setStyleSheet(ButtonStyle.START)
+        
+        self.shadow_start_btn.clicked.connect(lambda: self._start_shadow_drill("1-1-2 Combo"))
+        
+        btn_row.addWidget(self.shadow_start_btn)
+        
+        layout.addLayout(btn_row)
+        layout.addStretch(1)
+        
+        self.shadow_tab.setLayout(layout)
+
+    def _start_shadow_drill(self, drill_name: str):
+        """Start the shadow sparring drill."""
+        if not self.ros.shadow_drill_client.service_is_ready():
+            self.shadow_status_label.setText("⚠️ Service Not Ready")
+            return
+            
+        req = StartDrill.Request()
+        req.drill_name = drill_name
+        future = self.ros.shadow_drill_client.call_async(req)
+        
+        # Reset UI
+        for lbl in self.shadow_step_labels:
+            lbl.setStyleSheet("""
+                font-size: 28px; font-weight: 800; color: #555;
+                background: #111; border: 2px solid #333; border-radius: 12px;
+            """)
+        self.shadow_status_label.setText("Starting...")
 
     def _setup_punch_tab(self) -> None:
         layout = QtWidgets.QVBoxLayout()
@@ -2810,7 +2944,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """)
         video_inner.addWidget(self.defence_preview, stretch=1)
         
-        left_col.addWidget(video_frame)
+        left_col.addWidget(video_frame, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
         left_col.addStretch()
         content.addLayout(left_col)
         
@@ -3114,6 +3248,48 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 # Count
                 count = summary.get("total_attempts", 0)
                 self.total_attempts_label.setText(f"Attempts: {count}")
+
+            # Update Shadow Sparring Progress
+            if self.ros.drill_progress and hasattr(self, 'shadow_step_labels'):
+                prog = self.ros.drill_progress
+                if prog.status == 'success':
+                    self.shadow_status_label.setText("✅ COMBO COMPLETE!")
+                    self.shadow_status_label.setStyleSheet("font-size: 32px; font-weight: 800; color: #00ff00;")
+                elif prog.status == 'timeout':
+                    self.shadow_status_label.setText("⏰ TIME OUT!")
+                    self.shadow_status_label.setStyleSheet("font-size: 32px; font-weight: 800; color: #ff3333;")
+                else:
+                    # In progress
+                    current_idx = prog.current_step
+                    action_vocab = {"jab": "JAB", "cross": "CROSS", "left_hook": "L HOOK", "right_hook": "R HOOK"}
+                    
+                    # Update Step Colors
+                    for i, lbl in enumerate(self.shadow_step_labels):
+                        if i < current_idx:
+                            # Completed
+                            lbl.setStyleSheet("""
+                                font-size: 28px; font-weight: 800; color: #000;
+                                background: #26d0ce; border: 2px solid #26d0ce; border-radius: 12px;
+                            """)
+                        elif i == current_idx:
+                            # Current
+                            lbl.setStyleSheet("""
+                                font-size: 32px; font-weight: 800; color: #ff8c00;
+                                background: #2a2a2a; border: 4px solid #ff8c00; border-radius: 12px;
+                            """)
+                        else:
+                            # Future
+                            lbl.setStyleSheet("""
+                                font-size: 28px; font-weight: 800; color: #555;
+                                background: #111; border: 2px solid #333; border-radius: 12px;
+                            """)
+                    
+                    # Update Status Text
+                    if current_idx < len(prog.expected_actions):
+                        next_move = prog.expected_actions[current_idx]
+                        display_move = action_vocab.get(next_move, next_move.upper())
+                        self.shadow_status_label.setText(f"PUNCH: {display_move}!")
+                        self.shadow_status_label.setStyleSheet("font-size: 36px; font-weight: 900; color: #ff8c00;")
         
         # Determine which image to show for reaction preview (pose skeleton for reaction drill)
         # Use pose image if available, otherwise fall back to color tracking

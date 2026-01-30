@@ -16,7 +16,7 @@ import psutil
 from pathlib import Path
 from collections import deque
 from queue import Queue, Empty
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
 import cv2
 import numpy as np
@@ -67,6 +67,10 @@ class SimpleActionDetector:
         self.last_time = 0.0
         
     def detect(self, rgb: np.ndarray, depth: np.ndarray) -> str:
+        label, _ = self.detect_debug(rgb, depth, draw=False)
+        return label
+
+    def detect_debug(self, rgb: np.ndarray, depth: np.ndarray, draw: bool = True) -> Tuple[str, Optional[np.ndarray]]:
         hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
         
         # Green
@@ -76,34 +80,69 @@ class SimpleActionDetector:
         mask_r2 = cv2.inRange(hsv, self.red_lower2, self.red_upper2)
         mask_r = cv2.bitwise_or(mask_r1, mask_r2)
         
+        # Cleanup noise
+        kernel = np.ones((5,5), np.uint8)
+        mask_g = cv2.morphologyEx(mask_g, cv2.MORPH_OPEN, kernel)
+        mask_r = cv2.morphologyEx(mask_r, cv2.MORPH_OPEN, kernel)
+        
         area_g = np.count_nonzero(mask_g)
         area_r = np.count_nonzero(mask_r)
         
         # Determine candidate
         candidate = "IDLE"
         active_mask = None
+        active_color = (0, 0, 0)
+        
+        # Debug Image
+        vis = None
+        if draw:
+            vis = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        
         if area_g > self.min_area and area_g > area_r:
             candidate = "jab"
             active_mask = mask_g
+            active_color = (0, 255, 0) # Green
         elif area_r > self.min_area and area_r > area_g:
             candidate = "cross"
             active_mask = mask_r
+            active_color = (0, 0, 255) # Red
+            
+        # Draw Contours
+        if draw:
+            # Draw Green
+            cnts_g, _ = cv2.findContours(mask_g, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            for c in cnts_g:
+                if cv2.contourArea(c) > 1000:
+                    x,y,w,h = cv2.boundingRect(c)
+                    cv2.rectangle(vis, (x,y), (x+w,y+h), (0, 255, 0), 2)
+            # Draw Red
+            cnts_r, _ = cv2.findContours(mask_r, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            for c in cnts_r:
+                if cv2.contourArea(c) > 1000:
+                    x,y,w,h = cv2.boundingRect(c)
+                    cv2.rectangle(vis, (x,y), (x+w,y+h), (0, 0, 255), 2)
             
         if candidate == "IDLE":
-             return "IDLE"
+             return "IDLE", vis
 
         # Check Depth
         dist = self._get_median_depth(active_mask, depth)
+        
+        if draw and active_mask is not None:
+             # Add text
+             cv2.putText(vis, f"{candidate.upper()} {dist:.2f}m" if dist else candidate.upper(), 
+                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, active_color, 2)
+
         if dist is None or dist > self.depth_threshold:
              # print(f"Ignored {candidate} at {dist}m")
-             return "IDLE"
+             return "IDLE", vis
         
         now = time.time()
         if now - self.last_time < self.cooldown:
-            return "IDLE"
+            return "IDLE", vis
             
         self.last_time = now
-        return candidate
+        return candidate, vis
 
     def _get_median_depth(self, mask, depth):
         if depth is None: return None
@@ -311,7 +350,7 @@ class LiveRGBDInference:
                 
                 if use_simple:
                     # Simple Color Mode with Depth Trigger
-                    label = self.simple_detector.detect(rgb, depth)
+                    label, debug_img = self.simple_detector.detect_debug(rgb, depth, draw=True)
                     probs = np.zeros(len(self.labels), dtype=np.float32)
                     bbox = None
                     rgb_crop, depth_crop = None, None
@@ -326,6 +365,14 @@ class LiveRGBDInference:
                          # Idle
                          if 'idle' in self.labels:
                              probs[self.labels.index('idle')] = 1.0
+                    
+                    # Publish Debug Image
+                    if debug_img is not None and self.glove_debug_pub:
+                        try:
+                            msg = self.bridge.cv2_to_imgmsg(debug_img, "bgr8")
+                            self.glove_debug_pub.publish(msg)
+                        except Exception:
+                            pass
 
                 else:
                     # Use AI Model
@@ -1146,14 +1193,36 @@ class LiveRGBDInference:
 
 class HeadlessInference:
     """Headless version of LiveRGBDInference for ROS integration."""
-    def __init__(self, model_config, model_checkpoint, yolo_model, window_size, device, causal, fps, rgb_res, depth_res, detect_interval, enable_action_model=False, labels=None):
-        self.running = True
+    def __init__(
+        self,
+        model_config,
+        model_checkpoint,
+        yolo_model,
+        window_size=16,
+        device='cuda:0',
+        causal=True,
+        fps=30,
+        rgb_res='640x480',
+        depth_res='640x480',
+        detect_interval=5,
+        enable_action_model=False,
+        mode='pose'
+    ):
         self.device = device
-        self.window_size = window_size
-        self.labels = labels or DEFAULT_LABELS
-        self.depth_scale = 0.001
         self.model_config = model_config
         self.model_checkpoint = model_checkpoint
+        self.window_size = window_size
+        self.use_delta = False # Config loaded later usually
+        self.labels = DEFAULT_LABELS
+        self.running = True
+        
+        # Initialize ROS / IMU Handler
+        print("Initializing ROS handler...")
+        self.imu_handler = RosImuHandler()
+        self.imu_handler.start()
+        while not self.imu_handler.ready:
+            time.sleep(0.1)
+        self.node = self.imu_handler.node
         
         # Load Config
         cfg = _load_config(model_config)
@@ -1195,8 +1264,17 @@ class HeadlessInference:
         self.imu_handler.start()
         
         # Publisher
-        while self.imu_handler.node is None:
+        # Publisher
+        waited = 0
+        while self.imu_handler.node is None and waited < 50: # 5 seconds timeout
              time.sleep(0.1)
+             waited += 1
+             
+        if self.imu_handler.node is None:
+            print("FATAL: ROS Node failed to initialize in handler.")
+            self.running = False
+            return
+
         self.node = self.imu_handler.node
         
         from sensor_msgs.msg import Image
@@ -1208,10 +1286,19 @@ class HeadlessInference:
         self.bridge = CvBridge()
         self.node.create_service(Trigger, 'action_predictor/load_model', self._handle_load_model)
         
-        # Mode Subscription
+        # Mode Subscription / Setting
         from std_msgs.msg import String
-        self.pose_enabled = True # Default
         self.mode_sub = self.node.create_subscription(String, '/boxbunny/detection_mode', self._on_mode_switch, 10)
+        
+        # Initial Mode
+        if mode == 'color':
+            self.color_enabled = True
+            self.pose_enabled = False
+            print("Mode: Color Tracking (Simple)")
+        else:
+            self.color_enabled = False
+            self.pose_enabled = True # Default
+            print("Mode: Pose Model")
         
         # Initialize Models
         print("Loading Pose model...")
@@ -1634,6 +1721,8 @@ def main():
                         help='Run without GUI and publish to ROS')
     parser.add_argument('--enable-action-model', action='store_true',
                         help='Enable Action Model in Headless mode')
+    parser.add_argument('--mode', type=str, default='pose',
+                        help='Detection mode: pose, color, hybrid')
     
     args = parser.parse_args()
     
@@ -1650,6 +1739,7 @@ def main():
             depth_res=args.depth_res,
             detect_interval=args.detect_interval,
             enable_action_model=args.enable_action_model,
+            mode=args.mode,
         )
         return
     

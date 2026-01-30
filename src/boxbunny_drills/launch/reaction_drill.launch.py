@@ -26,6 +26,14 @@ def generate_launch_description():
             name='reaction_drill_manager',
             output='screen'
         ),
+
+        # 2b. Shadow Sparring Drill Manager
+        Node(
+            package='boxbunny_drills',
+            executable='shadow_sparring_drill',
+            name='shadow_sparring_drill',
+            output='screen'
+        ),
         
         # 3. Headless Pose AI (Action Prediction)
         ExecuteProcess(
@@ -35,9 +43,9 @@ def generate_launch_description():
                 '--model-checkpoint', ckpt_path,
                 '--yolo-model', yolo_path,
                 '--fps', '30',
-                '--rgb-res', '640x480',
                 '--depth-res', '640x480',
-                '--headless'
+                '--headless',
+                '--mode', 'color'
                 # Default is Pose Only. To enable action: '--enable-action-model'
             ],
             cwd=os.path.join(ws_root, "action_prediction"),

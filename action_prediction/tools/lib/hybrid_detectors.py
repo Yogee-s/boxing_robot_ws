@@ -175,11 +175,12 @@ class RosImuHandler(threading.Thread):
 
                 # Action Prediction Pub
                 self.action_pub = node_self.create_publisher(ActionPrediction, 'action_prediction', 10)
+                # Check if publisher already exists/reuse? No, create_publisher is safe usually.
                 self.height_pub = node_self.create_publisher(Float32, '/player_height', 10)
                 
                 # New Services
                 node_self.create_service(SetBool, 'action_predictor/set_simple_mode', node_self._handle_simple_mode)
-                node_self.create_service(Trigger, 'action_predictor/calibrate_height', node_self._handle_calib_height)
+                node_self.create_service(Trigger, 'action_predictor/calibrate_height', node_self._handle_calib_height) 
                 
             def log(self, msg):
                 self.get_logger().info(msg)
@@ -205,23 +206,37 @@ class RosImuHandler(threading.Thread):
                 return res
 
         # Init ROS context (check if already initialized?)
-        try:
-            rclpy.init()
-        except Exception:
-            pass # Already initialized?
+        if not rclpy.ok():
+            try:
+                rclpy.init()
+            except Exception:
+                pass 
             
         outer = self # Capture reference for inner class
         self.node = ImuNode()
         self.ready = True
         self.status_msg = "ROS Ready."
         
+        executor = rclpy.executors.SingleThreadedExecutor()
+        executor.add_node(self.node)
+        
         try:
-            rclpy.spin(self.node)
+            executor.spin()
         except Exception as e:
-            print(f"ROS Spin Error: {e}")
+            print(f"ROS Executor Error: {e}")
         finally:
-            self.node.destroy_node()
-            rclpy.shutdown()
+            try:
+                executor.shutdown()
+                self.node.destroy_node()
+            except:
+                pass
+            
+            # Do NOT shutdown if we didn't init, or just leave it to the process exit
+            if rclpy.ok():
+                try:
+                    rclpy.shutdown()
+                except:
+                    pass
 
     def _on_punch_msg(self, msg):
         """Called by ROS thread when punch detected."""
