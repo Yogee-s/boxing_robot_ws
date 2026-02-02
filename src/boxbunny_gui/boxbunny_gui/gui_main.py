@@ -3511,7 +3511,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             }
         """)
         self._defence_drill_defs = self._load_defence_drill_definitions()
-        default_defence = {"name": "JAB-JAB-CROSS", "sequence": ["JAB", "JAB", "CROSS"], "interval_s": 2.5}
+        default_defence = {"name": "JAB-JAB-CROSS", "sequence": ["1", "1", "2"], "interval_s": 2.5}
         if not any(d.get("name") == default_defence["name"] for d in self._defence_drill_defs):
             self._defence_drill_defs.insert(0, default_defence)
         self._defence_drill_map = {drill["name"]: drill for drill in self._defence_drill_defs}
@@ -3521,7 +3521,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             label = f"{drill['name']} ({seq_label})" if seq_label else drill["name"]
             self.defence_combo.addItem(label, drill["name"])
         if self.defence_combo.count() == 0:
-            self.defence_combo.addItem("JAB-JAB-CROSS (JAB - JAB - CROSS)", "JAB-JAB-CROSS")
+            self.defence_combo.addItem("JAB-JAB-CROSS (1 - 1 - 2)", "JAB-JAB-CROSS")
             self._defence_drill_map["JAB-JAB-CROSS"] = default_defence
         self.defence_combo.currentIndexChanged.connect(self._on_defence_combo_changed)
         combo_inner.addWidget(self.defence_combo, stretch=1)
