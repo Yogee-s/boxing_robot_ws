@@ -117,40 +117,66 @@ class ButtonStyle:
 # ============================================================================
 
 class CheckboxProgressWidget(QtWidgets.QWidget):
-    """Visual progress tracker with numbered step indicators."""
+    """Visual progress tracker with numbered step indicators and punch labels."""
     
-    def __init__(self, count: int = 3, parent=None):
+    def __init__(self, count: int = 3, labels: list = None, parent=None):
         super().__init__(parent)
         self.setStyleSheet("background: transparent; border: none;")
         self.count = count
         self.current = 0
         self.checkboxes = []
+        self.punch_labels = labels or []
         
         outer_layout = QtWidgets.QVBoxLayout(self)
-        outer_layout.setSpacing(6)
-        outer_layout.setContentsMargins(0, 4, 0, 4)
+        outer_layout.setSpacing(4)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
         
         # Checkboxes row
         checkbox_row = QtWidgets.QHBoxLayout()
-        checkbox_row.setSpacing(12)
+        checkbox_row.setSpacing(16)
         checkbox_row.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         
         for i in range(count):
+            # Container for each punch box
+            punch_container = QtWidgets.QVBoxLayout()
+            punch_container.setSpacing(4)
+            punch_container.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            
+            # Main checkbox
             checkbox = QtWidgets.QLabel(f"{i+1}")
             checkbox.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-            checkbox.setFixedSize(44, 44)
+            checkbox.setFixedSize(52, 52)
             checkbox.setStyleSheet("""
-                font-size: 20px;
+                font-size: 22px;
                 font-weight: 700;
                 color: #484f58;
                 background: #1a1a1a;
-                border: 2px solid #333;
-                border-radius: 8px;
+                border: 3px solid #333;
+                border-radius: 10px;
             """)
-            checkbox_row.addWidget(checkbox)
+            punch_container.addWidget(checkbox, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
             self.checkboxes.append(checkbox)
+            
+            # Punch type label below
+            label_text = self.punch_labels[i] if i < len(self.punch_labels) else ""
+            punch_label = QtWidgets.QLabel(label_text.upper() if label_text else "")
+            punch_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            punch_label.setStyleSheet("font-size: 10px; font-weight: 600; color: #666; background: transparent;")
+            punch_container.addWidget(punch_label, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
+            
+            checkbox_row.addLayout(punch_container)
         
         outer_layout.addLayout(checkbox_row)
+    
+    def set_labels(self, labels: list):
+        """Update punch labels."""
+        self.punch_labels = labels
+        # Find and update label widgets
+        for i, checkbox in enumerate(self.checkboxes):
+            parent_layout = checkbox.parent()
+            if parent_layout and i < len(labels):
+                # Labels are stored as the second widget in each punch_container
+                pass  # Labels are set at creation; for dynamic update, recreate widget
     
     def tick(self, index: int = None):
         """Tick the checkbox at the given index (or next if None)."""
@@ -159,12 +185,12 @@ class CheckboxProgressWidget(QtWidgets.QWidget):
         if 0 <= index < len(self.checkboxes):
             self.checkboxes[index].setText("✓")
             self.checkboxes[index].setStyleSheet("""
-                font-size: 20px;
+                font-size: 22px;
                 font-weight: 700;
                 color: #000;
                 background: #26d0ce;
-                border: 2px solid #26d0ce;
-                border-radius: 8px;
+                border: 3px solid #26d0ce;
+                border-radius: 10px;
             """)
             self.current = index + 1
     
@@ -174,12 +200,12 @@ class CheckboxProgressWidget(QtWidgets.QWidget):
         for i, checkbox in enumerate(self.checkboxes):
             checkbox.setText(f"{i+1}")
             checkbox.setStyleSheet("""
-                font-size: 20px;
+                font-size: 22px;
                 font-weight: 700;
                 color: #484f58;
                 background: #1a1a1a;
-                border: 2px solid #333;
-                border-radius: 8px;
+                border: 3px solid #333;
+                border-radius: 10px;
             """)
     
     def set_wrong(self, index: int):
@@ -187,12 +213,12 @@ class CheckboxProgressWidget(QtWidgets.QWidget):
         if 0 <= index < len(self.checkboxes):
             self.checkboxes[index].setText("✗")
             self.checkboxes[index].setStyleSheet("""
-                font-size: 20px;
+                font-size: 22px;
                 font-weight: 700;
                 color: #fff;
                 background: #ff4757;
-                border: 2px solid #ff4757;
-                border-radius: 8px;
+                border: 3px solid #ff4757;
+                border-radius: 10px;
             """)
             self.current = index + 1
 
@@ -200,7 +226,7 @@ class CheckboxProgressWidget(QtWidgets.QWidget):
 class ComboHistoryWidget(QtWidgets.QWidget):
     """Visual tracker for combo history (success/wrong combos)."""
     
-    def __init__(self, max_count: int = 10, parent=None):
+    def __init__(self, max_count: int = 3, parent=None):
         super().__init__(parent)
         self.setStyleSheet("background: transparent; border: none;")
         self.max_count = max_count
@@ -209,30 +235,31 @@ class ComboHistoryWidget(QtWidgets.QWidget):
         
         outer_layout = QtWidgets.QVBoxLayout(self)
         outer_layout.setSpacing(4)
-        outer_layout.setContentsMargins(0, 4, 0, 4)
+        outer_layout.setContentsMargins(6, 0, 6, 0)
+        outer_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         
-        # Label
-        label = QtWidgets.QLabel("COMBO HISTORY")
+        # Small label
+        label = QtWidgets.QLabel("HISTORY")
         label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        label.setStyleSheet("font-size: 11px; font-weight: 600; color: #666; background: transparent;")
+        label.setStyleSheet("font-size: 10px; font-weight: 600; color: #666; background: transparent;")
         outer_layout.addWidget(label)
         
         # Boxes row
         self.boxes_row = QtWidgets.QHBoxLayout()
-        self.boxes_row.setSpacing(6)
+        self.boxes_row.setSpacing(4)
         self.boxes_row.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         
         for i in range(max_count):
             box = QtWidgets.QLabel("")
             box.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-            box.setFixedSize(28, 28)
+            box.setFixedSize(30, 30)
             box.setStyleSheet("""
                 font-size: 14px;
                 font-weight: 700;
-                color: #333;
+                color: #444;
                 background: #1a1a1a;
                 border: 2px solid #333;
-                border-radius: 6px;
+                border-radius: 4px;
             """)
             self.boxes_row.addWidget(box)
             self.boxes.append(box)
@@ -260,7 +287,7 @@ class ComboHistoryWidget(QtWidgets.QWidget):
                         color: #000;
                         background: #26d0ce;
                         border: 2px solid #26d0ce;
-                        border-radius: 6px;
+                        border-radius: 4px;
                     """)
                 else:  # wrong
                     box.setText("✗")
@@ -270,17 +297,17 @@ class ComboHistoryWidget(QtWidgets.QWidget):
                         color: #fff;
                         background: #ff4757;
                         border: 2px solid #ff4757;
-                        border-radius: 6px;
+                        border-radius: 4px;
                     """)
             else:
                 box.setText("")
                 box.setStyleSheet("""
                     font-size: 14px;
                     font-weight: 700;
-                    color: #333;
+                    color: #444;
                     background: #1a1a1a;
                     border: 2px solid #333;
-                    border-radius: 6px;
+                    border-radius: 4px;
                 """)
     
     def reset(self):
@@ -3359,43 +3386,46 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         detected_layout.addWidget(self.shadow_detected_label)
         right_col.addWidget(detected_frame)
         
-        # Checkbox progress indicator (dynamic per combo length)
+        # Punch progress and combo history in horizontal layout
         self.shadow_checkbox_container = QtWidgets.QFrame()
         self.shadow_checkbox_container.setStyleSheet("background: #151515; border-radius: 8px;")
-        self.shadow_checkbox_layout = QtWidgets.QVBoxLayout(self.shadow_checkbox_container)
-        self.shadow_checkbox_layout.setContentsMargins(12, 12, 12, 12)
-        self.shadow_checkbox_layout.setSpacing(10)
+        self.shadow_checkbox_container.setFixedHeight(100)
         
-        # Current combo progress label
-        combo_progress_label = QtWidgets.QLabel("CURRENT COMBO")
-        combo_progress_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        combo_progress_label.setStyleSheet("font-size: 11px; font-weight: 600; color: #666; background: transparent;")
-        self.shadow_checkbox_layout.addWidget(combo_progress_label)
+        # Main horizontal layout for punch boxes + history
+        punch_row = QtWidgets.QHBoxLayout(self.shadow_checkbox_container)
+        punch_row.setContentsMargins(16, 8, 16, 8)
+        punch_row.setSpacing(16)
         
-        self.shadow_checkbox_progress = CheckboxProgressWidget(count=3)
-        self.shadow_checkbox_layout.addWidget(self.shadow_checkbox_progress)
+        # Left: Current combo punch boxes
+        self.shadow_checkbox_progress = CheckboxProgressWidget(count=3, labels=["jab", "jab", "cross"])
+        punch_row.addWidget(self.shadow_checkbox_progress, stretch=1)
         
-        # Combo result box (shows COMPLETE or WRONG after combo)
+        # Divider
+        divider = QtWidgets.QFrame()
+        divider.setFixedWidth(2)
+        divider.setFixedHeight(60)
+        divider.setStyleSheet("background: #333;")
+        punch_row.addWidget(divider)
+        
+        # Right: Combo history (3 boxes)
+        self.shadow_combo_history = ComboHistoryWidget(max_count=3)
+        punch_row.addWidget(self.shadow_combo_history)
+        
+        right_col.addWidget(self.shadow_checkbox_container)
+        
+        # Combo result label (shows feedback after combo)
         self.shadow_combo_result = QtWidgets.QLabel("")
         self.shadow_combo_result.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.shadow_combo_result.setFixedHeight(40)
+        self.shadow_combo_result.setFixedHeight(24)
         self.shadow_combo_result.setStyleSheet("""
             QLabel {
                 background: transparent;
                 color: #555;
-                font-size: 16px;
+                font-size: 12px;
                 font-weight: 700;
-                border-radius: 8px;
-                padding: 4px 10px;
             }
         """)
-        self.shadow_checkbox_layout.addWidget(self.shadow_combo_result)
-        
-        # Combo history tracker
-        self.shadow_combo_history = ComboHistoryWidget(max_count=10)
-        self.shadow_checkbox_layout.addWidget(self.shadow_combo_history)
-        
-        right_col.addWidget(self.shadow_checkbox_container)
+        right_col.addWidget(self.shadow_combo_result)
         
         content.addLayout(right_col, stretch=1)
         
@@ -3440,7 +3470,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         if not drill:
             return
         sequence = drill["sequence"]
-        self._set_shadow_checkbox_count(max(1, len(sequence)))
+        self._set_shadow_checkbox_count(max(1, len(sequence)), sequence)
         if sequence:
             self.shadow_expected_label.setText(f"Next: {sequence[0].replace('_', ' ').upper()}")
             self.action_conf_label.setText(f"Step 1/{len(sequence)}")
@@ -3448,19 +3478,31 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self.shadow_expected_label.setText("Next: --")
             self.action_conf_label.setText("Step --")
 
-    def _set_shadow_checkbox_count(self, count: int) -> None:
+    def _set_shadow_checkbox_count(self, count: int, labels: list = None) -> None:
         """Rebuild checkbox progress widget for the current combo length."""
         if not hasattr(self, "shadow_checkbox_progress"):
             return
-        if self.shadow_checkbox_progress.count == count:
+        if self.shadow_checkbox_progress.count == count and labels is None:
             return
-        while self.shadow_checkbox_layout.count():
-            item = self.shadow_checkbox_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.setParent(None)
-        self.shadow_checkbox_progress = CheckboxProgressWidget(count=count)
-        self.shadow_checkbox_layout.addWidget(self.shadow_checkbox_progress)
+        
+        # Get the container's layout (QHBoxLayout)
+        layout = self.shadow_checkbox_container.layout()
+        if layout is None:
+            return
+        
+        # Find and remove old checkbox progress widget
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            if item and item.widget() == self.shadow_checkbox_progress:
+                layout.takeAt(i)
+                self.shadow_checkbox_progress.setParent(None)
+                break
+        
+        # Create new checkbox progress with updated count/labels
+        self.shadow_checkbox_progress = CheckboxProgressWidget(count=count, labels=labels or [])
+        
+        # Insert at position 0 (before divider and history)
+        layout.insertWidget(0, self.shadow_checkbox_progress, stretch=1)
 
     
     def _setup_defence_tab(self) -> None:
