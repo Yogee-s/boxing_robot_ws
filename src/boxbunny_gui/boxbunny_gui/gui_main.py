@@ -444,6 +444,7 @@ class StartupLoadingScreen(QtWidgets.QWidget):
         self.ros = ros_interface
         self.camera_ready = False
         self.llm_ready = False
+        self._llm_warmed = False
         
         layout = QtWidgets.QVBoxLayout(self)
         layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
@@ -549,6 +550,7 @@ class StartupLoadingScreen(QtWidgets.QWidget):
             self.llm_ready = True
             self.llm_status.setText("✅ AI Coach: Ready")
             self.llm_status.setStyleSheet("font-size: 16px; color: #00ff00; padding: 6px; font-weight: 600;")
+            self._warm_llm()
         
         # Update main status
         if self.camera_ready and self.llm_ready:
@@ -573,6 +575,22 @@ class StartupLoadingScreen(QtWidgets.QWidget):
         self.check_timer.stop()
         self.timeout_timer.stop()
         self.ready.emit()
+
+    def _warm_llm(self) -> None:
+        """Send a tiny warm-up request so the first user prompt is fast."""
+        if self._llm_warmed:
+            return
+        if not self.ros.llm_client.service_is_ready():
+            return
+        self._llm_warmed = True
+        req = GenerateLLM.Request()
+        req.mode = "coach"
+        req.prompt = "Warm-up. Reply with OK."
+        try:
+            future = self.ros.llm_client.call_async(req)
+            future.add_done_callback(lambda _f: None)
+        except Exception:
+            pass
 
 
 # ============================================================================
@@ -864,6 +882,7 @@ class RosInterface(Node):
 
         self.start_stop_client = self.create_client(StartStopDrill, "start_stop_drill")
         self.llm_client = self.create_client(GenerateLLM, "llm/generate")
+        self.llm_param_client = self.create_client(SetParameters, "trash_talk_node/set_parameters")
         self.shadow_drill_client = self.create_client(StartDrill, "/start_drill")
         self.shadow_stop_client = self.create_client(Trigger, "/stop_shadow_drill")
         self.defence_drill_client = self.create_client(StartDrill, "start_defence_drill")
@@ -893,7 +912,7 @@ class RosInterface(Node):
         self.height_trigger_client = self.create_client(Trigger, "action_predictor/calibrate_height")
         
         # Publisher for motor commands
-        self.motor_pub = self.create_publisher(String, '/robot/motor_command', 10)
+        self.motor_pub = self.create_publisher(String, '/robot/robot_action_trigger', 10)
 
     def _on_height(self, msg: Float32) -> None:
         pass # Optional: could update a status label somewhere
@@ -1019,6 +1038,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.ros = ros
         self.setWindowTitle("BoxBunny Trainer")
         self._is_fullscreen = False
+        self._use_aspect_scaling = True
         
         # Default size for 7-inch touchscreen (1024x600), but allow resize
         self.resize(self.SCREEN_WIDTH, self.SCREEN_HEIGHT)
@@ -1038,12 +1058,13 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self._reaction_clips = []
         self._best_reaction_clip = None
         self._replay_active = False
+        self._llm_request_inflight = False
 
         self._apply_styles()
         
         # Main Layout container
         main_widget = QtWidgets.QWidget()
-        self.setCentralWidget(main_widget)
+        main_widget.setStyleSheet("background: #0a0a0a;")
         main_layout = QtWidgets.QVBoxLayout(main_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
@@ -1092,6 +1113,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         header_row.addWidget(self.fullscreen_btn)
         
         main_layout.addWidget(self.header_frame)
+        self._apply_header_scale(1.0)
         
         # Store title mappings for different screens
         self._screen_titles = {}
@@ -1180,6 +1202,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.stats_timer = QtCore.QTimer()
         self.stats_timer.timeout.connect(self._update_reaction_stats)
         self.stats_timer.start(200)
+
+        self._attach_scaled_root(main_widget)
     
     def _on_screen_changed(self, index: int):
         """Update header title and back button when screen changes."""
@@ -1252,32 +1276,35 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self._is_fullscreen = True
     
     def resizeEvent(self, event):
-        """Dynamically adjust UI elements based on window size."""
+        """Scale the entire UI to preserve aspect ratio on resize."""
         super().resizeEvent(event)
-        w = event.size().width()
-        h = event.size().height()
-        
-        # Calculate scale factor (base: 800x480 for 7" screen)
-        scale = min(w / 800, h / 480)
-        scale = max(0.6, min(scale, 2.0))  # Clamp between 0.6x and 2x
-        
-        # Dynamic header height
-        # Dynamic header height - INCREASED SIGNIFICANTLY
+        if not self._use_aspect_scaling or not hasattr(self, "_view"):
+            w = event.size().width()
+            h = event.size().height()
+            scale = min(w / 800, h / 480)
+            scale = max(0.6, min(scale, 2.0))
+            self._apply_header_scale(scale)
+            return
+        self._apply_view_scale()
+
+    def showEvent(self, event):
+        """Ensure the scaled view fits correctly on first show."""
+        super().showEvent(event)
+        if self._use_aspect_scaling and hasattr(self, "_view"):
+            self._apply_view_scale()
+
+    def _apply_header_scale(self, scale: float) -> None:
+        """Apply header sizing at a given scale factor."""
         header_h = int(80 * scale)
         header_h = max(70, min(header_h, 120))
         self.header_frame.setFixedHeight(header_h)
-        
-        # Dynamic font sizes - INCREASED SIGNIFICANTLY
+
         title_size = int(32 * scale)
         title_size = max(24, min(title_size, 48))
-        
+
         btn_size = int(18 * scale)
         btn_size = max(14, min(btn_size, 24))
-        
-        icon_size = int(24 * scale)
-        icon_size = max(18, min(icon_size, 32))
-        
-        # Update header title font - REDUCED SLIGHTLY TO FIT
+
         self.header.setStyleSheet(f"""
             font-size: {max(20, int(title_size * 0.9))}px;
             font-weight: 800;
@@ -1286,12 +1313,10 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             background: transparent;
             border: none;
         """)
-        
-        # Update back button - FIXED SYMMETRY
-        # We need exact symmetry for the title to be centered
-        side_btn_w = int(140 * scale)  # Generous width for "EXIT"/"BACK"
+
+        side_btn_w = int(140 * scale)
         side_btn_h = int(50 * scale)
-        
+
         self.header_back_btn.setFixedSize(side_btn_w, side_btn_h)
         self.header_back_btn.setStyleSheet(f"""
             QPushButton {{
@@ -1308,11 +1333,9 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 color: #000;
             }}
         """)
-        
-        # Update spacer to match EXACTLY
+
         self.header_left_spacer.setFixedSize(side_btn_w, 0)
-        
-        # Update fullscreen button - MATCH SIDE WIDTH
+
         self.fullscreen_btn.setFixedSize(side_btn_w, side_btn_h)
         self.fullscreen_btn.setStyleSheet(f"""
             QPushButton {{
@@ -1329,6 +1352,42 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 border-color: #ff8c00;
             }}
         """)
+
+    def _apply_view_scale(self) -> None:
+        """Scale the view to fit while preserving aspect ratio."""
+        viewport = self._view.viewport().size()
+        if viewport.width() <= 0 or viewport.height() <= 0:
+            return
+        scale = min(viewport.width() / self.SCREEN_WIDTH,
+                    viewport.height() / self.SCREEN_HEIGHT)
+        transform = QtGui.QTransform()
+        transform.scale(scale, scale)
+        self._view.setTransform(transform)
+
+    def _attach_scaled_root(self, root: QtWidgets.QWidget) -> None:
+        """Attach the root widget, optionally scaling to preserve aspect ratio."""
+        if not self._use_aspect_scaling:
+            self.setCentralWidget(root)
+            return
+
+        root.setFixedSize(self.SCREEN_WIDTH, self.SCREEN_HEIGHT)
+
+        self._scene = QtWidgets.QGraphicsScene(self)
+        self._proxy = self._scene.addWidget(root)
+        self._scene.setSceneRect(0, 0, self.SCREEN_WIDTH, self.SCREEN_HEIGHT)
+
+        self._view = QtWidgets.QGraphicsView(self._scene)
+        self._view.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        self._view.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self._view.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._view.setRenderHints(QtGui.QPainter.RenderHint.Antialiasing |
+                                 QtGui.QPainter.RenderHint.SmoothPixmapTransform)
+        self._view.setBackgroundBrush(QtGui.QColor("#0a0a0a"))
+        self._view.setStyleSheet("background: #0a0a0a;")
+        self._view.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding,
+                                 QtWidgets.QSizePolicy.Policy.Expanding)
+        self.setCentralWidget(self._view)
     
     def keyPressEvent(self, event):
         """Handle keyboard shortcuts."""
@@ -1358,7 +1417,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             
             /* Base typography */
             QLabel {
-                color: #f0f0f0;
+                color: #eaeaea;
                 font-family: 'Inter', 'Segoe UI', sans-serif;
                 font-size: 16px;
                 background: transparent;
@@ -1412,9 +1471,9 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             
             /* Cards - Dark with orange accents */
             QFrame, QGroupBox {
-                background-color: rgba(18, 18, 18, 0.9);
+                background-color: rgba(22, 22, 22, 0.95);
                 border-radius: 16px;
-                border: 1px solid rgba(255, 140, 0, 0.2);
+                border: 1px solid rgba(255, 140, 0, 0.22);
             }
             
             QGroupBox {
@@ -1468,9 +1527,9 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             QLineEdit, QComboBox, QSpinBox {
                 padding: 12px 16px;
                 border-radius: 10px;
-                border: 2px solid #333333;
-                background: #1a1a1a;
-                color: #f0f0f0;
+                border: 2px solid #2f2f2f;
+                background: #1f1f1f;
+                color: #f5f5f5;
                 font-size: 16px;
                 selection-background-color: #ff8c00;
             }
@@ -1485,10 +1544,10 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             }
             
             QComboBox QAbstractItemView {
-                background: #1a1a1a;
-                color: #f0f0f0;
+                background: #1f1f1f;
+                color: #f5f5f5;
                 selection-background-color: #ff8c00;
-                border: 1px solid #333333;
+                border: 1px solid #2f2f2f;
                 border-radius: 8px;
             }
             
@@ -1580,8 +1639,9 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             }
             
             QCheckBox::indicator:checked {
-                background: #ff4757;
-                border-color: #ff4757;
+                background: #ff8c00;
+                border-color: #ff8c00;
+                image: url(data:image/x-xpm;base64,LyogWFBNICovCnN0YXRpYyBjaGFyICogY2hlY2tfeHBtW10gPSB7CiIxMiAxMiAyIDEiLAoiICBjIE5vbmUiLAoiLiBjICMwMDAwMDAiLAoiICAgICAgICAgICAgIiwKIiAgICAgICAgICAgICIsCiIgICAgICAgICAgICAiLAoiICAgICAgICAgICAuIiwKIiAgICAgICAgICAuICIsCiIgICAgICAgICAuICAiLAoiICAgICAgICAuICAgIiwKIiAuICAgICAuICAgICIsCiIgIC4gICAuICAgICAiLAoiICAgLiAuICAgICAgIiwKIiAgICAuICAgICAgICIsCiIgICAgICAgICAgICAifTsK);
             }
             
             /* Scrollbar */
@@ -1922,10 +1982,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         
         # Video container with header
         video_frame = QtWidgets.QFrame()
-        video_frame.setMinimumWidth(340)
-        video_frame.setMaximumWidth(420)
-        video_frame.setMaximumHeight(340)
-        video_frame.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Preferred)
+        video_frame.setFixedSize(420, 340)
+        video_frame.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
         video_frame.setStyleSheet("""
             QFrame {
                 background: #0a0a0a;
@@ -1952,9 +2010,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         
         # Video preview
         self.reaction_preview = QtWidgets.QLabel()
-        self.reaction_preview.setMinimumSize(320, 240)
-        self.reaction_preview.setMaximumSize(400, 300)
-        self.reaction_preview.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding)
+        self.reaction_preview.setFixedSize(400, 300)
+        self.reaction_preview.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
         self.reaction_preview.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.reaction_preview.setText("⏳ Connecting...")
         self.reaction_preview.setStyleSheet("""
@@ -2307,7 +2364,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         layout.addWidget(header)
         
         self.calib_status = QtWidgets.QLabel("Adjust HSV and Apply")
-        self.calib_status.setStyleSheet("font-size: 13px; color: #888; padding: 4px;")
+        self.calib_status.setStyleSheet("font-size: 13px; color: #cfcfcf; padding: 4px;")
         layout.addWidget(self.calib_status)
 
         self.green_sliders = self._create_hsv_group("Green (Left)")
@@ -2367,11 +2424,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         layout.setSpacing(8)
         self._add_back_btn(layout)
         
-        # Header
-        header = QtWidgets.QLabel("💬 AI COACH")
-        header.setStyleSheet("font-size: 20px; font-weight: 800; color: #ff8c00; padding: 6px;")
-        header.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(header)
+        # Header handled by main app bar; avoid duplicate title here.
         
         # Main content area with stacked layout for dynamic transitions
         self.llm_content_stack = QtWidgets.QStackedWidget()
@@ -2573,7 +2626,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         input_row.setSpacing(6)
         
         self.llm_prompt = QtWidgets.QLineEdit()
-        self.llm_prompt.setPlaceholderText("Type your own question...")
+        self.llm_prompt.setPlaceholderText("")
         self.llm_prompt.setMinimumHeight(44)
         self.llm_prompt.setStyleSheet("""
             QLineEdit {
@@ -2594,7 +2647,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.llm_mode.addItems(["coach", "encourage", "focus", "analysis"])
         self.llm_mode.hide()
         
-        self.llm_send = QtWidgets.QPushButton("SEND")
+        self.llm_send = QtWidgets.QPushButton("ENTER")
         self.llm_send.setMinimumSize(80, 44)
         self.llm_send.setStyleSheet("""
             QPushButton {
@@ -2614,6 +2667,200 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         input_row.addWidget(self.llm_send)
         
         layout.addLayout(input_row)
+
+        # Tunable LLM params (compact controls)
+        params_row = QtWidgets.QHBoxLayout()
+        params_row.setSpacing(8)
+        params_row.setContentsMargins(0, 6, 0, 2)
+
+        self.llm_temp_label = QtWidgets.QLabel("Temp: 0.70")
+        self.llm_temp_label.setStyleSheet("font-size: 13px; color: #bbb;")
+        params_row.addWidget(self.llm_temp_label)
+        self.llm_temp_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self.llm_temp_slider.setRange(10, 120)
+        self.llm_temp_slider.setValue(70)
+        self.llm_temp_slider.setFixedWidth(110)
+        self.llm_temp_slider.valueChanged.connect(self._on_llm_params_changed)
+        params_row.addWidget(self.llm_temp_slider)
+
+        self.llm_tokens_label = QtWidgets.QLabel("Max tokens: 32")
+        self.llm_tokens_label.setStyleSheet("font-size: 13px; color: #bbb;")
+        params_row.addWidget(self.llm_tokens_label)
+        self.llm_tokens_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self.llm_tokens_slider.setRange(8, 256)
+        self.llm_tokens_slider.setValue(32)
+        self.llm_tokens_slider.setFixedWidth(120)
+        self.llm_tokens_slider.valueChanged.connect(self._on_llm_params_changed)
+        params_row.addWidget(self.llm_tokens_slider)
+
+        self.llm_ctx_label = QtWidgets.QLabel("Context: 512")
+        self.llm_ctx_label.setStyleSheet("font-size: 13px; color: #bbb;")
+        params_row.addWidget(self.llm_ctx_label)
+        self.llm_ctx_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self.llm_ctx_slider.setRange(128, 4096)
+        self.llm_ctx_slider.setValue(512)
+        self.llm_ctx_slider.setFixedWidth(130)
+        self.llm_ctx_slider.valueChanged.connect(self._on_llm_params_changed)
+        params_row.addWidget(self.llm_ctx_slider)
+
+        self.llm_threads_label = QtWidgets.QLabel("Threads: 4")
+        self.llm_threads_label.setStyleSheet("font-size: 13px; color: #bbb;")
+        params_row.addWidget(self.llm_threads_label)
+        self.llm_threads_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self.llm_threads_slider.setRange(1, max(2, os.cpu_count() or 4))
+        self.llm_threads_slider.setValue(min(4, max(2, os.cpu_count() or 4)))
+        self.llm_threads_slider.setFixedWidth(90)
+        self.llm_threads_slider.valueChanged.connect(self._on_llm_params_changed)
+        params_row.addWidget(self.llm_threads_slider)
+
+        self.llm_batch_label = QtWidgets.QLabel("Batch: 128")
+        self.llm_batch_label.setStyleSheet("font-size: 13px; color: #bbb;")
+        params_row.addWidget(self.llm_batch_label)
+        self.llm_batch_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self.llm_batch_slider.setRange(16, 512)
+        self.llm_batch_slider.setValue(128)
+        self.llm_batch_slider.setFixedWidth(100)
+        self.llm_batch_slider.valueChanged.connect(self._on_llm_params_changed)
+        params_row.addWidget(self.llm_batch_slider)
+
+        self.llm_apply_params_btn = QtWidgets.QPushButton("APPLY")
+        self.llm_apply_params_btn.setMinimumSize(72, 34)
+        self.llm_apply_params_btn.setStyleSheet("""
+            QPushButton {
+                background: #1f1f1f;
+                color: #ff8c00;
+                border: 1px solid #ff8c00;
+                border-radius: 6px;
+                font-size: 12px;
+                font-weight: 700;
+                padding: 4px 10px;
+            }
+            QPushButton:hover { background: #2a2a2a; }
+            QPushButton:pressed { background: #1a1a1a; }
+        """)
+        self.llm_apply_params_btn.clicked.connect(self._apply_llm_params)
+        params_row.addWidget(self.llm_apply_params_btn)
+
+        self.llm_defaults_btn = QtWidgets.QPushButton("DEFAULTS")
+        self.llm_defaults_btn.setMinimumSize(84, 34)
+        self.llm_defaults_btn.setStyleSheet("""
+            QPushButton {
+                background: #1f1f1f;
+                color: #bbb;
+                border: 1px solid #444;
+                border-radius: 6px;
+                font-size: 12px;
+                font-weight: 700;
+                padding: 4px 10px;
+            }
+            QPushButton:hover { background: #2a2a2a; color: #fff; }
+            QPushButton:pressed { background: #1a1a1a; }
+        """)
+        self.llm_defaults_btn.clicked.connect(self._reset_llm_params)
+        params_row.addWidget(self.llm_defaults_btn)
+
+        self.llm_params_status = QtWidgets.QLabel("")
+        self.llm_params_status.setStyleSheet("font-size: 12px; color: #888;")
+        params_row.addWidget(self.llm_params_status)
+        params_row.addStretch()
+
+        layout.addLayout(params_row)
+
+        toggles_row = QtWidgets.QHBoxLayout()
+        toggles_row.setSpacing(10)
+        toggle_style = """
+            QCheckBox {
+                font-size: 13px; color: #f0f0f0; spacing: 8px; padding: 2px;
+            }
+            QCheckBox::indicator {
+                width: 18px; height: 18px; border-radius: 4px; border: 2px solid #666; background: #1a1a1a;
+            }
+            QCheckBox::indicator:checked {
+                border: 2px solid #ff8c00;
+                background: #ff8c00;
+                image: url(data:image/x-xpm;base64,LyogWFBNICovCnN0YXRpYyBjaGFyICogY2hlY2tfeHBtW10gPSB7CiIxMiAxMiAyIDEiLAoiICBjIE5vbmUiLAoiLiBjICMwMDAwMDAiLAoiICAgICAgICAgICAgIiwKIiAgICAgICAgICAgICIsCiIgICAgICAgICAgICAiLAoiICAgICAgICAgICAuIiwKIiAgICAgICAgICAuICIsCiIgICAgICAgICAuICAiLAoiICAgICAgICAuICAgIiwKIiAuICAgICAuICAgICIsCiIgIC4gICAuICAgICAiLAoiICAgLiAuICAgICAgIiwKIiAgICAuICAgICAgICIsCiIgICAgICAgICAgICAifTsK);
+            }
+        """
+        self.llm_use_llm_toggle = QtWidgets.QCheckBox("Use LLM")
+        self.llm_use_llm_toggle.setChecked(True)
+        self.llm_use_llm_toggle.setStyleSheet(toggle_style)
+        self.llm_use_llm_toggle.toggled.connect(self._on_llm_params_changed)
+        toggles_row.addWidget(self.llm_use_llm_toggle)
+
+        self.llm_use_stats_toggle = QtWidgets.QCheckBox("Use Stats Context")
+        self.llm_use_stats_toggle.setChecked(True)
+        self.llm_use_stats_toggle.setStyleSheet(toggle_style)
+        self.llm_use_stats_toggle.toggled.connect(self._on_llm_params_changed)
+        toggles_row.addWidget(self.llm_use_stats_toggle)
+
+        self.llm_singlish_toggle = QtWidgets.QCheckBox("Singlish")
+        self.llm_singlish_toggle.setChecked(False)
+        self.llm_singlish_toggle.setStyleSheet(toggle_style)
+        self.llm_singlish_toggle.toggled.connect(self._on_llm_params_changed)
+        toggles_row.addWidget(self.llm_singlish_toggle)
+
+        self.llm_advice_toggle = QtWidgets.QCheckBox("Advice")
+        self.llm_advice_toggle.setChecked(False)
+        self.llm_advice_toggle.setStyleSheet(toggle_style)
+        self.llm_advice_toggle.toggled.connect(self._on_llm_params_changed)
+        toggles_row.addWidget(self.llm_advice_toggle)
+
+        self.llm_memory_toggle = QtWidgets.QCheckBox("Remember")
+        self.llm_memory_toggle.setChecked(False)
+        self.llm_memory_toggle.setStyleSheet(toggle_style)
+        self.llm_memory_toggle.toggled.connect(self._on_llm_params_changed)
+        toggles_row.addWidget(self.llm_memory_toggle)
+
+        self.llm_history_label = QtWidgets.QLabel("History: 4")
+        self.llm_history_label.setStyleSheet("font-size: 13px; color: #f0f0f0;")
+        toggles_row.addWidget(self.llm_history_label)
+        self.llm_history_spin = QtWidgets.QSpinBox()
+        self.llm_history_spin.setRange(0, 12)
+        self.llm_history_spin.setValue(4)
+        self.llm_history_spin.setStyleSheet("""
+            QSpinBox {
+                background: #1a1a1a;
+                color: #f0f0f0;
+                border: 1px solid #444;
+                border-radius: 6px;
+                padding: 2px 6px;
+            }
+            QSpinBox::up-button, QSpinBox::down-button {
+                width: 14px;
+                background: #222;
+                border-left: 1px solid #333;
+            }
+            QSpinBox::up-arrow, QSpinBox::down-arrow {
+                width: 8px;
+                height: 8px;
+            }
+            QSpinBox::up-arrow {
+                image: url(data:image/x-xpm;base64,LyogWFBNICovCnN0YXRpYyBjaGFyICogdXBfeHBtW10gPSB7CiI4IDggMiAxIiwKIiAgYyBOb25lIiwKIi4gYyAjRkZGRkZGIiwKIiAgICAuICAgIiwKIiAgIC4uLiAgIiwKIiAgLi4uLi4gIiwKIiAuLi4uLi4uIiwKIiAgIC4uLiAgIiwKIiAgIC4uLiAgIiwKIiAgIC4uLiAgIiwKIiAgICAgICAgIn07Cg==);
+            }
+            QSpinBox::down-arrow {
+                image: url(data:image/x-xpm;base64,LyogWFBNICovCnN0YXRpYyBjaGFyICogZG93bl94cG1bXSA9IHsKIjggOCAyIDEiLAoiICBjIE5vbmUiLAoiLiBjICNGRkZGRkYiLAoiICAgICAgICAiLAoiICAgLi4uICAiLAoiICAgLi4uICAiLAoiICAgLi4uICAiLAoiIC4uLi4uLi4iLAoiICAuLi4uLiAiLAoiICAgLi4uICAiLAoiICAgIC4gICAifTsK);
+            }
+        """)
+        self.llm_history_spin.valueChanged.connect(self._on_llm_params_changed)
+        toggles_row.addWidget(self.llm_history_spin)
+        toggles_row.addStretch()
+
+        layout.addLayout(toggles_row)
+        self.llm_system_prompt = QtWidgets.QPlainTextEdit()
+        self.llm_system_prompt.setPlaceholderText("System prompt for the model...")
+        self.llm_system_prompt.setFixedHeight(90)
+        self.llm_system_prompt.setStyleSheet("""
+            QPlainTextEdit {
+                background: #1a1a1a;
+                color: #f0f0f0;
+                border: 1px solid #2f2f2f;
+                border-radius: 8px;
+                padding: 8px;
+                font-size: 12px;
+            }
+        """)
+        layout.addWidget(self.llm_system_prompt)
+        self._on_llm_params_changed()
         
         self.llm_tab.setLayout(layout)
     
@@ -2621,6 +2868,87 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """Reset LLM view back to prompt selection."""
         self.llm_content_stack.setCurrentWidget(self.llm_prompt_page)
         self.llm_prompt.clear()
+
+    def _on_llm_params_changed(self):
+        """Update LLM parameter labels as sliders move."""
+        temp = self.llm_temp_slider.value() / 100.0
+        tokens = self.llm_tokens_slider.value()
+        ctx = self.llm_ctx_slider.value()
+        threads = self.llm_threads_slider.value()
+        batch = self.llm_batch_slider.value()
+        self.llm_temp_label.setText(f"Temp: {temp:.2f}")
+        self.llm_tokens_label.setText(f"Max tokens: {tokens}")
+        self.llm_ctx_label.setText(f"Context: {ctx}")
+        self.llm_threads_label.setText(f"Threads: {threads}")
+        self.llm_batch_label.setText(f"Batch: {batch}")
+        if hasattr(self, "llm_history_label"):
+            self.llm_history_label.setText(f"History: {self.llm_history_spin.value()}")
+        if hasattr(self, "llm_params_status"):
+            self.llm_params_status.setText("")
+
+    def _apply_llm_params(self) -> None:
+        """Apply LLM params to the LLM node via ROS parameters."""
+        if not hasattr(self.ros, "llm_param_client") or not self.ros.llm_param_client.service_is_ready():
+            if hasattr(self, "llm_params_status"):
+                self.llm_params_status.setText("LLM params not ready")
+            return
+        temp = float(self.llm_temp_slider.value()) / 100.0
+        tokens = int(self.llm_tokens_slider.value())
+        ctx = int(self.llm_ctx_slider.value())
+        threads = int(self.llm_threads_slider.value())
+        batch = int(self.llm_batch_slider.value())
+        use_llm = bool(self.llm_use_llm_toggle.isChecked()) if hasattr(self, "llm_use_llm_toggle") else True
+        use_stats = bool(self.llm_use_stats_toggle.isChecked()) if hasattr(self, "llm_use_stats_toggle") else True
+        singlish = bool(self.llm_singlish_toggle.isChecked()) if hasattr(self, "llm_singlish_toggle") else False
+        advice = bool(self.llm_advice_toggle.isChecked()) if hasattr(self, "llm_advice_toggle") else False
+        memory = bool(self.llm_memory_toggle.isChecked()) if hasattr(self, "llm_memory_toggle") else False
+        history_turns = int(self.llm_history_spin.value()) if hasattr(self, "llm_history_spin") else 4
+        system_prompt = self.llm_system_prompt.toPlainText().strip() if hasattr(self, "llm_system_prompt") else ""
+        ros_params = [
+            Parameter("temperature", Parameter.Type.DOUBLE, temp),
+            Parameter("max_tokens", Parameter.Type.INTEGER, tokens),
+            Parameter("n_ctx", Parameter.Type.INTEGER, ctx),
+            Parameter("n_threads", Parameter.Type.INTEGER, threads),
+            Parameter("n_batch", Parameter.Type.INTEGER, batch),
+            Parameter("use_llm_if_available", Parameter.Type.BOOL, use_llm),
+            Parameter("use_stats_context", Parameter.Type.BOOL, use_stats),
+            Parameter("singlish", Parameter.Type.BOOL, singlish),
+            Parameter("advice", Parameter.Type.BOOL, advice),
+            Parameter("memory", Parameter.Type.BOOL, memory),
+            Parameter("history_turns", Parameter.Type.INTEGER, history_turns),
+            Parameter("system_prompt", Parameter.Type.STRING, system_prompt),
+        ]
+        req = SetParameters.Request()
+        req.parameters = [p.to_parameter_msg() for p in ros_params]
+        self.ros.llm_param_client.call_async(req)
+        if hasattr(self, "llm_params_status"):
+            self.llm_params_status.setText("Applied")
+
+    def _reset_llm_params(self) -> None:
+        """Reset LLM params to defaults used by the system."""
+        self.llm_temp_slider.setValue(70)
+        self.llm_tokens_slider.setValue(32)
+        self.llm_ctx_slider.setValue(512)
+        self.llm_threads_slider.setValue(min(4, max(2, os.cpu_count() or 4)))
+        self.llm_batch_slider.setValue(128)
+        if hasattr(self, "llm_use_llm_toggle"):
+            self.llm_use_llm_toggle.setChecked(True)
+        if hasattr(self, "llm_use_stats_toggle"):
+            self.llm_use_stats_toggle.setChecked(True)
+        if hasattr(self, "llm_singlish_toggle"):
+            self.llm_singlish_toggle.setChecked(False)
+        if hasattr(self, "llm_advice_toggle"):
+            self.llm_advice_toggle.setChecked(False)
+        if hasattr(self, "llm_memory_toggle"):
+            self.llm_memory_toggle.setChecked(False)
+        if hasattr(self, "llm_history_spin"):
+            self.llm_history_spin.setValue(4)
+        if hasattr(self, "llm_system_prompt"):
+            self.llm_system_prompt.setPlainText(
+                "You are a helpful boxing coach. Give brief, actionable advice. One sentence only."
+            )
+        self._on_llm_params_changed()
+        self._apply_llm_params()
     
     def _quick_llm_prompt(self, prompt_key: str):
         """Send a quick pre-defined prompt to LLM with random variation."""
@@ -2709,10 +3037,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         left_col.addStretch(1)
         
         video_frame = QtWidgets.QFrame()
-        video_frame.setMinimumWidth(340)
-        video_frame.setMaximumWidth(420)
-        video_frame.setMaximumHeight(340)
-        video_frame.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Preferred)
+        video_frame.setFixedSize(420, 340)
+        video_frame.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
         video_frame.setStyleSheet("""
             QFrame {
                 background: #0a0a0a;
@@ -2732,9 +3058,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         video_inner.addLayout(video_header)
         
         self.shadow_preview = QtWidgets.QLabel()
-        self.shadow_preview.setMinimumSize(320, 240)
-        self.shadow_preview.setMaximumSize(400, 300)
-        self.shadow_preview.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding)
+        self.shadow_preview.setFixedSize(400, 300)
+        self.shadow_preview.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
         self.shadow_preview.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.shadow_preview.setText("⏳ Connecting...")
         self.shadow_preview.setStyleSheet("""
@@ -2835,17 +3160,33 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         
         # Combo selector (optional advanced)
         combo_frame = QtWidgets.QFrame()
-        combo_frame.setStyleSheet("background: #151515; border-radius: 8px; border: none;")
+        combo_frame.setStyleSheet("background: #1f1f1f; border-radius: 8px; border: 1px solid #2a2a2a;")
         combo_inner = QtWidgets.QHBoxLayout(combo_frame)
         combo_inner.setContentsMargins(12, 8, 12, 8)
         combo_inner.setSpacing(10)
         
         combo_label = QtWidgets.QLabel("Combo:")
-        combo_label.setStyleSheet("font-weight: 600; font-size: 13px; color: #888;")
+        combo_label.setStyleSheet("font-weight: 700; font-size: 13px; color: #f5f5f5;")
         combo_inner.addWidget(combo_label)
         
         self.shadow_combo = QtWidgets.QComboBox()
-        self.shadow_combo.setStyleSheet("font-size: 13px; padding: 6px;")
+        self.shadow_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 13px;
+                padding: 6px 10px;
+                color: #f5f5f5;
+                background: #1b1b1b;
+                border: 1px solid #2f2f2f;
+                border-radius: 6px;
+            }
+            QComboBox::drop-down { border: none; width: 24px; }
+            QComboBox QAbstractItemView {
+                background: #1b1b1b;
+                color: #f5f5f5;
+                selection-background-color: #ff8c00;
+                border: 1px solid #2f2f2f;
+            }
+        """)
         self._shadow_drill_defs = self._load_shadow_drill_definitions()
         self._shadow_drill_map = {drill["name"]: drill for drill in self._shadow_drill_defs}
         for drill in self._shadow_drill_defs:
@@ -3047,9 +3388,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         left_col.addStretch(1)
         
         video_frame = QtWidgets.QFrame()
-        video_frame.setMinimumWidth(340)
-        video_frame.setMaximumWidth(420)
-        video_frame.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Expanding)
+        video_frame.setFixedSize(420, 340)
+        video_frame.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
         video_frame.setStyleSheet("""
             QFrame {
                 background: #0a0a0a;
@@ -3069,9 +3409,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         video_inner.addLayout(video_header)
         
         self.defence_preview = QtWidgets.QLabel()
-        self.defence_preview.setMinimumSize(320, 240)
-        self.defence_preview.setMaximumSize(400, 300)
-        self.defence_preview.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding)
+        self.defence_preview.setFixedSize(400, 300)
+        self.defence_preview.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
         self.defence_preview.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.defence_preview.setText("⏳ Connecting...")
         self.defence_preview.setStyleSheet("""
@@ -3144,17 +3483,33 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
 
         # Defence combo selector (motor pattern)
         combo_frame = QtWidgets.QFrame()
-        combo_frame.setStyleSheet("background: #151515; border-radius: 8px; border: none;")
+        combo_frame.setStyleSheet("background: #1f1f1f; border-radius: 8px; border: 1px solid #2a2a2a;")
         combo_inner = QtWidgets.QHBoxLayout(combo_frame)
         combo_inner.setContentsMargins(12, 8, 12, 8)
         combo_inner.setSpacing(10)
 
         combo_label = QtWidgets.QLabel("Combo:")
-        combo_label.setStyleSheet("font-weight: 600; font-size: 13px; color: #888;")
+        combo_label.setStyleSheet("font-weight: 700; font-size: 13px; color: #f5f5f5;")
         combo_inner.addWidget(combo_label)
 
         self.defence_combo = QtWidgets.QComboBox()
-        self.defence_combo.setStyleSheet("font-size: 13px; padding: 6px;")
+        self.defence_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 13px;
+                padding: 6px 10px;
+                color: #f5f5f5;
+                background: #1b1b1b;
+                border: 1px solid #2f2f2f;
+                border-radius: 6px;
+            }
+            QComboBox::drop-down { border: none; width: 24px; }
+            QComboBox QAbstractItemView {
+                background: #1b1b1b;
+                color: #f5f5f5;
+                selection-background-color: #ff8c00;
+                border: 1px solid #2f2f2f;
+            }
+        """)
         self._defence_drill_defs = self._load_defence_drill_definitions()
         default_defence = {"name": "JAB-JAB-CROSS", "sequence": ["JAB", "JAB", "CROSS"], "interval_s": 2.5}
         if not any(d.get("name") == default_defence["name"] for d in self._defence_drill_defs):
@@ -3280,7 +3635,47 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
 
     def _create_hsv_group(self, title: str):
         group = QtWidgets.QGroupBox(title)
+        group.setStyleSheet("""
+            QGroupBox {
+                background: #141414;
+                border: 1px solid #2a2a2a;
+                border-radius: 10px;
+                margin-top: 14px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 6px 10px;
+                color: #ff8c00;
+                font-size: 14px;
+                font-weight: 700;
+            }
+            QLabel {
+                color: #f0f0f0;
+                font-size: 13px;
+                font-weight: 600;
+            }
+            QSlider::groove:horizontal {
+                height: 6px;
+                background: #2a2a2a;
+                border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                background: #ff8c00;
+                width: 16px;
+                height: 16px;
+                margin: -6px 0;
+                border-radius: 8px;
+            }
+            QSlider::handle:horizontal:hover {
+                background: #ffa333;
+            }
+        """)
         grid = QtWidgets.QGridLayout()
+        grid.setContentsMargins(12, 12, 12, 12)
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(8)
         labels = ["H", "S", "V"]
         sliders_low = []
         sliders_high = []
@@ -3365,6 +3760,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.ros.start_stop_client.call_async(req)
 
     def _send_llm_prompt(self) -> None:
+        if self._llm_request_inflight:
+            return
         if not self.ros.llm_client.service_is_ready():
             self.llm_response.setPlainText("⚠️ Coach is not available right now. Please try again later.")
             self.llm_content_stack.setCurrentWidget(self.llm_response_page)
@@ -3372,9 +3769,11 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         prompt = self.llm_prompt.text().strip()
         if not prompt:
             return
-        
-        # Show loading state
-        self.llm_content_stack.setCurrentWidget(self.llm_loading_page)
+        self.llm_prompt.clear()
+        self._set_llm_request_state(True)
+        self._llm_prefix_text = f"You: {prompt}\n\nCoach: "
+        self.llm_response.setPlainText(self._llm_prefix_text)
+        self.llm_content_stack.setCurrentWidget(self.llm_response_page)
         
         req = GenerateLLM.Request()
         req.prompt = prompt
@@ -3387,12 +3786,16 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         try:
             response = future.result()
             text = response.response if response.response else "🤔 Coach didn't respond. Try again!"
-            # Start streaming animation
-            self._start_text_stream(text)
         except Exception as exc:
-            error_text = f"⚠️ Error: {exc}"
-            self._start_text_stream(error_text)
+            text = f"⚠️ Error: {exc}"
+        # Start streaming animation on the UI thread
+        QtCore.QMetaObject.invokeMethod(
+            self, "_start_text_stream",
+            QtCore.Qt.ConnectionType.QueuedConnection,
+            QtCore.Q_ARG(str, text)
+        )
     
+    @QtCore.Slot(str)
     def _start_text_stream(self, full_text: str):
         """Stream text word by word for a natural typing effect."""
         self._llm_stream_words = full_text.split()
@@ -3401,7 +3804,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         
         # Switch to response page immediately
         self.llm_content_stack.setCurrentWidget(self.llm_response_page)
-        self.llm_response.setPlainText("")
+        prefix = getattr(self, "_llm_prefix_text", "")
+        self.llm_response.setPlainText(prefix)
         
         # Create timer if needed
         if not hasattr(self, '_word_stream_timer'):
@@ -3415,6 +3819,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """Add next word to LLM response for typing effect."""
         if self._llm_stream_word_idx >= len(self._llm_stream_words):
             self._word_stream_timer.stop()
+            self._set_llm_request_state(False)
             return
         
         # Add next word with space
@@ -3425,7 +3830,17 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self._llm_current_text = word
         
         self._llm_stream_word_idx += 1
-        self.llm_response.setPlainText(self._llm_current_text)
+        prefix = getattr(self, "_llm_prefix_text", "")
+        self.llm_response.setPlainText(prefix + self._llm_current_text)
+
+    def _set_llm_request_state(self, inflight: bool) -> None:
+        """Toggle input UI while a request is running."""
+        self._llm_request_inflight = inflight
+        if hasattr(self, "llm_send"):
+            self.llm_send.setDisabled(inflight)
+            self.llm_send.setText("SENDING..." if inflight else "SEND")
+        if hasattr(self, "llm_prompt"):
+            self.llm_prompt.setDisabled(inflight)
 
     def _update_ui(self) -> None:
         with self.ros.lock:
@@ -3956,7 +4371,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         # Publish command to motors
         if hasattr(self.ros, 'motor_pub'):
             cmd_msg = String()
-            cmd_msg.data = str(attack)
+            cmd_msg.data = self._defence_attack_to_code(attack)
             self.ros.motor_pub.publish(cmd_msg)
 
         display = self._defence_display_for_attack(attack)
@@ -3989,6 +4404,27 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             6: "BODY R",
         }
         return labels.get(val, str(val))
+
+    def _defence_attack_to_code(self, attack) -> str:
+        """Map defence attack labels to numeric codes for /robot/motor_command."""
+        try:
+            return str(int(attack))
+        except Exception:
+            pass
+
+        if attack is None:
+            return "0"
+
+        label = str(attack).strip().lower()
+        mapping = {
+            "jab": "1",
+            "cross": "2",
+            "left_hook": "3",
+            "right_hook": "4",
+            "left_uppercut": "5",
+            "right_uppercut": "6",
+        }
+        return mapping.get(label, "0")
     
     def _defence_attack_tick(self) -> None:
         """Timer tick for defence drill - simulate attack resolution."""

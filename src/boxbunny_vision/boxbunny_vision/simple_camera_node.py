@@ -75,13 +75,35 @@ class SimpleCameraNode(Node):
             # Enable specific device by serial
             config.enable_device(serial)
             
-            # Enable streams - use lower resolution for stability
-            config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
-            config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
-            
-            # Start pipeline
-            self.profile = self.pipeline.start(config)
-            self.pipeline_started = True
+            # Enable streams - prefer higher resolution, fall back if unsupported
+            preferred_resolutions = [
+                (1280, 720),
+                (960, 540),
+                (640, 480),
+            ]
+            started = False
+            last_error = None
+            for width, height in preferred_resolutions:
+                try:
+                    config = rs.config()
+                    config.enable_device(serial)
+                    config.enable_stream(rs.stream.color, width, height, rs.format.bgr8, 30)
+                    config.enable_stream(rs.stream.depth, width, height, rs.format.z16, 30)
+                    self.profile = self.pipeline.start(config)
+                    self.pipeline_started = True
+                    self.get_logger().info(f"✅ Camera stream set to {width}x{height} @ 30 FPS")
+                    started = True
+                    break
+                except Exception as stream_err:
+                    last_error = stream_err
+                    try:
+                        self.pipeline.stop()
+                    except Exception:
+                        pass
+                    self.pipeline = rs.pipeline()
+
+            if not started:
+                raise RuntimeError(f\"Unable to start RealSense at preferred resolutions: {last_error}\")
             
             # Align depth to color
             self.align = rs.align(rs.stream.color)
