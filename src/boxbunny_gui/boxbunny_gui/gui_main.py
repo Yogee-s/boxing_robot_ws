@@ -3141,6 +3141,37 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """)
         self.defence_start_btn.setAttribute(QtCore.Qt.WidgetAttribute.WA_AcceptTouchEvents, True)
         right_col.addWidget(self.defence_start_btn)
+
+        # Defence combo selector (motor pattern)
+        combo_frame = QtWidgets.QFrame()
+        combo_frame.setStyleSheet("background: #151515; border-radius: 8px; border: none;")
+        combo_inner = QtWidgets.QHBoxLayout(combo_frame)
+        combo_inner.setContentsMargins(12, 8, 12, 8)
+        combo_inner.setSpacing(10)
+
+        combo_label = QtWidgets.QLabel("Combo:")
+        combo_label.setStyleSheet("font-weight: 600; font-size: 13px; color: #888;")
+        combo_inner.addWidget(combo_label)
+
+        self.defence_combo = QtWidgets.QComboBox()
+        self.defence_combo.setStyleSheet("font-size: 13px; padding: 6px;")
+        self._defence_drill_defs = self._load_defence_drill_definitions()
+        default_defence = {"name": "JAB-JAB-CROSS", "sequence": ["JAB", "JAB", "CROSS"], "interval_s": 2.5}
+        if not any(d.get("name") == default_defence["name"] for d in self._defence_drill_defs):
+            self._defence_drill_defs.insert(0, default_defence)
+        self._defence_drill_map = {drill["name"]: drill for drill in self._defence_drill_defs}
+        for drill in self._defence_drill_defs:
+            seq = drill["sequence"]
+            seq_label = " - ".join(str(step) for step in seq)
+            label = f"{drill['name']} ({seq_label})" if seq_label else drill["name"]
+            self.defence_combo.addItem(label, drill["name"])
+        if self.defence_combo.count() == 0:
+            self.defence_combo.addItem("JAB-JAB-CROSS (JAB - JAB - CROSS)", "JAB-JAB-CROSS")
+            self._defence_drill_map["JAB-JAB-CROSS"] = default_defence
+        self.defence_combo.currentIndexChanged.connect(self._on_defence_combo_changed)
+        combo_inner.addWidget(self.defence_combo, stretch=1)
+
+        right_col.addWidget(combo_frame)
         
         # Progress info
         progress_frame = QtWidgets.QFrame()
@@ -3163,8 +3194,14 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         right_col.addWidget(progress_frame)
         
         # Checkbox progress indicator (3 blocks)
+        self.defence_checkbox_container = QtWidgets.QFrame()
+        self.defence_checkbox_container.setStyleSheet("background: transparent;")
+        self.defence_checkbox_layout = QtWidgets.QVBoxLayout(self.defence_checkbox_container)
+        self.defence_checkbox_layout.setContentsMargins(0, 0, 0, 0)
+        self.defence_checkbox_layout.setSpacing(0)
         self.defence_checkbox_progress = CheckboxProgressWidget(count=3)
-        right_col.addWidget(self.defence_checkbox_progress)
+        self.defence_checkbox_layout.addWidget(self.defence_checkbox_progress)
+        right_col.addWidget(self.defence_checkbox_container)
         
         right_col.addStretch(1)
         content.addLayout(right_col, stretch=1)
@@ -3179,6 +3216,67 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self._defence_block_count = 0
         self._defence_total_blocks = 3
         self._defence_running = False
+        self._defence_attack_interval_ms = 2500
+        self._on_defence_combo_changed()
+
+    def _load_defence_drill_definitions(self) -> List[dict]:
+        """Load defence drill definitions for motor combo selection."""
+        try:
+            from ament_index_python.packages import get_package_share_directory
+            import yaml
+
+            config_path = os.path.join(
+                get_package_share_directory("boxbunny_drills"),
+                "config",
+                "drill_definitions.yaml",
+            )
+            with open(config_path, "r") as f:
+                config = yaml.safe_load(f) or {}
+            drills = []
+            for drill in config.get("defence_drills", []):
+                name = drill.get("name")
+                positions = drill.get("positions") or []
+                if name and isinstance(positions, list) and positions:
+                    # For GUI combo selection, use the position list as the sequence.
+                    drills.append({
+                        "name": name,
+                        "sequence": positions,
+                        "interval_s": float(drill.get("attack_interval_s", 2.5)),
+                    })
+            return drills
+        except Exception:
+            return []
+
+    def _set_defence_checkbox_count(self, count: int) -> None:
+        """Rebuild checkbox progress widget for defence drill length."""
+        if not hasattr(self, "defence_checkbox_progress"):
+            return
+        if self.defence_checkbox_progress.count == count:
+            return
+        if not hasattr(self, "defence_checkbox_layout"):
+            return
+        # Remove old widget
+        while self.defence_checkbox_layout.count():
+            item = self.defence_checkbox_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+        self.defence_checkbox_progress = CheckboxProgressWidget(count=count)
+        self.defence_checkbox_layout.addWidget(self.defence_checkbox_progress)
+
+    def _on_defence_combo_changed(self) -> None:
+        """Update defence sequence when combo selection changes."""
+        if not hasattr(self, "defence_combo"):
+            return
+        drill_name = self.defence_combo.currentData()
+        drill = self._defence_drill_map.get(drill_name)
+        if not drill:
+            return
+        sequence = drill.get("sequence") or []
+        self._defence_total_blocks = max(1, len(sequence))
+        self._defence_attack_interval_ms = int(1000 * max(0.5, float(drill.get("interval_s", 2.5))))
+        self._set_defence_checkbox_count(self._defence_total_blocks)
+        self.defence_sub_label.setText(f"Selected: {drill_name}")
 
     def _create_hsv_group(self, title: str):
         group = QtWidgets.QGroupBox(title)
@@ -3781,10 +3879,18 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         # Initialize defence drill state
         self._defence_running = True
         self._defence_block_count = 0
-        self._defence_total_blocks = 3
         self._defence_start_time = time.time()
         self._defence_attack_index = 0
-        self._defence_attacks = ["JAB", "JAB", "CROSS"]  # Sequence of attacks
+        # Use selected combo sequence
+        drill_name = None
+        if hasattr(self, "defence_combo"):
+            drill_name = self.defence_combo.currentData()
+        drill = self._defence_drill_map.get(drill_name) if hasattr(self, "_defence_drill_map") else None
+        sequence = (drill.get("sequence") if drill else None) or ["JAB", "JAB", "CROSS"]
+        self._defence_attacks = list(sequence)
+        self._defence_total_blocks = max(1, len(self._defence_attacks))
+        self._defence_attack_interval_ms = int(1000 * max(0.5, float((drill or {}).get("interval_s", 2.5))))
+        self._set_defence_checkbox_count(self._defence_total_blocks)
         
         # Reset UI
         self.defence_checkbox_progress.reset()
@@ -3812,7 +3918,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         # Start attack timer (simulated attacks every 2-3s)
         self._defence_timer = QtCore.QTimer()
         self._defence_timer.timeout.connect(self._defence_attack_tick)
-        self._defence_timer.start(2500)  # 2.5s between attacks
+        self._defence_timer.start(self._defence_attack_interval_ms)
     
     def _stop_defence_drill(self) -> None:
         """Stop defence drill."""
@@ -3850,10 +3956,11 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         # Publish command to motors
         if hasattr(self.ros, 'motor_pub'):
             cmd_msg = String()
-            cmd_msg.data = attack
+            cmd_msg.data = str(attack)
             self.ros.motor_pub.publish(cmd_msg)
-            
-        self.defence_action_label.setText(f"🛡️ BLOCK {attack}!")
+
+        display = self._defence_display_for_attack(attack)
+        self.defence_action_label.setText(f"🛡️ BLOCK {display}!")
         self.defence_action_label.setStyleSheet("font-size: 32px; font-weight: 800; color: #ff4757; background: transparent;")
         self.defence_sub_label.setText(f"Attack {self._defence_attack_index + 1} of {self._defence_total_blocks}")
         
@@ -3866,6 +3973,22 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 border-radius: 12px;
             }
         """)
+
+    def _defence_display_for_attack(self, attack) -> str:
+        """Map defence attack values to friendly labels."""
+        try:
+            val = int(attack)
+        except Exception:
+            return str(attack)
+        labels = {
+            1: "HEAD L",
+            2: "HEAD C",
+            3: "HEAD R",
+            4: "BODY L",
+            5: "BODY C",
+            6: "BODY R",
+        }
+        return labels.get(val, str(val))
     
     def _defence_attack_tick(self) -> None:
         """Timer tick for defence drill - simulate attack resolution."""
