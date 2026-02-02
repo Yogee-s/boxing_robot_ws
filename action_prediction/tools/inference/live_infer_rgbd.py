@@ -96,26 +96,59 @@ class SimpleActionDetector:
         area_g = np.count_nonzero(mask_g)
         area_r = np.count_nonzero(mask_r)
         
+        # Check visibility based on Area first
+        visible_g = area_g > self.min_area
+        visible_r = area_r > self.min_area
+        
+        # Get Depths
+        dist_g = self._get_median_depth(mask_g, depth) if visible_g else None
+        dist_r = self._get_median_depth(mask_r, depth) if visible_r else None
+        
         # Determine candidate
         candidate = "IDLE"
-        active_mask = None
         active_color = (0, 0, 0)
+        dist = None
+        debug_msg = ""
         
-        # Debug Image
-        vis = None
-        if draw:
-            vis = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        # CASE 1: Both Visible (by Area) -> MUST use Relative Depth
+        if visible_g and visible_r:
+            if dist_g is not None and dist_r is not None:
+                diff = dist_r - dist_g
+                debug_msg = f"G:{dist_g:.2f} R:{dist_r:.2f} D:{diff:.2f}"
+                
+                if diff > 0.15:
+                    candidate = "jab"
+                    active_color = (0, 255, 0)
+                    dist = dist_g
+                elif diff < -0.15:
+                    candidate = "cross"
+                    active_color = (0, 0, 255)
+                    dist = dist_r
+                else:
+                    candidate = "IDLE"
+            else:
+                # Both visible color-wise, but depth missing for one.
+                # Safer to assume IDLE than to guess.
+                candidate = "IDLE"
+                debug_msg = "Both Vis / No Depth"
         
-        if area_g > self.min_area and area_g > area_r:
-            candidate = "jab"
-            active_mask = mask_g
-            active_color = (0, 255, 0) # Green
-        elif area_r > self.min_area and area_r > area_g:
-            candidate = "cross"
-            active_mask = mask_r
-            active_color = (0, 0, 255) # Red
-            
-        # Draw Contours
+        # CASE 2: Only Green Visible
+        elif visible_g and dist_g is not None:
+            debug_msg = f"G:{dist_g:.2f}"
+            if dist_g < self.depth_threshold:
+                candidate = "jab"
+                active_color = (0, 255, 0)
+                dist = dist_g
+        
+        # CASE 3: Only Red Visible
+        elif visible_r and dist_r is not None:
+             debug_msg = f"R:{dist_r:.2f}"
+             if dist_r < self.depth_threshold:
+                candidate = "cross"
+                active_color = (0, 0, 255)
+                dist = dist_r
+        
+        # Draw Contours (Visualization)
         if draw:
             # Draw Green
             cnts_g, _ = cv2.findContours(mask_g, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -129,21 +162,18 @@ class SimpleActionDetector:
                 if cv2.contourArea(c) > 1000:
                     x,y,w,h = cv2.boundingRect(c)
                     cv2.rectangle(vis, (x,y), (x+w,y+h), (0, 0, 255), 2)
-            
+
         if candidate == "IDLE":
+             if draw and debug_msg:
+                 cv2.putText(vis, debug_msg, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
              return "IDLE", vis
 
-        # Check Depth
-        dist = self._get_median_depth(active_mask, depth)
-        
-        if draw and active_mask is not None:
+        if draw:
              # Add text
              cv2.putText(vis, f"{candidate.upper()} {dist:.2f}m" if dist else candidate.upper(), 
                         (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, active_color, 2)
-
-        if dist is None or dist > self.depth_threshold:
-             # print(f"Ignored {candidate} at {dist}m")
-             return "IDLE", vis
+             if debug_msg:
+                 cv2.putText(vis, debug_msg, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
         
         now = time.time()
         if now - self.last_time < self.cooldown:
@@ -372,9 +402,11 @@ class LiveRGBDInference:
                          # Publish
                          self.imu_handler.publish_action(label, 1.0, probs.tolist(), self.labels)
                     else:
-                         # Idle
+                         # Idle - EXPLICITLY PUBLISH IDLE so GUI updates
                          if 'idle' in self.labels:
                              probs[self.labels.index('idle')] = 1.0
+                         # Publish idle action (high confidence)
+                         self.imu_handler.publish_action('idle', 1.0, probs.tolist(), self.labels)
                     
                     # Publish Debug Image
                     if debug_img is not None and self.glove_debug_pub:

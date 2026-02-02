@@ -32,11 +32,11 @@ class GloveTracker(Node):
         self.declare_parameter("hsv_red_upper2", [180, 255, 255])
 
         # Detection thresholds
-        self.declare_parameter("min_contour_area", 800)
+        self.declare_parameter("min_contour_area", 1200)
         self.declare_parameter("min_confidence", 0.3)
-        self.declare_parameter("depth_threshold_m", 0.75)
+        self.declare_parameter("depth_threshold_m", 0.45)
         self.declare_parameter("smoothing_window", 5)
-        self.declare_parameter("approach_velocity_mps", 0.35)
+        self.declare_parameter("approach_velocity_mps", 1.5)
         self.declare_parameter("approach_frames", 3)
         self.declare_parameter("debounce_time_s", 0.5)
 
@@ -45,7 +45,7 @@ class GloveTracker(Node):
 
         # Performance
         self.declare_parameter("resize_scale", 0.7)
-        self.declare_parameter("process_every_n", 1)
+        self.declare_parameter("process_every_n", 2)
 
         # Optional pose verification
         self.declare_parameter("use_pose_verification", False)
@@ -59,6 +59,14 @@ class GloveTracker(Node):
         self._pose_frame_count = 0
         self._last_punch_time: Dict[str, float] = {"left": 0.0, "right": 0.0}
         self._distance_hist: Dict[str, deque] = {
+            "left": deque(maxlen=self.get_parameter("smoothing_window").value),
+            "right": deque(maxlen=self.get_parameter("smoothing_window").value),
+        }
+        self._time_hist: Dict[str, deque] = {
+            "left": deque(maxlen=self.get_parameter("smoothing_window").value),
+            "right": deque(maxlen=self.get_parameter("smoothing_window").value),
+        }
+        self._smoothed_hist: Dict[str, deque] = {
             "left": deque(maxlen=self.get_parameter("smoothing_window").value),
             "right": deque(maxlen=self.get_parameter("smoothing_window").value),
         }
@@ -112,6 +120,10 @@ class GloveTracker(Node):
                 if param.name == "smoothing_window":
                     self._distance_hist["left"] = deque(self._distance_hist["left"], maxlen=value)
                     self._distance_hist["right"] = deque(self._distance_hist["right"], maxlen=value)
+                    self._time_hist["left"] = deque(self._time_hist["left"], maxlen=value)
+                    self._time_hist["right"] = deque(self._time_hist["right"], maxlen=value)
+                    self._smoothed_hist["left"] = deque(self._smoothed_hist["left"], maxlen=value)
+                    self._smoothed_hist["right"] = deque(self._smoothed_hist["right"], maxlen=value)
                 else:
                     self._velocity_hist["left"] = deque(self._velocity_hist["left"], maxlen=value)
                     self._velocity_hist["right"] = deque(self._velocity_hist["right"], maxlen=value)
@@ -239,15 +251,28 @@ class GloveTracker(Node):
 
     def _smooth_distance(self, glove: str, distance: float) -> float:
         self._distance_hist[glove].append(distance)
-        return float(np.mean(self._distance_hist[glove]))
+        self._time_hist[glove].append(time.time())
+        mean_dist = float(np.mean(self._distance_hist[glove]))
+        self._smoothed_hist[glove].append(mean_dist)
+        return mean_dist
 
     def _estimate_velocity(self, glove: str, distance: float) -> float:
         # Positive velocity means moving toward camera (distance decreasing)
-        if len(self._distance_hist[glove]) < 2:
+        # Use smoothed history for consistency
+        if len(self._smoothed_hist[glove]) < 2:
             return 0.0
-        prev = self._distance_hist[glove][-2]
-        dt = 1.0 / 30.0  # approximate; frame sync is near camera FPS
-        velocity = (prev - distance) / dt
+            
+        prev_dist = self._smoothed_hist[glove][-2]
+        # Current distance is passed in as arg, which is self._smoothed_hist[glove][-1]
+        
+        prev_time = self._time_hist[glove][-2]
+        curr_time = self._time_hist[glove][-1]
+        
+        dt = curr_time - prev_time
+        if dt <= 1e-4:
+            return 0.0
+            
+        velocity = (prev_dist - distance) / dt
         self._velocity_hist[glove].append(velocity)
         return velocity
 

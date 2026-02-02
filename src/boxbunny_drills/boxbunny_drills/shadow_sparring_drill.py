@@ -7,8 +7,10 @@ target sequences using the action prediction system.
 """
 
 import yaml
+import json
 import time
 from pathlib import Path
+
 from typing import Optional, List, Dict
 
 import rclpy
@@ -36,8 +38,8 @@ class ShadowSparringDrill(Node):
         self.declare_parameter('confidence_threshold', 0.5)
         self.declare_parameter('use_color_tracking', True)
         self.declare_parameter('glove_topic', 'glove_detections')
-        self.declare_parameter('glove_distance_threshold_m', 0.8)
-        self.declare_parameter('glove_velocity_threshold_mps', 1.0)
+        self.declare_parameter('glove_distance_threshold_m', 0.45)
+        self.declare_parameter('glove_velocity_threshold_mps', 1.5)
         self.declare_parameter('glove_debounce_s', 0.35)
         
         # Get parameters
@@ -66,9 +68,18 @@ class ShadowSparringDrill(Node):
         self.action_locked = False  # Prevent rapid duplicate detections
         self._last_glove_punch_time = {"left": 0.0, "right": 0.0}
         
+        # Survival Mode State
+        self.max_attempts = 3
+        self.attempts_left = 3
+        self.iterations = 0
+        self.failures = 0
+
+        
         # Publishers
         self.progress_pub = self.create_publisher(DrillProgress, 'drill_progress', 10)
         self.state_pub = self.create_publisher(String, 'drill_state', 10)
+        self.summary_pub = self.create_publisher(String, 'drill_summary', 10)
+
         
         # Subscribers
         self.action_sub = self.create_subscription(
@@ -164,6 +175,12 @@ class ShadowSparringDrill(Node):
         self.active = True
         self.action_locked = False
         
+        # Reset Survival Mode State
+        self.attempts_left = self.max_attempts
+        self.iterations = 0
+        self.failures = 0
+
+        
         # Publish state
         state_msg = String()
         state_msg.data = 'shadow_sparring'
@@ -242,35 +259,48 @@ class ShadowSparringDrill(Node):
             self.current_step += 1
             if lock_after:
                 self.action_locked = True
+            
             self.get_logger().info(
                 f"Step {self.current_step}/{len(self.current_drill['sequence'])}: "
                 f"Detected {action} ✓"
             )
+            
+            # Check for sequence completion
             if self.current_step >= len(self.current_drill['sequence']):
-                self._complete_drill(success=True)
+                self.iterations += 1
+                self.get_logger().info(f"Combo Complete! Iterations: {self.iterations}")
+                self._reset_sequence(keep_active=True)
+                
         else:
             self.get_logger().info(
                 f"Step {self.current_step + 1}: Expected {expected}, got {action}"
             )
-            # Publish a failed update so UI can show the miss, then reset combo
-            msg = DrillProgress()
-            msg.header.stamp = self.get_clock().now().to_msg()
-            msg.drill_name = self.current_drill['name']
-            msg.current_step = self.current_step
-            msg.total_steps = len(self.current_drill['sequence'])
-            msg.expected_actions = self.current_drill['sequence']
-            msg.detected_actions = self.detected_actions + [action]
-            msg.step_completed = self.step_completed
-            msg.elapsed_time_s = float(time.time() - self.start_time)
-            msg.status = 'failed'
-            self.progress_pub.publish(msg)
+            
+            # Reduce attempts
+            self.failures += 1
+            self.attempts_left -= 1
+            self.get_logger().warn(f"Wrong move! Attempts left: {self.attempts_left}")
+            
+            if self.attempts_left <= 0:
+                self._complete_drill(success=False, reason='failed')
+            else:
+                # Publish a status update for the GUI to show 'X'
+                self._publish_progress(status='wrong_action')
+                # Reset sequence for next try
+                self._reset_sequence(keep_active=True)
+    
+    def _reset_sequence(self, keep_active: bool):
+        """Reset the current combo sequence but keep drill active."""
+        self.current_step = 0
+        self.step_completed = [False] * len(self.current_drill['sequence'])
+        # Keep detected actions for history if needed, or clear? 
+        # For simplicity, clear detected actions for the new sequence
+        self.detected_actions = [] 
+        self.action_locked = False
+        self.start_time = time.time()  # Reset time for the new iteration? Or keep global?
+        # Let's keep global start time for total drill time, but maybe reset idle check?
+        self.last_action_time = time.time()
 
-            # Reset combo on wrong punch so user can try again
-            self.current_step = 0
-            self.step_completed = [False] * len(self.current_drill['sequence'])
-            self.detected_actions = []
-            self.action_locked = False
-            self.start_time = time.time()
     
     def _update(self):
         """Timer callback to check drill state and publish progress."""
@@ -280,12 +310,29 @@ class ShadowSparringDrill(Node):
         elapsed = time.time() - self.start_time
         time_limit = self.current_drill['time_limit_s']
         
-        # Check timeout
-        if elapsed > time_limit:
-            self._complete_drill(success=False, reason='timeout')
-            return
+        # Survival mode - no time limit, only attempts
+        # But maybe we still want to track time or have a per-move timeout?
+        # For now, let's remove strict time limit or use it as "idle timeout"?
+        # Keeping time limit for now but maybe extended? 
+        # Actually plan said "Remove or adjust global time limit". Let's ignore it for now or make it very long.
+        # if elapsed > time_limit: ...
         
         # Publish progress
+        self._publish_progress(status='in_progress')
+        
+        # Publish summary
+        summary_msg = String()
+        summary_msg.data = json.dumps({
+            "attempts": self.attempts_left,
+            "max_attempts": self.max_attempts,
+            "iterations": self.iterations,
+            "failures": self.failures,
+            "score": self.iterations * 100 
+        })
+        self.summary_pub.publish(summary_msg)
+
+    def _publish_progress(self, status: str):
+        """Helper to publish DrillProgress."""
         msg = DrillProgress()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.drill_name = self.current_drill['name']
@@ -294,28 +341,19 @@ class ShadowSparringDrill(Node):
         msg.expected_actions = self.current_drill['sequence']
         msg.detected_actions = self.detected_actions
         msg.step_completed = self.step_completed
-        msg.elapsed_time_s = float(elapsed)
-        msg.status = 'in_progress'
-        
+        msg.elapsed_time_s = float(time.time() - self.start_time)
+        msg.status = status
         self.progress_pub.publish(msg)
-    
+
     def _complete_drill(self, success: bool, reason: str = ''):
         """Complete the drill and generate feedback."""
         elapsed = time.time() - self.start_time
         
         # Publish final progress
-        msg = DrillProgress()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.drill_name = self.current_drill['name']
-        msg.current_step = self.current_step
-        msg.total_steps = len(self.current_drill['sequence'])
-        msg.expected_actions = self.current_drill['sequence']
-        msg.detected_actions = self.detected_actions
-        msg.step_completed = self.step_completed
-        msg.elapsed_time_s = float(elapsed)
-        msg.status = 'success' if success else ('timeout' if reason == 'timeout' else 'failed')
-        
-        self.progress_pub.publish(msg)
+        status = 'success' if success else ('timeout' if reason == 'timeout' else 'failed')
+        self._publish_progress(status)
+
+
         
         # Publish state
         state_msg = String()
