@@ -296,7 +296,9 @@ class GloveTracker(Node):
 
         pose_ok = self._verify_pose() if self.get_parameter("use_pose_verification").value else True
 
-        if (velocity_ok or distance_ok) and pose_ok:
+        # Trigger punch if close AND approaching fast, OR just very close (under 0.35m)
+        very_close = det.distance_m <= 0.35
+        if ((velocity_ok and distance_ok) or very_close) and pose_ok:
             self._last_punch_time[det.glove] = now
             event = PunchEvent()
             event.stamp = self.get_clock().now().to_msg()

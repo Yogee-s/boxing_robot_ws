@@ -229,20 +229,96 @@ class ShadowSparringDrill(Node):
         self._handle_detected_action(action, lock_after=True)
 
     def _on_glove_detections(self, msg: GloveDetections) -> None:
-        """Handle glove detections (color tracking) as jab/cross."""
+        """Handle glove detections (color tracking) as jab/cross.
+        
+        A punch is only registered when:
+        1. One glove is within the distance threshold
+        2. That glove is significantly ahead of the other glove (by at least 0.15m)
+        This prevents false positives when both gloves are slightly forward.
+        """
         if not self.active or self.current_drill is None:
             return
         now = time.time()
+        
+        # Collect distances for both gloves
+        left_dist = 999.0
+        right_dist = 999.0
+        left_det = None
+        right_det = None
+        
         for det in msg.detections:
-            if det.distance_m > self.glove_distance_threshold_m:
-                continue
-            if det.approach_velocity_mps < self.glove_velocity_threshold_mps:
-                continue
-            if now - self._last_glove_punch_time[det.glove] < self.glove_debounce_s:
-                continue
+            if det.glove == "left" and det.distance_m < left_dist:
+                left_dist = det.distance_m
+                left_det = det
+            elif det.glove == "right" and det.distance_m < right_dist:
+                right_dist = det.distance_m
+                right_det = det
+        
+        # Minimum difference required between gloves to register a punch
+        MIN_GLOVE_DIFFERENCE = 0.15  # meters
+        
+        # Check if left glove is punching (close AND significantly ahead of right)
+        left_punching = (
+            left_det is not None and
+            left_dist < self.glove_distance_threshold_m and 
+            (right_dist - left_dist) >= MIN_GLOVE_DIFFERENCE
+        )
+        
+        # Check if right glove is punching (close AND significantly ahead of left)
+        right_punching = (
+            right_det is not None and
+            right_dist < self.glove_distance_threshold_m and 
+            (left_dist - right_dist) >= MIN_GLOVE_DIFFERENCE
+        )
+        
+        # Determine which glove to process
+        punch_det = None
+        if left_punching and right_punching:
+            # Both qualify - pick the closer one
+            punch_det = left_det if left_dist < right_dist else right_det
+        elif left_punching:
+            punch_det = left_det
+        elif right_punching:
+            punch_det = right_det
+        
+        if punch_det is None:
+            # No valid punch - reset pending if gloves moved away
+            if not hasattr(self, '_pending_punch'):
+                self._pending_punch = {"glove": None, "start_time": 0.0, "count": 0}
+            else:
+                self._pending_punch = {"glove": None, "start_time": 0.0, "count": 0}
+            return
+        
+        det = punch_det
+        
+        # For very close punches (under 0.35m), skip velocity check entirely
+        very_close = det.distance_m <= 0.35
+        
+        # Skip if velocity too slow (unless very close)
+        if not very_close and det.approach_velocity_mps < self.glove_velocity_threshold_mps:
+            return
+            
+        # Skip if within debounce period
+        if now - self._last_glove_punch_time[det.glove] < self.glove_debounce_s:
+            return
+        
+        # Additional validation: require consecutive frames for punch confirmation
+        if not hasattr(self, '_pending_punch'):
+            self._pending_punch = {"glove": None, "start_time": 0.0, "count": 0}
+        
+        # Require at least 2 consecutive detections to confirm punch
+        if self._pending_punch["glove"] == det.glove:
+            self._pending_punch["count"] += 1
+        else:
+            self._pending_punch = {"glove": det.glove, "start_time": now, "count": 1}
+        
+        # Only register punch after confirmation threshold
+        if self._pending_punch["count"] >= 2:
             self._last_glove_punch_time[det.glove] = now
             action = "jab" if det.glove == "left" else "cross"
             self._handle_detected_action(action, lock_after=False)
+            # Reset pending punch after registering
+            self._pending_punch = {"glove": None, "start_time": 0.0, "count": 0}
 
     def _handle_detected_action(self, action: str, lock_after: bool) -> None:
         """Check detected action against the expected sequence."""

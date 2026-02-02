@@ -128,7 +128,7 @@ class CheckboxProgressWidget(QtWidgets.QWidget):
         
         outer_layout = QtWidgets.QVBoxLayout(self)
         outer_layout.setSpacing(6)
-        outer_layout.setContentsMargins(0, 10, 0, 18)
+        outer_layout.setContentsMargins(0, 4, 0, 4)
         
         # Checkboxes row
         checkbox_row = QtWidgets.QHBoxLayout()
@@ -138,12 +138,11 @@ class CheckboxProgressWidget(QtWidgets.QWidget):
         for i in range(count):
             checkbox = QtWidgets.QLabel(f"{i+1}")
             checkbox.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            checkbox.setFixedSize(44, 44)
             checkbox.setStyleSheet("""
                 font-size: 20px;
                 font-weight: 700;
                 color: #484f58;
-                min-width: 42px;
-                min-height: 42px;
                 background: #1a1a1a;
                 border: 2px solid #333;
                 border-radius: 8px;
@@ -163,8 +162,6 @@ class CheckboxProgressWidget(QtWidgets.QWidget):
                 font-size: 20px;
                 font-weight: 700;
                 color: #000;
-                min-width: 42px;
-                min-height: 42px;
                 background: #26d0ce;
                 border: 2px solid #26d0ce;
                 border-radius: 8px;
@@ -180,8 +177,6 @@ class CheckboxProgressWidget(QtWidgets.QWidget):
                 font-size: 20px;
                 font-weight: 700;
                 color: #484f58;
-                min-width: 42px;
-                min-height: 42px;
                 background: #1a1a1a;
                 border: 2px solid #333;
                 border-radius: 8px;
@@ -195,13 +190,103 @@ class CheckboxProgressWidget(QtWidgets.QWidget):
                 font-size: 20px;
                 font-weight: 700;
                 color: #fff;
-                min-width: 42px;
-                min-height: 42px;
                 background: #ff4757;
                 border: 2px solid #ff4757;
                 border-radius: 8px;
             """)
             self.current = index + 1
+
+
+class ComboHistoryWidget(QtWidgets.QWidget):
+    """Visual tracker for combo history (success/wrong combos)."""
+    
+    def __init__(self, max_count: int = 10, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet("background: transparent; border: none;")
+        self.max_count = max_count
+        self.history = []  # List of 'success' or 'wrong'
+        self.boxes = []
+        
+        outer_layout = QtWidgets.QVBoxLayout(self)
+        outer_layout.setSpacing(4)
+        outer_layout.setContentsMargins(0, 4, 0, 4)
+        
+        # Label
+        label = QtWidgets.QLabel("COMBO HISTORY")
+        label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        label.setStyleSheet("font-size: 11px; font-weight: 600; color: #666; background: transparent;")
+        outer_layout.addWidget(label)
+        
+        # Boxes row
+        self.boxes_row = QtWidgets.QHBoxLayout()
+        self.boxes_row.setSpacing(6)
+        self.boxes_row.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        
+        for i in range(max_count):
+            box = QtWidgets.QLabel("")
+            box.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            box.setFixedSize(28, 28)
+            box.setStyleSheet("""
+                font-size: 14px;
+                font-weight: 700;
+                color: #333;
+                background: #1a1a1a;
+                border: 2px solid #333;
+                border-radius: 6px;
+            """)
+            self.boxes_row.addWidget(box)
+            self.boxes.append(box)
+        
+        outer_layout.addLayout(self.boxes_row)
+    
+    def add_result(self, result: str):
+        """Add a combo result ('success' or 'wrong')."""
+        self.history.append(result)
+        # Keep only the last max_count results
+        if len(self.history) > self.max_count:
+            self.history = self.history[-self.max_count:]
+        self._update_display()
+    
+    def _update_display(self):
+        """Update the visual display of history."""
+        for i, box in enumerate(self.boxes):
+            if i < len(self.history):
+                result = self.history[i]
+                if result == 'success':
+                    box.setText("✓")
+                    box.setStyleSheet("""
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: #000;
+                        background: #26d0ce;
+                        border: 2px solid #26d0ce;
+                        border-radius: 6px;
+                    """)
+                else:  # wrong
+                    box.setText("✗")
+                    box.setStyleSheet("""
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: #fff;
+                        background: #ff4757;
+                        border: 2px solid #ff4757;
+                        border-radius: 6px;
+                    """)
+            else:
+                box.setText("")
+                box.setStyleSheet("""
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: #333;
+                    background: #1a1a1a;
+                    border: 2px solid #333;
+                    border-radius: 6px;
+                """)
+    
+    def reset(self):
+        """Clear history."""
+        self.history = []
+        self._update_display()
 
 
 # ============================================================================
@@ -3082,7 +3167,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         # Action prediction card - prominent display
         self.action_card = QtWidgets.QFrame()
         self.action_card.setMinimumHeight(76)
-        self.action_card.setMaximumHeight(96)
+        self.action_card.setMaximumHeight(120)
         self.action_card.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
         self.action_card.setStyleSheet("""
             QFrame {
@@ -3092,14 +3177,15 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """)
         ac_layout = QtWidgets.QVBoxLayout(self.action_card)
         ac_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        ac_layout.setContentsMargins(8, 16, 8, 12)
-        ac_layout.setSpacing(2)
+        ac_layout.setContentsMargins(8, 8, 8, 8)
+        ac_layout.setSpacing(6)
         
         self.action_label = QtWidgets.QLabel("READY")
         self.action_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.action_label.setMinimumHeight(55)
         self.action_label.setStyleSheet(
             "font-size: 34px; font-weight: 800; color: #ff8c00; "
-            "background: transparent; padding-bottom: 2px;"
+            "background: transparent;"
         )
         ac_layout.addWidget(self.action_label)
         
@@ -3210,44 +3296,24 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         prog_layout.setContentsMargins(12, 12, 12, 12)
         prog_layout.setSpacing(8)
         
-        # Row 1: Status (Top)
-        self.shadow_status_label = QtWidgets.QLabel("Status: IDLE")
-        self.shadow_status_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.shadow_status_label.setStyleSheet("font-size: 14px; color: #888; font-weight: 600; letter-spacing: 1px; background: transparent; border: none;")
-        prog_layout.addWidget(self.shadow_status_label)
-        
-        # Row 2: Stats Row (Rep + Time + Attempts + Score)
+        # Row 1: Stats Row (Score counters + Time)
         stats_row = QtWidgets.QHBoxLayout()
         
-        self.shadow_attempts_label = QtWidgets.QLabel("♥ 3")
-        self.shadow_attempts_label.setStyleSheet("font-size: 16px; font-weight: 700; color: #ff4757; background: transparent; border: none;")
-        stats_row.addWidget(self.shadow_attempts_label)
+        self.shadow_correct_label = QtWidgets.QLabel("Correct: 0")
+        self.shadow_correct_label.setStyleSheet("font-size: 14px; color: #00ff00; font-weight: 600; background: transparent; border: none;")
+        stats_row.addWidget(self.shadow_correct_label)
         
-        # New 3-attempt visual tracker
-        self.shadow_attempt_trackers = []
-        tracker_frame = QtWidgets.QFrame()
-        tracker_frame.setStyleSheet("background: transparent;")
-        tracker_layout = QtWidgets.QHBoxLayout(tracker_frame)
-        tracker_layout.setContentsMargins(0,0,0,0)
-        tracker_layout.setSpacing(4)
-        for i in range(3):
-            lbl = QtWidgets.QLabel("○") # Pending
-            lbl.setStyleSheet("color: #666; font-size: 18px; font-weight: bold;")
-            tracker_layout.addWidget(lbl)
-            self.shadow_attempt_trackers.append(lbl)
-        stats_row.addWidget(tracker_frame)
-
         stats_row.addStretch()
-
+        
         self.shadow_progress_label = QtWidgets.QLabel("Step: 0/0")
         self.shadow_progress_label.setStyleSheet("font-size: 16px; font-weight: 700; color: #ff8c00; background: transparent; border: none;")
         stats_row.addWidget(self.shadow_progress_label)
         
         stats_row.addStretch()
         
-        self.shadow_iterations_label = QtWidgets.QLabel("Score: 0")
-        self.shadow_iterations_label.setStyleSheet("font-size: 13px; color: #888; background: transparent; border: none;")
-        stats_row.addWidget(self.shadow_iterations_label)
+        self.shadow_wrong_label = QtWidgets.QLabel("Wrong: 0")
+        self.shadow_wrong_label.setStyleSheet("font-size: 14px; color: #ff4757; font-weight: 600; background: transparent; border: none;")
+        stats_row.addWidget(self.shadow_wrong_label)
         
         stats_row.addStretch()
         
@@ -3295,12 +3361,40 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         
         # Checkbox progress indicator (dynamic per combo length)
         self.shadow_checkbox_container = QtWidgets.QFrame()
-        self.shadow_checkbox_container.setStyleSheet("background: transparent;")
+        self.shadow_checkbox_container.setStyleSheet("background: #151515; border-radius: 8px;")
         self.shadow_checkbox_layout = QtWidgets.QVBoxLayout(self.shadow_checkbox_container)
-        self.shadow_checkbox_layout.setContentsMargins(0, 0, 0, 12)
-        self.shadow_checkbox_layout.setSpacing(0)
+        self.shadow_checkbox_layout.setContentsMargins(12, 12, 12, 12)
+        self.shadow_checkbox_layout.setSpacing(10)
+        
+        # Current combo progress label
+        combo_progress_label = QtWidgets.QLabel("CURRENT COMBO")
+        combo_progress_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        combo_progress_label.setStyleSheet("font-size: 11px; font-weight: 600; color: #666; background: transparent;")
+        self.shadow_checkbox_layout.addWidget(combo_progress_label)
+        
         self.shadow_checkbox_progress = CheckboxProgressWidget(count=3)
         self.shadow_checkbox_layout.addWidget(self.shadow_checkbox_progress)
+        
+        # Combo result box (shows COMPLETE or WRONG after combo)
+        self.shadow_combo_result = QtWidgets.QLabel("")
+        self.shadow_combo_result.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.shadow_combo_result.setFixedHeight(40)
+        self.shadow_combo_result.setStyleSheet("""
+            QLabel {
+                background: transparent;
+                color: #555;
+                font-size: 16px;
+                font-weight: 700;
+                border-radius: 8px;
+                padding: 4px 10px;
+            }
+        """)
+        self.shadow_checkbox_layout.addWidget(self.shadow_combo_result)
+        
+        # Combo history tracker
+        self.shadow_combo_history = ComboHistoryWidget(max_count=10)
+        self.shadow_checkbox_layout.addWidget(self.shadow_combo_history)
+        
         right_col.addWidget(self.shadow_checkbox_container)
         
         content.addLayout(right_col, stretch=1)
@@ -4229,7 +4323,6 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
     def _start_shadow_drill(self) -> None:
         """Start shadow sparring drill with a short countdown."""
         if not self.ros.shadow_drill_client.service_is_ready():
-            self.shadow_status_label.setText("Status: NOT READY")
             self.shadow_coach_bar.set_message("Shadow drill service not ready.")
             return
         self.shadow_countdown.set_status("Get ready…")
@@ -4240,7 +4333,6 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """Call shadow sparring drill service after countdown."""
         if not self.ros.shadow_drill_client.service_is_ready():
             self.stack.setCurrentWidget(self.shadow_tab)
-            self.shadow_status_label.setText("Status: NOT READY")
             self.shadow_coach_bar.set_message("Shadow drill service not ready.")
             return
 
@@ -4250,7 +4342,6 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.ros.shadow_drill_client.call_async(req)
 
         self._reset_shadow_ui()
-        self.shadow_status_label.setText("Status: STARTING")
 
         drill = self._shadow_drill_map.get(drill_name)
         if drill and drill["sequence"]:
@@ -4263,28 +4354,45 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
     def _reset_shadow_ui(self) -> None:
         """Reset shadow sparring UI to a clean state."""
         self._last_shadow_step = 0
+        self._last_failures = 0
+        self._last_iterations = 0
+        self._shadow_tracking_step = 0
         self.shadow_checkbox_progress.reset()
-        self.shadow_detected_label.setText("DETECTED: --")
+        self.shadow_detected_label.setText("DETECTED: IDLE")
         if hasattr(self, "_shadow_detected_style"):
             self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
         self.shadow_progress_label.setText("Step: 0/0")
         self.shadow_elapsed_label.setText("Time: 0.0s")
-        self.shadow_status_label.setText("Status: IDLE")
+        self.shadow_correct_label.setText("Correct: 0")
+        self.shadow_wrong_label.setText("Wrong: 0")
         self.shadow_expected_label.setText("Next: --")
         self.action_label.setText("READY")
         self.action_label.setStyleSheet(
             "font-size: 34px; font-weight: 800; color: #ff8c00; "
-            "background: transparent; padding-bottom: 2px;"
+            "background: transparent; padding: 4px 0px;"
         )
         self.action_conf_label.setText("Select combo • Press START")
+        # Reset combo result and history
+        self.shadow_combo_result.setText("")
+        self.shadow_combo_result.setStyleSheet("""
+            QLabel {
+                background: transparent;
+                color: #555;
+                font-size: 16px;
+                font-weight: 700;
+                border-radius: 8px;
+                padding: 4px 10px;
+            }
+        """)
+        if hasattr(self, 'shadow_combo_history'):
+            self.shadow_combo_history.reset()
 
     def _stop_shadow_drill(self) -> None:
         """Stop shadow sparring drill via ROS service."""
         if not self.ros.shadow_stop_client.wait_for_service(timeout_sec=2.0):
-            self.shadow_status_label.setText("Status: STOP NOT READY")
+            self.shadow_coach_bar.set_message("Stop service not ready.")
             return
         self.ros.shadow_stop_client.call_async(Trigger.Request())
-        self.shadow_status_label.setText("Status: STOPPING")
         self.shadow_start_btn.setText("▶  START")
         if hasattr(self, "_shadow_start_style"):
             self.shadow_start_btn.setStyleSheet(self._shadow_start_style)
@@ -4524,15 +4632,15 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             last_action = self.ros.last_action
         
         if progress is None or not progress.drill_name:
-            updated = self._update_shadow_preview_from_punch(
-                shadow_punch or last_punch, shadow_punch_stamp or last_punch_stamp
-            )
-            if not updated:
-                self._update_shadow_preview_from_action(last_action)
+            # No drill active - show real-time glove detection preview
+            # Use glove_detections for continuous state display (idle/jab/cross)
+            self._update_shadow_preview_from_gloves()
+            
             if hasattr(self, "shadow_punch_count_label"):
                 self.shadow_punch_count_label.setText(f"Punches: {shadow_punch_counter}")
-            if not self._update_shadow_detected_from_punch(shadow_punch or last_punch, shadow_punch_stamp or last_punch_stamp):
-                self._update_shadow_detected_from_action(last_action)
+            
+            # Use glove_detections for continuous DETECTED label
+            self._update_shadow_detected_from_gloves()
             return
 
         current_step = progress.current_step
@@ -4542,84 +4650,107 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
 
         self.shadow_progress_label.setText(f"Step: {current_step}/{total_steps}")
         self.shadow_elapsed_label.setText(f"Time: {progress.elapsed_time_s:.1f}s")
-        self.shadow_status_label.setText(f"Status: {status.upper()}")
         
-        # Update Attempts and Score from summary
-        attempts = 3
+        # Update Score from summary
         iterations = 0
         failures = 0
         if isinstance(self.ros.drill_summary, dict):
-             attempts = self.ros.drill_summary.get("attempts", 3)
              iterations = self.ros.drill_summary.get("iterations", 0)
              failures = self.ros.drill_summary.get("failures", 0)
         
-        self.shadow_attempts_label.setText(f"♥ {attempts}")
-        self.shadow_iterations_label.setText(f"Success: {iterations} | Miss: {failures}")
-
-        # Update 3-attempt tracker
-        if hasattr(self, 'shadow_attempt_trackers'):
-            total_done = iterations + failures
-            for i in range(3):
-                if i < iterations:
-                    # Success
-                    self.shadow_attempt_trackers[i].setText("✓")
-                    self.shadow_attempt_trackers[i].setStyleSheet("color: #00ff00; font-size: 18px; font-weight: bold;")
-                elif i < total_done:
-                     # Failure (assuming failures fill up after successes in simple model, 
-                     # but typically they are interleaved. The summary just gives counts. 
-                     # For a perfect history we'd need the list of results. 
-                     # Assuming simplistic visual for now: Successes first, then Failures? 
-                     # actually better: if we have N total trials, and I successes, F failures
-                     # We can't know order from just counts. 
-                     # Let's just switch to showing circles for remaining attempts)
-                     # WAIT - The user wants a tracker for the 3 attempts.
-                     # Ideally we need a list of results in drill_summary. 
-                     # For now, let's just mark the current one?
-                     # Let's use a local history if possible, or request the list extended in ROS node.
-                     # ROS node (boxbunny_drills/shadow_boxing_drill.py) publishes counts.
-                     # Let's stick to counts implies: Iterations = Correct, Failures = Wrong.
-                     # We can just show Iterations GREEN and Failures RED.
-                     # Since we don't know order, let's just fill Green then Red.
-                     pass
-            
-            # Re-loop to fill properly based on counts (Successes first? Or just fill slots?)
-            # Actually, without order, "Green then Red" is the best approximation.
-            valid_count = 0
-            for k in range(iterations):
-                if valid_count < 3:
-                     self.shadow_attempt_trackers[valid_count].setText("✓")
-                     self.shadow_attempt_trackers[valid_count].setStyleSheet("color: #00ff00; font-size: 18px; font-weight: bold;")
-                     valid_count += 1
-            for k in range(failures):
-                if valid_count < 3:
-                     self.shadow_attempt_trackers[valid_count].setText("✗")
-                     self.shadow_attempt_trackers[valid_count].setStyleSheet("color: #ff4757; font-size: 18px; font-weight: bold;")
-                     valid_count += 1
-            for k in range(valid_count, 3):
-                 self.shadow_attempt_trackers[k].setText("○")
-                 self.shadow_attempt_trackers[k].setStyleSheet("color: #666; font-size: 18px; font-weight: bold;")
+        self.shadow_correct_label.setText(f"Correct: {iterations}")
+        self.shadow_wrong_label.setText(f"Wrong: {failures}")
 
         # Visual feedback for wrong action (Check status OR failure count increase)
         
         # Track failures to trigger on increment
         if not hasattr(self, "_last_failures"):
             self._last_failures = 0
+        if not hasattr(self, "_last_wrong_step"):
+            self._last_wrong_step = -1
+        if not hasattr(self, "_last_iterations"):
+            self._last_iterations = 0
             
         new_failure = failures > self._last_failures
-        self._last_failures = failures
-
-        if status == 'wrong_action' or new_failure:
-             self._feedback_end_time = time.time() + 1.2  # Show for 1.2 seconds
-             self.action_label.setText("WRONG! ❌")
-             self.action_label.setStyleSheet(
+        new_success = iterations > self._last_iterations
+        
+        # Track which step was wrong (before reset)
+        if new_failure:
+            # The wrong step is tracked by comparing last known step before reset
+            wrong_step = getattr(self, "_shadow_tracking_step", current_step)
+            self._last_wrong_step = wrong_step
+            self._last_failures = failures
+            
+            self._feedback_end_time = time.time() + 1.2  # Show for 1.2 seconds
+            self.action_label.setText("WRONG! ❌")
+            self.action_label.setStyleSheet(
                 "font-size: 36px; font-weight: 800; color: #ff4757; "
-                "background: transparent; padding-bottom: 2px;"
-             )
-             # Mark current step as wrong in checkbox
-             try:
-                 self.shadow_checkbox_progress.set_wrong(current_step)
-             except:
-                 pass
+                "background: transparent; padding: 4px 0px;"
+            )
+            # Mark the wrong step with X in checkbox
+            try:
+                self.shadow_checkbox_progress.set_wrong(wrong_step)
+            except:
+                pass
+            
+            # Show WRONG in combo result box
+            self.shadow_combo_result.setText("✗ WRONG")
+            self.shadow_combo_result.setStyleSheet("""
+                QLabel {
+                    background: #ff4757;
+                    color: #fff;
+                    font-size: 16px;
+                    font-weight: 700;
+                    border-radius: 8px;
+                    padding: 4px 10px;
+                    border: 2px solid #ff4757;
+                }
+            """)
+            
+            # Add to combo history
+            if hasattr(self, 'shadow_combo_history'):
+                self.shadow_combo_history.add_result('wrong')
+        
+        # Check for combo complete
+        if new_success:
+            self._last_iterations = iterations
+            self._feedback_end_time = time.time() + 1.2
+            
+            # Show COMPLETE in combo result box
+            self.shadow_combo_result.setText("✓ COMBO COMPLETE")
+            self.shadow_combo_result.setStyleSheet("""
+                QLabel {
+                    background: #26d0ce;
+                    color: #000;
+                    font-size: 16px;
+                    font-weight: 700;
+                    border-radius: 8px;
+                    padding: 4px 10px;
+                    border: 2px solid #26d0ce;
+                }
+            """)
+            
+            # Add to combo history
+            if hasattr(self, 'shadow_combo_history'):
+                self.shadow_combo_history.add_result('success')
+        
+        # Clear combo result after feedback period
+        if hasattr(self, "_feedback_end_time") and time.time() > self._feedback_end_time + 0.5:
+            if self.shadow_combo_result.text():
+                self.shadow_combo_result.setText("")
+                self.shadow_combo_result.setStyleSheet("""
+                    QLabel {
+                        background: transparent;
+                        color: #555;
+                        font-size: 18px;
+                        font-weight: 700;
+                        border-radius: 8px;
+                        padding: 6px 10px;
+                    }
+                """)
+        
+        # Track current step for next wrong detection
+        self._shadow_tracking_step = current_step
 
 
         if expected:
@@ -4632,7 +4763,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 self.action_label.setText(display_expected)
                 self.action_label.setStyleSheet(
                     f"font-size: 42px; font-weight: 800; color: {color}; "
-                    "background: transparent; padding-bottom: 2px;"
+                    "background: transparent; padding: 4px 0px;"
                 )
             
             self.action_conf_label.setText(f"Step {current_step + 1}/{total_steps}")
@@ -4644,7 +4775,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self.action_label.setText("COMPLETE! 🏆")
             self.action_label.setStyleSheet(
                 "font-size: 36px; font-weight: 800; color: #00ff00; "
-                "background: transparent; padding-bottom: 2px;"
+                "background: transparent; padding: 4px 0px;"
             )
             self.action_conf_label.setText(f"Time {progress.elapsed_time_s:.1f}s")
             self.shadow_detected_label.setText("DETECTED: --")
@@ -4654,7 +4785,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self.action_label.setText("TIME OUT")
             self.action_label.setStyleSheet(
                 "font-size: 36px; font-weight: 800; color: #ff4757; "
-                "background: transparent; padding-bottom: 2px;"
+                "background: transparent; padding: 4px 0px;"
             )
             self.shadow_detected_label.setText("DETECTED: --")
             if hasattr(self, "_shadow_detected_style"):
@@ -4663,7 +4794,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self.action_label.setText("TRY AGAIN")
             self.action_label.setStyleSheet(
                 "font-size: 36px; font-weight: 800; color: #ff4757; "
-                "background: transparent; padding-bottom: 2px;"
+                "background: transparent; padding: 4px 0px;"
             )
             self.shadow_detected_label.setText("DETECTED: --")
             if hasattr(self, "_shadow_detected_style"):
@@ -4679,30 +4810,23 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             if hasattr(self, "_shadow_start_style"):
                 self.shadow_start_btn.setStyleSheet(self._shadow_start_style)
             self.shadow_stop_btn.setEnabled(False)
-            updated = self._update_shadow_preview_from_punch(
-                shadow_punch or last_punch, shadow_punch_stamp or last_punch_stamp
-            )
-            if not updated:
-                self._update_shadow_preview_from_action(last_action)
+            # Use real-time glove detection for preview when drill is not in_progress
+            self._update_shadow_preview_from_gloves()
 
         # LIVE FEEDBACK (Always runs to prevent lag)
-        # Use live 'last_action' instead of 'progress.detected_actions' (which is state based)
+        # Use live glove state instead of action prediction
         match_expected = False
         if current_step < len(progress.expected_actions):
              exp_act = progress.expected_actions[current_step]
-             # Check if our live action matches expected
-             if last_action and getattr(last_action, "action_label", "") == exp_act:
+             # Check if our live glove state matches expected
+             state, _, _ = self._get_realtime_glove_state()
+             if state == exp_act:
                   match_expected = True
 
-        # PRIORITIZE ACTION (Vision) over PUNCH (Event/IMU)
-        # This ensures IDLE/READY is seen when neutral
-        detected_updated = self._update_shadow_detected_from_action(last_action)
-        
-        if not detected_updated:
-             # Fallback to punch event if no action (rare)
-             self._update_shadow_detected_from_punch(shadow_punch or last_punch, shadow_punch_stamp or last_punch_stamp)
+        # Use real-time glove detections for continuous DETECTED label during drill
+        self._update_shadow_detected_from_gloves()
              
-        # If we have a match, force green even if just detected
+        # If we have a match, force green to show positive feedback
         if match_expected and self.shadow_detected_label.text() != "DETECTED: IDLE":
                   # Parse current text to preserve it
                   txt = self.shadow_detected_label.text()
@@ -4723,29 +4847,21 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         if not hasattr(self, "_last_shadow_step"):
             self._last_shadow_step = 0
         
-        # Handle new iteration (success loop)
-        if not hasattr(self, "_last_iterations"):
-            self._last_iterations = 0
-        
-        if iterations > self._last_iterations:
+        # Handle new iteration (success loop) - reset checkbox progress
+        # Note: The combo result display is handled above in the new_success block
+        if new_success:
             self.shadow_checkbox_progress.reset()
-            self._last_iterations = iterations
             self._last_shadow_step = 0
-            
-            # Visual Feedback for Combo Complete
-            self._feedback_end_time = time.time() + 1.2
-            self.action_label.setText("COMBO COMPLETE! +1")
-            self.action_label.setStyleSheet("font-size: 36px; font-weight: 800; color: #00ff00; background: transparent;")
             
         # Handle reset/restart (completed dropped below last step)
         if completed < self._last_shadow_step:
              feedback_active = (hasattr(self, "_feedback_end_time") and time.time() < self._feedback_end_time)
              
-             # If we are just holding the "failed" state at 0, and feedback is active, skip reset
-             if completed == 0 and feedback_active and status != 'success':
+             # If feedback active (wrong punch or combo complete), keep the X visible
+             if feedback_active:
                  return
              
-             # Otherwise (user started punching OR feedback expired), perform reset
+             # Otherwise (feedback expired and user ready to continue), perform reset
              self.shadow_checkbox_progress.reset()
              self._last_shadow_step = 0
              # Fall through to allow ticking up to current 'completed' if > 0
@@ -4779,15 +4895,12 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
              
         ready = self._cached_service_ready
         
-        # Keep START enabled; show readiness in status only
+        # Keep START enabled; enable/disable stop based on readiness
         self.shadow_start_btn.setEnabled(True)
         if not ready:
             self.shadow_stop_btn.setEnabled(False)
-            self.shadow_status_label.setText("Status: NOT READY")
         else:
             self.shadow_stop_btn.setEnabled(True)
-            if self.shadow_status_label.text().endswith("NOT READY"):
-                self.shadow_status_label.setText("Status: STOPPED")
 
     def _update_shadow_preview_from_punch(self, punch, punch_stamp) -> bool:
         """Show last detected punch even when drill not running."""
@@ -4795,6 +4908,22 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             return False
         if not punch.is_punch:
             return False
+        
+        # Only show punch if glove is close to camera (within 0.5m)
+        distance = getattr(punch, "distance_m", 1.0)
+        if distance > 0.5:
+            return False
+        
+        # Check if punch is stale (older than 0.8s) - return False to allow action-based idle
+        now = time.time()
+        if isinstance(punch_stamp, tuple):
+            ts = punch_stamp[0] + punch_stamp[1] * 1e-9
+        else:
+            ts = float(punch_stamp or 0)
+        age = now - ts
+        if age > 0.8:
+            return False
+        
         if self._shadow_last_preview_ts == punch_stamp:
             return False
         self._shadow_last_preview_ts = punch_stamp
@@ -4805,7 +4934,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.action_conf_label.setText("Last punch")
         self.action_label.setStyleSheet(
             f"font-size: 34px; font-weight: 800; color: {color}; "
-            "background: transparent; padding-bottom: 2px;"
+            "background: transparent; padding: 4px 0px;"
         )
         return True
 
@@ -4830,29 +4959,28 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """Update detected label from the latest punch event."""
         if punch is None or not getattr(punch, "is_punch", False):
             return False
+        
+        # Only show punch if glove is close to camera (within 0.5m)
+        distance = getattr(punch, "distance_m", 1.0)
+        if distance > 0.5:
+            return False
 
-        # Check for idle reset (1.0s timeout)
+        # Check for idle reset (0.8s timeout) - if punch is old, don't use it
+        now = time.time()
         if punch_stamp:
             # Handle ROS2 Time tuple or float
             if isinstance(punch_stamp, tuple):
                  ts = punch_stamp[0] + punch_stamp[1] * 1e-9
             else:
                  ts = float(punch_stamp or 0)
-                 
-            if time.time() - ts > 1.0:
-                self.shadow_detected_label.setText("READY")
-                self.shadow_detected_label.setStyleSheet("""
-                    QLabel {
-                        background: #222;
-                        color: #888888;
-                        font-size: 24px;
-                        font-weight: 800;
-                        border-radius: 8px;
-                        padding: 6px 10px;
-                        border: 2px solid #555555;
-                    }
-                """)
-                return True
+            
+            # If punch is older than 0.8s, return False to allow action-based detection
+            age = now - ts
+            if age > 0.8:
+                return False
+        else:
+            # No timestamp means we can't validate freshness, default to idle
+            return False
 
         detected, display, color = self._shadow_label_for_punch(punch)
         if not detected:
@@ -4872,8 +5000,15 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         return True
 
     def _update_shadow_preview_from_action(self, action) -> bool:
+        # If no action received or action is stale, show idle
         if action is None:
-            return False
+            self.action_label.setText("READY")
+            self.action_conf_label.setText("Live")
+            self.action_label.setStyleSheet(
+                "font-size: 34px; font-weight: 800; color: #ff8c00; "
+                "background: transparent;"
+            )
+            return True
         label = getattr(action, "action_label", None)
         
         # Handle Idle/Ready for Top Label
@@ -4882,7 +5017,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self.action_conf_label.setText("Live")
             self.action_label.setStyleSheet(
                 "font-size: 34px; font-weight: 800; color: #ff8c00; " # Orange default
-                "background: transparent; padding-bottom: 2px;"
+                "background: transparent;"
             )
             return True
         
@@ -4892,32 +5027,43 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.action_conf_label.setText("Live")
         self.action_label.setStyleSheet(
             f"font-size: 34px; font-weight: 800; color: {color}; "
-            "background: transparent; padding-bottom: 2px;"
+            "background: transparent;"
         )
         return True
 
 
     def _update_shadow_detected_from_action(self, action) -> bool:
+        # If no action received, show idle
         if action is None:
-            return False
+            self.shadow_detected_label.setText("DETECTED: IDLE")
+            self.shadow_detected_label.setStyleSheet("""
+                QLabel {
+                    background: #222;
+                    color: #888888;
+                    font-size: 24px;
+                    font-weight: 800;
+                    border-radius: 8px;
+                    padding: 6px 10px;
+                    border: 2px solid #555555;
+                }
+            """)
+            return True
         label = getattr(action, "action_label", None)
         
         # Handle Idle/Ready explicitly
         if not label or label == "idle":
             self.shadow_detected_label.setText("DETECTED: IDLE")
-            if hasattr(self, "_shadow_detected_style"):
-                 # Use default gray style
-                 self.shadow_detected_label.setStyleSheet("""
-                    QLabel {
-                        background: #222;
-                        color: #888888;
-                        font-size: 24px;
-                        font-weight: 800;
-                        border-radius: 8px;
-                        padding: 6px 10px;
-                        border: 2px solid #555555;
-                    }
-                """)
+            self.shadow_detected_label.setStyleSheet("""
+                QLabel {
+                    background: #222;
+                    color: #888888;
+                    font-size: 24px;
+                    font-weight: 800;
+                    border-radius: 8px;
+                    padding: 6px 10px;
+                    border: 2px solid #555555;
+                }
+            """)
             return True
             
         display = label.replace("_", " ").upper()
@@ -4936,6 +5082,116 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """)
         return True
     
+    def _get_realtime_glove_state(self) -> tuple:
+        """
+        Get real-time punch state from glove_detections.
+        Returns (state, display, color) where state is 'idle', 'jab', or 'cross'.
+        
+        A punch is only detected when:
+        1. One glove is within the punch threshold (0.50m)
+        2. That glove is significantly ahead of the other glove (by at least 0.15m)
+        This prevents false positives when both gloves are slightly forward in neutral.
+        """
+        with self.ros.lock:
+            detections = self.ros.last_detections
+        
+        if detections is None or not detections.detections:
+            return ("idle", "IDLE", "#888888")
+        
+        # Distance threshold for considering a glove as "extended" (in punch position)
+        PUNCH_DISTANCE_THRESHOLD = 0.50  # meters - glove must be this close
+        # Minimum difference required between gloves to register a punch
+        MIN_GLOVE_DIFFERENCE = 0.15  # meters - punching glove must be this much ahead
+        
+        left_dist = 999.0
+        right_dist = 999.0
+        
+        for det in detections.detections:
+            if det.glove == "left":
+                left_dist = min(left_dist, det.distance_m)
+            elif det.glove == "right":
+                right_dist = min(right_dist, det.distance_m)
+        
+        # Check if left glove is punching (close AND significantly ahead of right)
+        left_punching = (
+            left_dist < PUNCH_DISTANCE_THRESHOLD and 
+            (right_dist - left_dist) >= MIN_GLOVE_DIFFERENCE
+        )
+        
+        # Check if right glove is punching (close AND significantly ahead of left)
+        right_punching = (
+            right_dist < PUNCH_DISTANCE_THRESHOLD and 
+            (left_dist - right_dist) >= MIN_GLOVE_DIFFERENCE
+        )
+        
+        if left_punching and right_punching:
+            # Both meet criteria - pick the one that's more extended
+            if left_dist < right_dist:
+                return ("jab", "JAB", "#26d0ce")
+            else:
+                return ("cross", "CROSS", "#ff8c00")
+        elif left_punching:
+            return ("jab", "JAB", "#26d0ce")
+        elif right_punching:
+            return ("cross", "CROSS", "#ff8c00")
+        else:
+            return ("idle", "IDLE", "#888888")
+
+    def _update_shadow_detected_from_gloves(self) -> bool:
+        """
+        Update the DETECTED label from real-time glove detections.
+        This provides continuous feedback even when no punch event is triggered.
+        """
+        state, display, color = self._get_realtime_glove_state()
+        
+        self.shadow_detected_label.setText(f"DETECTED: {display}")
+        if state == "idle":
+            self.shadow_detected_label.setStyleSheet("""
+                QLabel {
+                    background: #222;
+                    color: #888888;
+                    font-size: 24px;
+                    font-weight: 800;
+                    border-radius: 8px;
+                    padding: 6px 10px;
+                    border: 2px solid #555555;
+                }
+            """)
+        else:
+            self.shadow_detected_label.setStyleSheet(f"""
+                QLabel {{
+                    background: #222;
+                    color: {color};
+                    font-size: 24px;
+                    font-weight: 800;
+                    border-radius: 8px;
+                    padding: 6px 10px;
+                    border: 2px solid {color};
+                }}
+            """)
+        return True
+
+    def _update_shadow_preview_from_gloves(self) -> bool:
+        """
+        Update the main action label from real-time glove detections.
+        Shows JAB/CROSS/READY based on which glove is extended.
+        """
+        state, display, color = self._get_realtime_glove_state()
+        
+        if state == "idle":
+            self.action_label.setText("READY")
+            self.action_conf_label.setText("Live")
+            self.action_label.setStyleSheet(
+                "font-size: 34px; font-weight: 800; color: #ff8c00; background: transparent;"
+            )
+        else:
+            self.action_label.setText(display)
+            self.action_conf_label.setText("Live")
+            self.action_label.setStyleSheet(
+                f"font-size: 34px; font-weight: 800; color: {color}; background: transparent;"
+            )
+        return True
+
     def _update_defence_ui(self) -> None:
         """Update defence drill tab UI - only if NOT running local drill."""
         # Skip ROS updates if our local drill is running
