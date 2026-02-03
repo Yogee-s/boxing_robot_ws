@@ -964,6 +964,8 @@ class RosInterface(Node):
         self.trash_talk = ""
         self.last_punch_stamp = None
         self.punch_counter = 0
+        self.robot_action_status: Optional[int] = None
+        self.robot_action_status_stamp: Optional[float] = None
 
         punch_topic = self.get_parameter("punch_topic").value
         color_topic = self.get_parameter("color_topic").value
@@ -991,6 +993,9 @@ class RosInterface(Node):
         self.summary_sub = self.create_subscription(String, "drill_summary", self._on_summary, 5)
         self.countdown_sub = self.create_subscription(Int32, "drill_countdown", self._on_countdown, 5)
         self.trash_sub = self.create_subscription(TrashTalk, "trash_talk", self._on_trash, 5)
+        self.robot_status_sub = self.create_subscription(
+            String, "/robot/robot_action_status", self._on_robot_action_status, 5
+        )
 
         self.start_stop_client = self.create_client(StartStopDrill, "start_stop_drill")
         self.llm_client = self.create_client(GenerateLLM, "llm/generate")
@@ -1127,6 +1132,20 @@ class RosInterface(Node):
 
     def add_stream_listener(self, listener) -> None:
         self.stream_listeners.append(listener)
+
+    def _on_robot_action_status(self, msg: String) -> None:
+        """Track robot action status; 0 means action complete."""
+        raw = str(msg.data).strip()
+        try:
+            status = int(raw)
+        except Exception:
+            try:
+                status = int(float(raw))
+            except Exception:
+                status = None
+        with self.lock:
+            self.robot_action_status = status
+            self.robot_action_status_stamp = time.time()
 
 
 
@@ -3708,6 +3727,9 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self._defence_total_blocks = 3
         self._defence_running = False
         self._defence_attack_interval_ms = 2500
+        self._defence_waiting_for_robot = False
+        self._defence_status_timer = None
+        self._defence_last_status_stamp = None
         self._on_defence_combo_changed()
 
     def _load_defence_drill_definitions(self) -> List[dict]:
@@ -4446,6 +4468,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self._defence_block_count = 0
         self._defence_start_time = time.time()
         self._defence_attack_index = 0
+        self._defence_waiting_for_robot = False
+        self._defence_last_status_stamp = None
         # Use selected combo sequence
         drill_name = None
         if hasattr(self, "defence_combo"):
@@ -4479,21 +4503,19 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """)
         self.defence_start_btn.clicked.disconnect()
         self.defence_start_btn.clicked.connect(self._stop_defence_drill)
-        
-        # Start attack timer (simulated attacks every 2-3s)
-        self._defence_timer = QtCore.QTimer()
-        self._defence_timer.timeout.connect(self._defence_attack_tick)
-        self._defence_timer.start(self._defence_attack_interval_ms)
+
+        # Start polling robot action status
+        self._start_defence_status_timer()
     
     def _stop_defence_drill(self) -> None:
         """Stop defence drill."""
         self._defence_running = False
-        if hasattr(self, '_defence_timer'):
-            self._defence_timer.stop()
-        
-        self.defence_action_label.setText("STOPPED")
-        self.defence_action_label.setStyleSheet("font-size: 36px; font-weight: 800; color: #888; background: transparent;")
-        self.defence_status_label.setText("Status: stopped")
+        self._defence_waiting_for_robot = False
+        self._defence_attack_index = 0
+        self._defence_block_count = 0
+        self._defence_last_status_stamp = None
+        self._stop_defence_status_timer()
+        self._reset_defence_drill_ui()
         
         # Reset button
         self.defence_start_btn.setText("▶  START DEFENCE")
@@ -4510,9 +4532,68 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """)
         self.defence_start_btn.clicked.disconnect()
         self.defence_start_btn.clicked.connect(self._start_defence_drill)
+
+    def _reset_defence_drill_ui(self) -> None:
+        """Reset defence drill UI to ready state."""
+        if self._defence_running:
+            return
+        self.defence_action_label.setText("READY")
+        self.defence_action_label.setStyleSheet(
+            "font-size: 34px; font-weight: 800; color: #ff8c00; background: transparent;"
+        )
+        drill_name = self.defence_combo.currentData() if hasattr(self, "defence_combo") else None
+        if drill_name:
+            self.defence_sub_label.setText(f"Selected: {drill_name}")
+        else:
+            self.defence_sub_label.setText("Block all incoming attacks")
+        self.defence_status_label.setText("Status: idle")
+        self.defence_progress_label.setText(f"Blocks: 0/{self._defence_total_blocks}")
+        self.defence_elapsed_label.setText("Time: 0.0s")
+        if hasattr(self, "defence_checkbox_progress"):
+            self.defence_checkbox_progress.reset()
+        self.block_indicator.setStyleSheet("""
+            QFrame {
+                background: transparent;
+                border: none;
+            }
+        """)
+
+    def _start_defence_status_timer(self) -> None:
+        """Poll robot action status while defence drill is active."""
+        if self._defence_status_timer is None:
+            self._defence_status_timer = QtCore.QTimer(self)
+            self._defence_status_timer.timeout.connect(self._defence_check_robot_status)
+        if self._defence_status_timer.isActive():
+            self._defence_status_timer.stop()
+        self._defence_status_timer.start(100)
+
+    def _stop_defence_status_timer(self) -> None:
+        """Stop polling robot action status."""
+        if self._defence_status_timer is not None and self._defence_status_timer.isActive():
+            self._defence_status_timer.stop()
+
+    def _defence_check_robot_status(self) -> None:
+        """Advance defence drill when robot reports action complete."""
+        if not self._defence_running or not self._defence_waiting_for_robot:
+            return
+        with self.ros.lock:
+            status = self.ros.robot_action_status
+            status_stamp = self.ros.robot_action_status_stamp
+        if status is None:
+            return
+        if status_stamp is None or status_stamp == self._defence_last_status_stamp:
+            return
+        self._defence_last_status_stamp = status_stamp
+        if status != 0:
+            return
+        # status == 0: action complete
+        self._defence_waiting_for_robot = False
+        self._defence_attack_tick()
     
     def _show_defence_attack(self) -> None:
         """Show the current incoming attack prompt."""
+        if not self._defence_running:
+            return
         if self._defence_attack_index >= len(self._defence_attacks):
             return
         
@@ -4523,6 +4604,9 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             cmd_msg = String()
             cmd_msg.data = self._defence_attack_to_code(attack)
             self.ros.motor_pub.publish(cmd_msg)
+        self._defence_waiting_for_robot = True
+        with self.ros.lock:
+            self._defence_last_status_stamp = self.ros.robot_action_status_stamp
 
         display = self._defence_display_for_attack(attack)
         self.defence_action_label.setText(f"🛡️ BLOCK {display}!")
@@ -4541,19 +4625,31 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
 
     def _defence_display_for_attack(self, attack) -> str:
         """Map defence attack values to friendly labels."""
+        labels = {
+            1: "JAB",
+            2: "CROSS",
+            3: "LEFT HOOK",
+            4: "RIGHT HOOK",
+            5: "LEFT UPPERCUT",
+            6: "RIGHT UPPERCUT",
+        }
         try:
             val = int(attack)
         except Exception:
-            return str(attack)
-        labels = {
-            1: "HEAD L",
-            2: "HEAD C",
-            3: "HEAD R",
-            4: "BODY L",
-            5: "BODY C",
-            6: "BODY R",
+            val = None
+        if val is not None:
+            return labels.get(val, str(val))
+
+        label = str(attack).strip().lower()
+        text_labels = {
+            "jab": "JAB",
+            "cross": "CROSS",
+            "left_hook": "LEFT HOOK",
+            "right_hook": "RIGHT HOOK",
+            "left_uppercut": "LEFT UPPERCUT",
+            "right_uppercut": "RIGHT UPPERCUT",
         }
-        return labels.get(val, str(val))
+        return text_labels.get(label, str(attack).upper())
 
     def _defence_attack_to_code(self, attack) -> str:
         """Map defence attack labels to numeric codes for /robot/motor_command."""
@@ -4577,12 +4673,11 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         return mapping.get(label, "0")
     
     def _defence_attack_tick(self) -> None:
-        """Timer tick for defence drill - simulate attack resolution."""
+        """Handle completion of the current defence action."""
         if not self._defence_running:
             return
         
-        # For now, auto-advance (in real version, would detect block via pose)
-        # Simulate successful block
+        # Robot reported completion; mark this step as blocked
         self.defence_checkbox_progress.tick(self._defence_attack_index)
         self._defence_block_count += 1
         self._defence_attack_index += 1
@@ -4612,15 +4707,16 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         
         if self._defence_block_count >= self._defence_total_blocks:
             # Drill complete
-            self._defence_timer.stop()
             self._complete_defence_drill()
         else:
             # Show next attack after brief delay
-            QtCore.QTimer.singleShot(1000, self._show_defence_attack)
+            QtCore.QTimer.singleShot(self._defence_attack_interval_ms, self._show_defence_attack)
     
     def _complete_defence_drill(self) -> None:
         """Complete the defence drill."""
         self._defence_running = False
+        self._defence_waiting_for_robot = False
+        self._stop_defence_status_timer()
         elapsed = time.time() - self._defence_start_time
         
         self.defence_action_label.setText("COMPLETE! 🏆")
@@ -4653,6 +4749,9 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """)
         self.defence_start_btn.clicked.disconnect()
         self.defence_start_btn.clicked.connect(self._start_defence_drill)
+
+        # Return to READY after a brief moment
+        QtCore.QTimer.singleShot(1500, self._reset_defence_drill_ui)
     
     def _toggle_imu_input(self, enabled: bool) -> None:
         """Toggle IMU input for menu selection."""
@@ -5275,11 +5374,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
     def _on_blocking_zone_selected(self, zone: int) -> None:
         """Handle numpad button press for blocking zone selection."""
         # Update the action label to show selected zone
-        zone_names = {
-            1: "HEAD LEFT", 2: "HEAD CENTER", 3: "HEAD RIGHT",
-            4: "BODY LEFT", 5: "BODY CENTER", 6: "BODY RIGHT"
-        }
-        zone_name = zone_names.get(zone, f"Zone {zone}")
+        zone_name = self._defence_display_for_attack(zone)
         
         # Flash the block indicator
         self.block_indicator.setStyleSheet("""
