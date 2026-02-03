@@ -6,9 +6,12 @@ Manages shadow sparring drills by tracking user combos against
 target sequences using the action prediction system.
 """
 
+import csv
+import os
 import yaml
 import json
 import time
+from datetime import datetime
 from pathlib import Path
 
 from typing import Optional, List, Dict
@@ -33,6 +36,7 @@ class ShadowSparringDrill(Node):
         super().__init__('shadow_sparring_drill')
         
         # Declare parameters
+        data_root = self._default_data_root()
         self.declare_parameter('drill_config', '')
         self.declare_parameter('idle_threshold_s', 1.0)  # Time to consider action complete
         self.declare_parameter('confidence_threshold', 0.5)
@@ -41,6 +45,7 @@ class ShadowSparringDrill(Node):
         self.declare_parameter('glove_distance_threshold_m', 0.45)
         self.declare_parameter('glove_velocity_threshold_mps', 1.5)
         self.declare_parameter('glove_debounce_s', 0.35)
+        self.declare_parameter('log_dir', str(data_root / "shadow_sparring"))
         
         # Get parameters
         config_path = self.get_parameter('drill_config').value
@@ -67,6 +72,7 @@ class ShadowSparringDrill(Node):
         self.last_action_time = 0.0
         self.action_locked = False  # Prevent rapid duplicate detections
         self._last_glove_punch_time = {"left": 0.0, "right": 0.0}
+        self._log_path: Optional[str] = None
         
         # Survival Mode State
         self.max_attempts = 3
@@ -99,6 +105,78 @@ class ShadowSparringDrill(Node):
         self.timer = self.create_timer(0.1, self._update)
         
         self.get_logger().info('ShadowSparringDrill node ready')
+
+    @staticmethod
+    def _default_data_root() -> Path:
+        try:
+            here = Path(__file__).resolve()
+            for parent in here.parents:
+                if parent.name == "boxing_robot_ws":
+                    return parent / "data"
+        except Exception:
+            pass
+        return Path(os.path.expanduser("~/boxbunny_data"))
+
+    def _open_log(self, drill_name: str) -> None:
+        log_dir = Path(os.path.expanduser(str(self.get_parameter("log_dir").value)))
+        log_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        safe_name = drill_name.replace(" ", "_").lower()
+        filename = f"shadow_{safe_name}_{timestamp}.csv"
+        self._log_path = str(log_dir / filename)
+        with open(self._log_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(
+                [
+                    "timestamp_unix",
+                    "elapsed_s",
+                    "drill_name",
+                    "iteration",
+                    "step_index",
+                    "expected_action",
+                    "detected_action",
+                    "correct",
+                    "attempts_left",
+                    "failures",
+                    "combo_complete",
+                    "source",
+                    "confidence",
+                ]
+            )
+
+    def _log_attempt(
+        self,
+        *,
+        step_index: int,
+        expected: str,
+        detected: str,
+        correct: bool,
+        combo_complete: bool,
+        source: str,
+        confidence: Optional[float],
+    ) -> None:
+        if not self._log_path:
+            return
+        elapsed = time.time() - self.start_time
+        with open(self._log_path, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(
+                [
+                    time.time(),
+                    f"{elapsed:.3f}",
+                    self.current_drill["name"] if self.current_drill else "",
+                    self.iterations,
+                    step_index,
+                    expected,
+                    detected,
+                    int(bool(correct)),
+                    self.attempts_left,
+                    self.failures,
+                    int(bool(combo_complete)),
+                    source,
+                    f"{confidence:.3f}" if confidence is not None else "",
+                ]
+            )
     
     def _load_drill_config(self, config_path: str):
         """Load drill definitions from YAML config."""
@@ -179,6 +257,7 @@ class ShadowSparringDrill(Node):
         self.attempts_left = self.max_attempts
         self.iterations = 0
         self.failures = 0
+        self._open_log(drill_name)
 
         
         # Publish state
@@ -226,7 +305,12 @@ class ShadowSparringDrill(Node):
         self.last_action = action
         self.last_action_time = time.time()
         
-        self._handle_detected_action(action, lock_after=True)
+        self._handle_detected_action(
+            action,
+            lock_after=True,
+            source="action_prediction",
+            confidence=confidence,
+        )
 
     def _on_glove_detections(self, msg: GloveDetections) -> None:
         """Handle glove detections (color tracking) as jab/cross.
@@ -316,15 +400,28 @@ class ShadowSparringDrill(Node):
         if self._pending_punch["count"] >= 2:
             self._last_glove_punch_time[det.glove] = now
             action = "jab" if det.glove == "left" else "cross"
-            self._handle_detected_action(action, lock_after=False)
+            self._handle_detected_action(
+                action,
+                lock_after=False,
+                source="color_tracking",
+                confidence=None,
+            )
             # Reset pending punch after registering
             self._pending_punch = {"glove": None, "start_time": 0.0, "count": 0}
 
-    def _handle_detected_action(self, action: str, lock_after: bool) -> None:
+    def _handle_detected_action(
+        self,
+        action: str,
+        lock_after: bool,
+        *,
+        source: str,
+        confidence: Optional[float],
+    ) -> None:
         """Check detected action against the expected sequence."""
         if self.current_step >= len(self.current_drill['sequence']):
             return
         expected = self.current_drill['sequence'][self.current_step]
+        step_index = self.current_step + 1
 
         self.detected_actions.append(action)
         self.last_action = action
@@ -342,11 +439,20 @@ class ShadowSparringDrill(Node):
             )
             
             # Check for sequence completion
-            if self.current_step >= len(self.current_drill['sequence']):
+            combo_complete = self.current_step >= len(self.current_drill['sequence'])
+            if combo_complete:
                 self.iterations += 1
                 self.get_logger().info(f"Combo Complete! Iterations: {self.iterations}")
                 self._reset_sequence(keep_active=True)
-                
+            self._log_attempt(
+                step_index=step_index,
+                expected=expected,
+                detected=action,
+                correct=True,
+                combo_complete=combo_complete,
+                source=source,
+                confidence=confidence,
+            )
         else:
             self.get_logger().info(
                 f"Step {self.current_step + 1}: Expected {expected}, got {action}"
@@ -356,6 +462,15 @@ class ShadowSparringDrill(Node):
             self.failures += 1
             self.attempts_left -= 1
             self.get_logger().warn(f"Wrong move! Attempts left: {self.attempts_left}")
+            self._log_attempt(
+                step_index=step_index,
+                expected=expected,
+                detected=action,
+                correct=False,
+                combo_complete=False,
+                source=source,
+                confidence=confidence,
+            )
             
             if self.attempts_left <= 0:
                 self._complete_drill(success=False, reason='failed')

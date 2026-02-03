@@ -5,6 +5,7 @@ import random
 import time
 from datetime import datetime
 from collections import deque
+from pathlib import Path
 from typing import Optional, List
 
 import rclpy
@@ -18,6 +19,7 @@ class ReactionDrillManager(Node):
     def __init__(self) -> None:
         super().__init__("reaction_drill_manager")
 
+        data_root = self._default_data_root()
         self.declare_parameter("countdown_s", 3.0)
         self.declare_parameter("baseline_s", 1.5)
         self.declare_parameter("min_cue_delay_s", 1.5)
@@ -28,7 +30,7 @@ class ReactionDrillManager(Node):
         self.declare_parameter("punch_topic", "punch_events")
         self.declare_parameter("glove_topic", "glove_detections")
         self.declare_parameter("num_trials", 5)
-        self.declare_parameter("log_dir", os.path.expanduser("~/boxbunny_logs"))
+        self.declare_parameter("log_dir", str(data_root / "reaction_drill"))
 
         self.state_pub = self.create_publisher(String, "drill_state", 10)
         self.summary_pub = self.create_publisher(String, "drill_summary", 10)
@@ -52,6 +54,7 @@ class ReactionDrillManager(Node):
         self._num_trials = int(self.get_parameter("num_trials").value)
         self._results = []
         self._log_path = None
+        self._summary_path = None
 
         self._countdown_end: Optional[float] = None
         self._next_countdown_tick: Optional[float] = None
@@ -66,6 +69,17 @@ class ReactionDrillManager(Node):
         self._last_penalty_time = 0.0
 
         self.get_logger().info("Reaction drill manager ready")
+
+    @staticmethod
+    def _default_data_root() -> Path:
+        try:
+            here = Path(__file__).resolve()
+            for parent in here.parents:
+                if parent.name == "boxing_robot_ws":
+                    return parent / "data"
+        except Exception:
+            pass
+        return Path(os.path.expanduser("~/boxbunny_data"))
 
     def _on_start_stop(self, request, response):
         if request.start and not self._running:
@@ -283,15 +297,18 @@ class ReactionDrillManager(Node):
         self._result_end = time.time() + 1.0  # 1 second to show result
         
     def _open_log(self) -> None:
-        log_dir = self.get_parameter("log_dir").value
-        os.makedirs(log_dir, exist_ok=True)
-        filename = time.strftime("reaction_drill_%Y%m%d_%H%M%S.csv")
-        self._log_path = os.path.join(log_dir, filename)
+        log_dir = Path(os.path.expanduser(str(self.get_parameter("log_dir").value)))
+        log_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        filename = f"reaction_drill_{timestamp}.csv"
+        self._log_path = str(log_dir / filename)
+        self._summary_path = str(log_dir.parent / "reaction_drill_sessions.csv")
         with open(self._log_path, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(
                 [
                     "trial_index",
+                    "timestamp_unix",
                     "cue_time_unix",
                     "detection_time_unix",
                     "reaction_time_s",
@@ -318,6 +335,7 @@ class ReactionDrillManager(Node):
             writer.writerow(
                 [
                     self._trial_index,
+                    time.time(),
                     cue_time,
                     detection_time or "",
                     reaction_time or "",
@@ -387,8 +405,7 @@ class ReactionDrillManager(Node):
 
     def _log_result_to_csv(self, summary: dict) -> None:
         """Append session result to CSV file."""
-        home_dir = os.path.expanduser("~")
-        file_path = os.path.join(home_dir, "boxbunny_stats.csv")
+        file_path = self._summary_path or os.path.expanduser("~/boxbunny_data/reaction_drill_sessions.csv")
         file_exists = os.path.exists(file_path)
         
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

@@ -10,4 +10,4 @@ reaction_drill_manager:
     punch_topic: punch_events
     glove_topic: glove_detections
     num_trials: 5
-    log_dir: ~/boxbunny_logs
+    log_dir: /home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws/data/reaction_drill

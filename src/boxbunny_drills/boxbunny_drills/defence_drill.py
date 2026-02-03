@@ -6,8 +6,12 @@ Manages defence training drills by controlling motor positions
 and tracking user blocking responses.
 """
 
+import csv
+import os
 import random
 import time
+from datetime import datetime
+from pathlib import Path
 from typing import Optional, List
 
 import rclpy
@@ -29,10 +33,12 @@ class DefenceDrill(Node):
         super().__init__('defence_drill')
         
         # Declare parameters
+        data_root = self._default_data_root()
         self.declare_parameter('attack_interval_s', 2.5)  # Time between attacks
         self.declare_parameter('response_window_s', 1.5)  # Time to respond
         self.declare_parameter('num_attacks', 10)  # Default attacks per drill
         self.declare_parameter('confidence_threshold', 0.4)
+        self.declare_parameter('log_dir', str(data_root / "defence_drill"))
         
         # Get parameters
         self.attack_interval = self.get_parameter('attack_interval_s').value
@@ -50,6 +56,9 @@ class DefenceDrill(Node):
         self.attack_start_time = 0.0
         self.drill_start_time = 0.0
         self.awaiting_block = False
+        self._log_path: Optional[str] = None
+        self._attack_logged = False
+        self._current_attack_position: Optional[int] = None
         
         # Publishers
         self.motor_pub = self.create_publisher(MotorCommand, 'motor_command', 10)
@@ -68,6 +77,63 @@ class DefenceDrill(Node):
         self.drill_timer = self.create_timer(0.1, self._update)
         
         self.get_logger().info('DefenceDrill node ready')
+
+    @staticmethod
+    def _default_data_root() -> Path:
+        try:
+            here = Path(__file__).resolve()
+            for parent in here.parents:
+                if parent.name == "boxing_robot_ws":
+                    return parent / "data"
+        except Exception:
+            pass
+        return Path(os.path.expanduser("~/boxbunny_data"))
+
+    def _open_log(self, drill_name: str) -> None:
+        log_dir = Path(os.path.expanduser(str(self.get_parameter("log_dir").value)))
+        log_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        safe_name = (drill_name or "defence").replace(" ", "_").lower()
+        filename = f"defence_{safe_name}_{timestamp}.csv"
+        self._log_path = str(log_dir / filename)
+        with open(self._log_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(
+                [
+                    "timestamp_unix",
+                    "elapsed_s",
+                    "drill_name",
+                    "attack_index",
+                    "target_position",
+                    "result",
+                    "response_time_s",
+                    "response_window_s",
+                    "successful_blocks",
+                    "missed_blocks",
+                ]
+            )
+
+    def _log_attack(self, *, result: str, response_time: Optional[float]) -> None:
+        if not self._log_path or self._attack_logged:
+            return
+        elapsed = time.time() - self.drill_start_time
+        with open(self._log_path, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(
+                [
+                    time.time(),
+                    f"{elapsed:.3f}",
+                    self.current_drill or "Defence Drill",
+                    self.current_attack + 1,
+                    self._current_attack_position if self._current_attack_position is not None else "",
+                    result,
+                    f"{response_time:.3f}" if response_time is not None else "",
+                    f"{self.response_window:.3f}",
+                    self.successful_blocks,
+                    self.missed_blocks,
+                ]
+            )
+        self._attack_logged = True
     
     def _handle_start_drill(self, request, response):
         """Handle StartDrill service request."""
@@ -94,6 +160,7 @@ class DefenceDrill(Node):
         self.awaiting_block = False
         self.current_drill = drill_name
         self.active = True
+        self._open_log(drill_name)
         
         # Publish state
         state_msg = String()
@@ -116,6 +183,8 @@ class DefenceDrill(Node):
             return
         
         position = self.attack_positions[self.current_attack]
+        self._current_attack_position = position
+        self._attack_logged = False
         
         # Publish motor command
         msg = MotorCommand()
@@ -143,9 +212,11 @@ class DefenceDrill(Node):
             if elapsed <= self.response_window:
                 self.successful_blocks += 1
                 self.get_logger().info(f"Block successful! ({elapsed:.2f}s)")
+                self._log_attack(result="blocked", response_time=elapsed)
             else:
                 self.missed_blocks += 1
                 self.get_logger().info(f"Block too slow ({elapsed:.2f}s)")
+                self._log_attack(result="too_slow", response_time=elapsed)
             
             self.awaiting_block = False
             self.current_attack += 1
@@ -174,6 +245,7 @@ class DefenceDrill(Node):
                 self.awaiting_block = False
                 self.current_attack += 1
                 self.get_logger().info("Block missed (timeout)")
+                self._log_attack(result="missed_timeout", response_time=elapsed)
                 
                 # Next attack after interval
                 if self.current_attack < len(self.attack_positions):
