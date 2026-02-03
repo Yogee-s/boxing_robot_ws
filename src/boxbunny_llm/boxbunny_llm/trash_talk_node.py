@@ -187,7 +187,7 @@ class LlmTalkNode(Node):
             return response
         
         mode = request.mode or self.get_parameter("mode").value
-        context_text, use_stats_override, use_memory_override, include_context = (
+        context_text, use_stats_override, use_memory_override, include_context, fast_mode = (
             self._parse_request_context(request.context)
         )
         result = self._generate_line(
@@ -197,19 +197,20 @@ class LlmTalkNode(Node):
             use_stats_override=use_stats_override,
             use_memory_override=use_memory_override,
             include_context=include_context,
+            fast_mode=fast_mode,
         )
         response.response = result if result else "No response"
         return response
 
     def _parse_request_context(
         self, context: str
-    ) -> Tuple[str, Optional[bool], Optional[bool], bool]:
+    ) -> Tuple[str, Optional[bool], Optional[bool], bool, bool]:
         """Parse optional JSON context flags from GenerateLLM requests."""
         if not context:
-            return "", None, None, False
+            return "", None, None, False, False
         raw = context.strip()
         if raw.lower() in {"gui", "none"}:
-            return "", None, None, False
+            return "", None, None, False, False
         if raw.startswith("{"):
             try:
                 data = json.loads(raw)
@@ -219,8 +220,9 @@ class LlmTalkNode(Node):
                 ctx_text = data.get("context_text") or data.get("context") or ""
                 use_stats = data.get("use_stats")
                 use_memory = data.get("use_memory")
-                return ctx_text, use_stats, use_memory, bool(ctx_text)
-        return raw, None, None, True
+                fast_mode = bool(data.get("fast_mode"))
+                return ctx_text, use_stats, use_memory, bool(ctx_text), fast_mode
+        return raw, None, None, True, False
 
     def _generate_line(
         self,
@@ -231,13 +233,14 @@ class LlmTalkNode(Node):
         use_stats_override: Optional[bool] = None,
         use_memory_override: Optional[bool] = None,
         include_context: bool = False,
+        fast_mode: bool = False,
     ) -> str:
         """Generate LLM response. Returns empty string if LLM not available."""
         if self._llm is None:
             return ""
 
-        examples = self._persona_examples.get(mode, [])
-        dataset_examples = self._dataset_examples.get(mode, [])
+        examples = [] if fast_mode else self._persona_examples.get(mode, [])
+        dataset_examples = [] if fast_mode else self._dataset_examples.get(mode, [])
         example_lines = "\n".join(
             [f"User: {ex.get('user','')}\nCoach: {ex.get('assistant','')}" for ex in examples][:6]
         )
@@ -247,6 +250,11 @@ class LlmTalkNode(Node):
 
         prompt_text = self.get_parameter("system_prompt").value
         prompt_text += f" Style: {mode}.\n"
+        if fast_mode:
+            prompt_text += (
+                "STRICT OUTPUT: Respond with only the answer. "
+                "Never repeat the user's request or mention instructions.\n"
+            )
         if self.get_parameter("singlish").value:
             prompt_text += f"\n{self._singlish_prompt}\n"
         if self.get_parameter("advice").value:
@@ -287,11 +295,17 @@ class LlmTalkNode(Node):
         try:
             # Enable streaming
             with self._llm_lock:
+                max_tokens = int(self.get_parameter("max_tokens").value)
+                temperature = float(self.get_parameter("temperature").value)
+                if fast_mode:
+                    # Ensure enough tokens for a complete short sentence.
+                    max_tokens = min(max(max_tokens, 48), 64)
+                    temperature = min(temperature, 0.6)
                 stream = self._llm(
                     prompt_text,
-                    max_tokens=int(self.get_parameter("max_tokens").value),
-                    temperature=float(self.get_parameter("temperature").value),
-                    stop=["\n"],
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    stop=["\n", "User:", "Coach:"],
                     stream=True  # ENABLE STREAMING
                 )
             

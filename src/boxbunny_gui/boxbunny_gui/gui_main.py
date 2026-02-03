@@ -128,9 +128,34 @@ def _clean_llm_text(text: str) -> str:
         # If the model only echoed user lines, treat as invalid.
         return ""
     cleaned = re.sub(r"\buser\s*:\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^\s*(tip|advice)\s*:\s*", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s*\b(user|assistant|coach)\b\s*$", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\.([A-Z])", r". \1", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def _normalize_quick_reply(text: str) -> str:
+    """Normalize quick prompt replies to a short, clean, single sentence."""
+    cleaned = _clean_llm_text(text)
+    if not cleaned:
+        return ""
+    cleaned = re.sub(r"^\s*(context|current drill)\s*[:\-]\s*", "", cleaned, flags=re.IGNORECASE)
+    # Keep only the first sentence if multiple are present
+    match = re.search(r"[.!?]", cleaned)
+    if match:
+        cleaned = cleaned[: match.end()].strip()
+    # Drop trailing stop words to avoid cut-off endings
+    stop_words = {
+        "with", "and", "or", "to", "of", "for", "on", "in", "at", "from", "into",
+        "by", "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    }
+    words = cleaned.split()
+    while len(words) > 3 and words[-1].lower() in stop_words:
+        words.pop()
+    cleaned = " ".join(words).strip()
+    if cleaned and cleaned[-1] not in ".!?":
+        cleaned = cleaned + "."
     return cleaned
 
 
@@ -138,14 +163,44 @@ def _looks_like_prompt_echo(text: str, prompt: str) -> bool:
     """Detect when the model likely echoed the prompt instead of answering."""
     if not text:
         return True
-    t = text.strip().lower()
-    p = (prompt or "").strip().lower()
+    def _norm(s: str) -> str:
+        s = re.sub(r"[^a-z0-9\s]", " ", s.lower())
+        s = re.sub(r"\s+", " ", s).strip()
+        return s
+    t = _norm(text)
+    p = _norm(prompt or "")
     if not t:
         return True
     if "your response here" in t:
         return True
     if p and (p in t or t in p):
         return True
+    # Instruction-y phrases often indicate prompt echo
+    instruction_phrases = [
+        "reply with",
+        "respond with",
+        "do not repeat",
+        "do not include",
+        "no greeting",
+        "one sentence",
+        "one line",
+        "under 10",
+        "under 12",
+        "under 15",
+        "under 8",
+        "your response",
+        "under words",
+    ]
+    if any(phrase in t for phrase in instruction_phrases):
+        return True
+    # High word overlap with the prompt likely means echo
+    if p:
+        t_words = set(t.split())
+        p_words = set(p.split())
+        if len(t_words) >= 4:
+            overlap = len(t_words & p_words) / max(1, len(t_words))
+            if overlap >= 0.6:
+                return True
     return False
 
 
@@ -360,13 +415,14 @@ class ComboHistoryWidget(QtWidgets.QWidget):
 class CoachBarWidget(QtWidgets.QFrame):
     """Reusable AI Coach bar with message display and quick action buttons."""
     
-    def __init__(self, ros_interface, parent=None):
+    def __init__(self, ros_interface, parent=None, context_hint: str = ""):
         super().__init__(parent)
         self.ros = ros_interface
         self._last_prompt = ""
         self._last_mode = "tip"
         self._coach_retry_count = 0
         self._use_stream = False
+        self.context_hint = context_hint
         
         self.setMinimumHeight(90)
         self.setStyleSheet("""
@@ -454,29 +510,35 @@ class CoachBarWidget(QtWidgets.QFrame):
         # They are general advice, not feedback on specific training
         prompt_variations = {
             "tip": [
-                "Give ONE specific boxing technique tip in under 15 words. No greeting.",
-                "Name one defensive drill. Under 12 words.",
-                "One footwork tip. Under 10 words.",
-                "Best way to improve jab speed? Under 12 words.",
-                "Common hook mistake and fix? Under 15 words.",
+                "Give one specific boxing technique tip. No greeting.",
+                "Name one defensive drill. Keep it brief.",
+                "One footwork tip, very short.",
+                "Best way to improve jab speed? Short answer.",
+                "Common hook mistake and fix. Keep it brief.",
             ],
             "hype": [
-                "Give me ONE LINE of intense motivation. No questions, just fire me up!",
-                "Channel a boxing legend - one powerful motivational line only.",
-                "Make me feel unstoppable in one sentence. Be intense!",
-                "One line to get my heart pumping for training.",
-                "Champion mindset quote. One powerful line.",
+                "Give intense motivation. No questions, just fire me up!",
+                "Channel a boxing legend - powerful motivation, brief.",
+                "Make me feel unstoppable. Be intense and brief!",
+                "Get my heart pumping for training. Short line.",
+                "Champion mindset quote. Keep it brief.",
             ],
             "focus": [
-                "One calming breath instruction. Under 12 words.",
-                "A short mantra for focus. Under 8 words.",
+                "One calming breath instruction. Keep it brief.",
+                "A short mantra for focus. Very short.",
                 "Mental reset cue in one sentence.",
                 "How to clear the mind before a round? One line.",
-                "Visualization tip for boxers. Under 15 words.",
+                "Visualization tip for boxers. Keep it brief.",
             ],
         }
         
-        prompts = prompt_variations.get(mode, prompt_variations["tip"])
+        if self.context_hint and mode == "tip":
+            prompts = [
+                f"Give one short tip for the {self.context_hint}.",
+                f"One key coaching tip for the {self.context_hint}. Keep it brief.",
+            ]
+        else:
+            prompts = prompt_variations.get(mode, prompt_variations["tip"])
         prompt = prompt_override or random.choice(prompts)
         prompt += " Reply with one short sentence only. Do not include labels like 'User:' or 'Coach:' or repeat the prompt."
         self._last_prompt = prompt
@@ -499,7 +561,10 @@ class CoachBarWidget(QtWidgets.QFrame):
         req = GenerateLLM.Request()
         req.mode = "coach"
         req.prompt = prompt
-        req.context = json.dumps({"use_stats": False, "use_memory": False})
+        context_payload = {"use_stats": False, "use_memory": False, "fast_mode": True}
+        if self.context_hint:
+            context_payload["context_text"] = f"Current drill: {self.context_hint}."
+        req.context = json.dumps(context_payload)
         future = self.ros.llm_client.call_async(req)
         
         # Reset stream state
@@ -511,14 +576,22 @@ class CoachBarWidget(QtWidgets.QFrame):
         self._stream_target = f"coach_bar_{time.time_ns()}"
         future.add_done_callback(self._on_coach_response)
 
+    @QtCore.Slot()
     def _retry_coach_request(self):
-        if self._coach_retry_count >= 1:
+        if self._coach_retry_count >= 2:
             return
-        fallback_prompt = "Give one short boxing tip. One sentence only. Do not repeat the prompt."
-        if self._last_mode == "hype":
-            fallback_prompt = "Give one intense motivational line. One sentence only."
-        elif self._last_mode == "focus":
-            fallback_prompt = "Give one short focus cue. One sentence only."
+        if self._coach_retry_count == 0:
+            fallback_prompt = "Give one short boxing tip."
+            if self._last_mode == "hype":
+                fallback_prompt = "Give one intense motivational line."
+            elif self._last_mode == "focus":
+                fallback_prompt = "Give one short focus cue."
+        else:
+            fallback_prompt = "Answer with a boxing tip only."
+            if self._last_mode == "hype":
+                fallback_prompt = "Answer with one motivational line only."
+            elif self._last_mode == "focus":
+                fallback_prompt = "Answer with one focus cue only."
         self._request_coach(self._last_mode, prompt_override=fallback_prompt, retry_count=self._coach_retry_count + 1)
         
     def _on_stream_data(self, text: str):
@@ -564,7 +637,7 @@ class CoachBarWidget(QtWidgets.QFrame):
             response = f"⚠️ Error: {str(e)[:30]}"
         
         # Only use fallback display if we didn't receive a stream
-        cleaned = _clean_llm_text(response)
+        cleaned = _normalize_quick_reply(response)
         if _looks_like_prompt_echo(cleaned or response, self._last_prompt):
             if self._coach_retry_count < 1:
                 QtCore.QMetaObject.invokeMethod(
@@ -572,9 +645,8 @@ class CoachBarWidget(QtWidgets.QFrame):
                     QtCore.Qt.ConnectionType.QueuedConnection,
                 )
                 return
-            cleaned = ""
         if not cleaned:
-            cleaned = "Try again for a fresh tip."
+            cleaned = _normalize_quick_reply(response.strip()) or response.strip()
         if not self._received_stream:
             # Start streaming the text character by character (fake stream for non-LLM responses)
             QtCore.QMetaObject.invokeMethod(
@@ -778,6 +850,7 @@ class StartupLoadingScreen(QtWidgets.QWidget):
         req = GenerateLLM.Request()
         req.mode = "coach"
         req.prompt = "Warm-up. Reply with OK."
+        req.context = json.dumps({"use_stats": False, "use_memory": False, "fast_mode": True})
         try:
             future = self.ros.llm_client.call_async(req)
             future.add_done_callback(lambda _f: None)
@@ -2420,7 +2493,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         layout.addLayout(main_content, stretch=1)
         
         # === BOTTOM: Coach Bar - tall and prominent ===
-        self.reaction_coach_bar = CoachBarWidget(self.ros)
+        self.reaction_coach_bar = CoachBarWidget(self.ros, context_hint="reaction drill")
         self.reaction_coach_bar.setMinimumHeight(100)
         self.reaction_coach_bar.setMaximumHeight(140)
         layout.addWidget(self.reaction_coach_bar)
@@ -3199,19 +3272,19 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         # Simple prompts that DON'T reference user data
         prompts = {
             "tip": [
-                "One boxing technique tip. Under 10 words.",
-                "Quick defensive tip. Under 8 words.",
-                "Footwork advice. Under 8 words.",
+                "One reaction drill tip. Keep it brief.",
+                "Quick reaction-time tip. Very short.",
+                "Cue-response advice. Keep it brief.",
             ],
             "hype": [
-                "Motivate me for training! One intense line.",
-                "Fire me up! One powerful sentence.",
-                "Champion energy! One line.",
+                "Motivate me for training! Keep it brief.",
+                "Fire me up! Short and powerful.",
+                "Champion energy! Keep it brief.",
             ], 
             "focus": [
                 "Help me focus. One calming sentence.",
-                "Mental reset cue. Under 10 words.",
-                "Breathing tip for focus. Under 10 words.",
+                "Mental reset cue. Keep it brief.",
+                "Breathing tip for focus. Keep it brief.",
             ],
         }
         
@@ -3229,25 +3302,31 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             req = GenerateLLM.Request()
             req.mode = "coach"
             req.prompt = prompt_text
-            req.context = json.dumps({"use_stats": False, "use_memory": False})
+            req.context = json.dumps({"use_stats": False, "use_memory": False, "fast_mode": True})
             self.ros.stream_target = "reaction_quick"
             future = self.ros.llm_client.call_async(req)
             rclpy.spin_until_future_complete(self.ros, future, timeout_sec=8.0)
             self.ros.stream_target = None
             if future.result() is not None:
                 raw = future.result().response
-                cleaned = _clean_llm_text(raw)
+                cleaned = _normalize_quick_reply(raw)
                 if _looks_like_prompt_echo(cleaned or raw, prompt_text):
-                    if attempt < 1:
-                        retry_prompt = "Give one short boxing tip. One sentence only. Do not repeat the prompt."
-                        if mode == "hype":
-                            retry_prompt = "Give one intense motivational line. One sentence only."
-                        elif mode == "focus":
-                            retry_prompt = "Give one short focus cue. One sentence only."
+                    if attempt < 2:
+                        if attempt == 0:
+                            retry_prompt = "Give one short boxing tip."
+                            if mode == "hype":
+                                retry_prompt = "Give one intense motivational line."
+                            elif mode == "focus":
+                                retry_prompt = "Give one short focus cue."
+                        else:
+                            retry_prompt = "Answer with a boxing tip only."
+                            if mode == "hype":
+                                retry_prompt = "Answer with one motivational line only."
+                            elif mode == "focus":
+                                retry_prompt = "Answer with one focus cue only."
                         return do_request(retry_prompt, attempt + 1)
-                    return "Try again!"
-                return cleaned or "Try again!"
-            return "Try again!"
+                return cleaned or raw
+            return "⚠️ No response from LLM"
         
         # Run in thread to not block UI
         def run_and_update():
@@ -3563,7 +3642,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         outer_layout.addLayout(content, stretch=1)
         
         # === BOTTOM: Coach Bar ===
-        self.shadow_coach_bar = CoachBarWidget(self.ros)
+        self.shadow_coach_bar = CoachBarWidget(self.ros, context_hint="shadow sparring drill")
         self.shadow_coach_bar.setMinimumHeight(70)
         self.shadow_coach_bar.setMaximumHeight(90)
         outer_layout.addWidget(self.shadow_coach_bar)
@@ -3831,7 +3910,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         outer_layout.addLayout(content, stretch=1)
         
         # === BOTTOM: Coach Bar ===
-        self.defence_coach_bar = CoachBarWidget(self.ros)
+        self.defence_coach_bar = CoachBarWidget(self.ros, context_hint="defence drill")
         outer_layout.addWidget(self.defence_coach_bar)
         
         # Initialize defence drill state
@@ -4054,7 +4133,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         req.prompt = prompt
         req.mode = self.llm_mode.currentText()
         if force_fresh:
-            req.context = json.dumps({"use_stats": False, "use_memory": False})
+            req.context = json.dumps({"use_stats": False, "use_memory": False, "fast_mode": True})
         else:
             req.context = "gui"
         self.ros.stream_target = "llm_tab"
