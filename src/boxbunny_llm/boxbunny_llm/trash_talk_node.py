@@ -1,8 +1,9 @@
+import json
 import os
 import sys
 import site
 import threading
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 # Add user site-packages to path (llama_cpp may be installed there)
 try:
@@ -24,9 +25,9 @@ except Exception:
     yaml = None
 
 
-class TrashTalkNode(Node):
+class LlmTalkNode(Node):
     def __init__(self) -> None:
-        super().__init__("trash_talk_node")
+        super().__init__("llm_talk_node")
 
         self.declare_parameter("use_llm_if_available", True)
         self.declare_parameter("model_path", "")
@@ -68,7 +69,7 @@ class TrashTalkNode(Node):
         self._init_llm()
         self.add_on_set_parameters_callback(self._on_params)
 
-        self.get_logger().info("LLM coach node ready")
+        self.get_logger().info("LLM talk node ready")
 
     def _load_persona_examples(self) -> Dict[str, List[Dict[str, str]]]:
         path = self.get_parameter("persona_examples_path").value
@@ -186,11 +187,51 @@ class TrashTalkNode(Node):
             return response
         
         mode = request.mode or self.get_parameter("mode").value
-        result = self._generate_line(mode, request.context or request.prompt, request.prompt)
+        context_text, use_stats_override, use_memory_override, include_context = (
+            self._parse_request_context(request.context)
+        )
+        result = self._generate_line(
+            mode,
+            context_text,
+            request.prompt,
+            use_stats_override=use_stats_override,
+            use_memory_override=use_memory_override,
+            include_context=include_context,
+        )
         response.response = result if result else "No response"
         return response
 
-    def _generate_line(self, mode: str, context: str, prompt: str = "") -> str:
+    def _parse_request_context(
+        self, context: str
+    ) -> Tuple[str, Optional[bool], Optional[bool], bool]:
+        """Parse optional JSON context flags from GenerateLLM requests."""
+        if not context:
+            return "", None, None, False
+        raw = context.strip()
+        if raw.lower() in {"gui", "none"}:
+            return "", None, None, False
+        if raw.startswith("{"):
+            try:
+                data = json.loads(raw)
+            except Exception:
+                data = None
+            if isinstance(data, dict):
+                ctx_text = data.get("context_text") or data.get("context") or ""
+                use_stats = data.get("use_stats")
+                use_memory = data.get("use_memory")
+                return ctx_text, use_stats, use_memory, bool(ctx_text)
+        return raw, None, None, True
+
+    def _generate_line(
+        self,
+        mode: str,
+        context: str,
+        prompt: str = "",
+        *,
+        use_stats_override: Optional[bool] = None,
+        use_memory_override: Optional[bool] = None,
+        include_context: bool = False,
+    ) -> str:
         """Generate LLM response. Returns empty string if LLM not available."""
         if self._llm is None:
             return ""
@@ -213,9 +254,21 @@ class TrashTalkNode(Node):
                 "\nProvide practical boxing advice and training tips."
                 " Avoid medical or injury diagnosis."
             )
-        if self.get_parameter("use_stats_context").value and self._stats_context:
+        use_stats = (
+            use_stats_override
+            if use_stats_override is not None
+            else self.get_parameter("use_stats_context").value
+        )
+        use_memory = (
+            use_memory_override
+            if use_memory_override is not None
+            else self.get_parameter("memory").value
+        )
+        if use_stats and self._stats_context:
             prompt_text += f"Stats: {self._stats_context}\n"
-        if self.get_parameter("memory").value:
+        if include_context and context:
+            prompt_text += f"Context: {context}\n"
+        if use_memory:
             turns = int(self.get_parameter("history_turns").value)
             with self._llm_lock:
                 history = self._history[-turns * 2 :]
@@ -274,7 +327,7 @@ class TrashTalkNode(Node):
 
 def main() -> None:
     rclpy.init()
-    node = TrashTalkNode()
+    node = LlmTalkNode()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

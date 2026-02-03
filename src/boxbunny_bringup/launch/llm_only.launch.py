@@ -8,7 +8,7 @@ def generate_launch_description():
     llm_config = PathJoinSubstitution([FindPackageShare("boxbunny_llm"), "config", "llm.yaml"])
     llm = Node(
         package="boxbunny_llm",
-        executable="trash_talk_node",
+        executable="llm_talk_node",
         parameters=[llm_config],
         output="screen",
     )

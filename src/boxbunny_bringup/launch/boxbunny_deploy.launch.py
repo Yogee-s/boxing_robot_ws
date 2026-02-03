@@ -182,7 +182,7 @@ def generate_launch_description():
     # =========================================================================
     llm_node = Node(
         package="boxbunny_llm",
-        executable="trash_talk_node",
+        executable="llm_talk_node",
         parameters=[llm_config],
         output="screen",
         condition=IfCondition(enable_llm),

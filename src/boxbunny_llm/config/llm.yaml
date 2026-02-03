@@ -1,7 +1,7 @@
-trash_talk_node:
+llm_talk_node:
   ros__parameters:
     use_llm_if_available: true
-    model_path: "/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws/models/llm/qwen2.5-3b-instruct-q4_k_m.gguf"
+    model_path: "/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws/models/llm/deepseek-r1-distill-qwen-1.5b-q4_k_m.gguf"
     max_tokens: 32
     temperature: 0.7
     mode: "coach"

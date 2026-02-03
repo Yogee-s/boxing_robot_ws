@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import threading
 import time
 from collections import deque
@@ -110,6 +111,42 @@ class ButtonStyle:
             border: none;
         }
     """
+
+
+def _clean_llm_text(text: str) -> str:
+    """Strip dialog prefixes like 'User:' or 'Coach:' from LLM output."""
+    if not text:
+        return ""
+    has_user = bool(re.search(r"\buser\s*:\s*", text, flags=re.IGNORECASE))
+    has_coach = bool(re.search(r"\b(coach|assistant)\s*:\s*", text, flags=re.IGNORECASE))
+    cleaned = text
+    if has_coach:
+        matches = list(re.finditer(r"\b(coach|assistant)\s*:\s*", cleaned, flags=re.IGNORECASE))
+        if matches:
+            cleaned = cleaned[matches[-1].end():]
+    elif has_user:
+        # If the model only echoed user lines, treat as invalid.
+        return ""
+    cleaned = re.sub(r"\buser\s*:\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*\b(user|assistant|coach)\b\s*$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\.([A-Z])", r". \1", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def _looks_like_prompt_echo(text: str, prompt: str) -> bool:
+    """Detect when the model likely echoed the prompt instead of answering."""
+    if not text:
+        return True
+    t = text.strip().lower()
+    p = (prompt or "").strip().lower()
+    if not t:
+        return True
+    if "your response here" in t:
+        return True
+    if p and (p in t or t in p):
+        return True
+    return False
 
 
 # ============================================================================
@@ -326,6 +363,10 @@ class CoachBarWidget(QtWidgets.QFrame):
     def __init__(self, ros_interface, parent=None):
         super().__init__(parent)
         self.ros = ros_interface
+        self._last_prompt = ""
+        self._last_mode = "tip"
+        self._coach_retry_count = 0
+        self._use_stream = False
         
         self.setMinimumHeight(90)
         self.setStyleSheet("""
@@ -405,7 +446,7 @@ class CoachBarWidget(QtWidgets.QFrame):
         """Set the coach message."""
         self.message_label.setText(text)
     
-    def _request_coach(self, mode: str):
+    def _request_coach(self, mode: str, prompt_override: str = None, retry_count: int = 0):
         """Request a coach response from LLM with varied prompts."""
         import random
         
@@ -436,7 +477,11 @@ class CoachBarWidget(QtWidgets.QFrame):
         }
         
         prompts = prompt_variations.get(mode, prompt_variations["tip"])
-        prompt = random.choice(prompts)
+        prompt = prompt_override or random.choice(prompts)
+        prompt += " Reply with one short sentence only. Do not include labels like 'User:' or 'Coach:' or repeat the prompt."
+        self._last_prompt = prompt
+        self._last_mode = mode
+        self._coach_retry_count = retry_count
         
         # Reset any previous stream and show loading state
         if hasattr(self, "_stream_timer") and self._stream_timer.isActive():
@@ -454,6 +499,7 @@ class CoachBarWidget(QtWidgets.QFrame):
         req = GenerateLLM.Request()
         req.mode = "coach"
         req.prompt = prompt
+        req.context = json.dumps({"use_stats": False, "use_memory": False})
         future = self.ros.llm_client.call_async(req)
         
         # Reset stream state
@@ -461,8 +507,19 @@ class CoachBarWidget(QtWidgets.QFrame):
         self._streaming_text = ""
         
         # Add callback for when response arrives
-        self.ros.stream_target = self._stream_target
+        # Do not stream tokens for quick prompts to avoid prompt-echo flicker.
+        self._stream_target = f"coach_bar_{time.time_ns()}"
         future.add_done_callback(self._on_coach_response)
+
+    def _retry_coach_request(self):
+        if self._coach_retry_count >= 1:
+            return
+        fallback_prompt = "Give one short boxing tip. One sentence only. Do not repeat the prompt."
+        if self._last_mode == "hype":
+            fallback_prompt = "Give one intense motivational line. One sentence only."
+        elif self._last_mode == "focus":
+            fallback_prompt = "Give one short focus cue. One sentence only."
+        self._request_coach(self._last_mode, prompt_override=fallback_prompt, retry_count=self._coach_retry_count + 1)
         
     def _on_stream_data(self, text: str):
         """Handle incoming stream token."""
@@ -487,7 +544,13 @@ class CoachBarWidget(QtWidgets.QFrame):
             self._streaming_text = ""
         
         self._streaming_text += text
-        self.message_label.setText(self._streaming_text)
+        cleaned = _clean_llm_text(self._streaming_text)
+        if cleaned:
+            self.message_label.setText(cleaned)
+        else:
+            # Keep existing status text (e.g., "Analyzing..." or "Thinking...")
+            if not self.message_label.text().strip():
+                self.message_label.setText(current_text)
         
     def _on_coach_response(self, future):
         """Handle LLM response callback - called from ROS thread."""
@@ -501,14 +564,31 @@ class CoachBarWidget(QtWidgets.QFrame):
             response = f"⚠️ Error: {str(e)[:30]}"
         
         # Only use fallback display if we didn't receive a stream
+        cleaned = _clean_llm_text(response)
+        if _looks_like_prompt_echo(cleaned or response, self._last_prompt):
+            if self._coach_retry_count < 1:
+                QtCore.QMetaObject.invokeMethod(
+                    self, "_retry_coach_request",
+                    QtCore.Qt.ConnectionType.QueuedConnection,
+                )
+                return
+            cleaned = ""
+        if not cleaned:
+            cleaned = "Try again for a fresh tip."
         if not self._received_stream:
             # Start streaming the text character by character (fake stream for non-LLM responses)
             QtCore.QMetaObject.invokeMethod(
                 self, "_start_stream",
                 QtCore.Qt.ConnectionType.QueuedConnection,
-                QtCore.Q_ARG(str, response)
+                QtCore.Q_ARG(str, cleaned or response)
             )
-        self.ros.stream_target = None
+        elif cleaned:
+            QtCore.QMetaObject.invokeMethod(
+                self.message_label,
+                "setText",
+                QtCore.Qt.ConnectionType.QueuedConnection,
+                QtCore.Q_ARG(str, cleaned)
+            )
     
     @QtCore.Slot(str)
     def _start_stream(self, text: str):
@@ -999,7 +1079,7 @@ class RosInterface(Node):
 
         self.start_stop_client = self.create_client(StartStopDrill, "start_stop_drill")
         self.llm_client = self.create_client(GenerateLLM, "llm/generate")
-        self.llm_param_client = self.create_client(SetParameters, "trash_talk_node/set_parameters")
+        self.llm_param_client = self.create_client(SetParameters, "llm_talk_node/set_parameters")
         self.shadow_drill_client = self.create_client(StartDrill, "/start_drill")
         self.shadow_stop_client = self.create_client(Trigger, "/stop_shadow_drill")
         self.defence_drill_client = self.create_client(StartDrill, "start_defence_drill")
@@ -1184,6 +1264,11 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self._shadow_last_preview_ts = None
         self._last_reaction_frame_ts = 0.0
         self._last_reaction_summary_key = None
+        self._last_reaction_comment_key = None
+        self._reaction_comment_inflight = False
+        self._reaction_comment_summary = None
+        self._pending_reaction_summary = None
+        self._enable_session_analysis = False
         self._pending_replay_clip = None
         self._pending_replay_time = None
         self._reaction_clips = []
@@ -2942,6 +3027,12 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.llm_memory_toggle.toggled.connect(self._on_llm_params_changed)
         toggles_row.addWidget(self.llm_memory_toggle)
 
+        self.llm_session_analysis_toggle = QtWidgets.QCheckBox("Session Analysis")
+        self.llm_session_analysis_toggle.setChecked(False)
+        self.llm_session_analysis_toggle.setStyleSheet(toggle_style)
+        self.llm_session_analysis_toggle.toggled.connect(self._on_llm_params_changed)
+        toggles_row.addWidget(self.llm_session_analysis_toggle)
+
         self.llm_history_label = QtWidgets.QLabel("History: 4")
         self.llm_history_label.setStyleSheet("font-size: 13px; color: #f0f0f0;")
         toggles_row.addWidget(self.llm_history_label)
@@ -3016,6 +3107,10 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self.llm_history_label.setText(f"History: {self.llm_history_spin.value()}")
         if hasattr(self, "llm_params_status"):
             self.llm_params_status.setText("")
+        if hasattr(self, "llm_session_analysis_toggle"):
+            self._enable_session_analysis = bool(self.llm_session_analysis_toggle.isChecked())
+            if not self._enable_session_analysis:
+                self._pending_reaction_summary = None
 
     def _apply_llm_params(self) -> None:
         """Apply LLM params to the LLM node via ROS parameters."""
@@ -3072,6 +3167,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self.llm_advice_toggle.setChecked(False)
         if hasattr(self, "llm_memory_toggle"):
             self.llm_memory_toggle.setChecked(False)
+        if hasattr(self, "llm_session_analysis_toggle"):
+            self.llm_session_analysis_toggle.setChecked(False)
         if hasattr(self, "llm_history_spin"):
             self.llm_history_spin.setValue(4)
         if hasattr(self, "llm_system_prompt"):
@@ -3093,7 +3190,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             prompt = prompt_key
         
         self.llm_prompt.setText(prompt)
-        self._send_llm_prompt()
+        self._send_llm_prompt(force_fresh=True)
     
     def _quick_coach_action(self, mode: str):
         """Quick coach action from reaction drill page - shows result in coach bar."""
@@ -3120,26 +3217,41 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         
         prompt_list = prompts.get(mode, prompts["tip"])
         prompt = random.choice(prompt_list)
+        prompt += " Reply with one short sentence only. Do not include labels like 'User:' or 'Coach:' or repeat the prompt."
         
         # Show loading state
         self.trash_label.setText("🤔 ...")
         
         # Send LLM request asynchronously
-        def do_request():
+        def do_request(prompt_text: str, attempt: int = 0):
             if not self.ros.llm_client.service_is_ready():
                 return "Coach warming up..."
             req = GenerateLLM.Request()
             req.mode = "coach"
-            req.prompt = prompt
+            req.prompt = prompt_text
+            req.context = json.dumps({"use_stats": False, "use_memory": False})
+            self.ros.stream_target = "reaction_quick"
             future = self.ros.llm_client.call_async(req)
             rclpy.spin_until_future_complete(self.ros, future, timeout_sec=8.0)
+            self.ros.stream_target = None
             if future.result() is not None:
-                return future.result().response
+                raw = future.result().response
+                cleaned = _clean_llm_text(raw)
+                if _looks_like_prompt_echo(cleaned or raw, prompt_text):
+                    if attempt < 1:
+                        retry_prompt = "Give one short boxing tip. One sentence only. Do not repeat the prompt."
+                        if mode == "hype":
+                            retry_prompt = "Give one intense motivational line. One sentence only."
+                        elif mode == "focus":
+                            retry_prompt = "Give one short focus cue. One sentence only."
+                        return do_request(retry_prompt, attempt + 1)
+                    return "Try again!"
+                return cleaned or "Try again!"
             return "Try again!"
         
         # Run in thread to not block UI
         def run_and_update():
-            response = do_request()
+            response = do_request(prompt)
             # Update UI from main thread
             QtCore.QMetaObject.invokeMethod(
                 self.trash_label, "setText",
@@ -3917,7 +4029,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         req.num_trials = 0
         self.ros.start_stop_client.call_async(req)
 
-    def _send_llm_prompt(self) -> None:
+    def _send_llm_prompt(self, force_fresh: bool = False) -> None:
         if self._llm_request_inflight:
             return
         if not self.ros.llm_client.service_is_ready():
@@ -3927,6 +4039,11 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         prompt = self.llm_prompt.text().strip()
         if not prompt:
             return
+        if hasattr(self, "_word_stream_timer") and self._word_stream_timer.isActive():
+            self._word_stream_timer.stop()
+        self._llm_stream_words = []
+        self._llm_stream_word_idx = 0
+        self._llm_current_text = ""
         self.llm_prompt.clear()
         self._set_llm_request_state(True)
         self._llm_prefix_text = f"You: {prompt}\n\nCoach: "
@@ -3936,7 +4053,11 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         req = GenerateLLM.Request()
         req.prompt = prompt
         req.mode = self.llm_mode.currentText()
-        req.context = "gui"
+        if force_fresh:
+            req.context = json.dumps({"use_stats": False, "use_memory": False})
+        else:
+            req.context = "gui"
+        self.ros.stream_target = "llm_tab"
         future = self.ros.llm_client.call_async(req)
         future.add_done_callback(self._on_llm_response)
 
@@ -3946,6 +4067,9 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             text = response.response if response.response else "🤔 Coach didn't respond. Try again!"
         except Exception as exc:
             text = f"⚠️ Error: {exc}"
+        cleaned = _clean_llm_text(text)
+        text = cleaned or text
+        self.ros.stream_target = None
         # Start streaming animation on the UI thread
         QtCore.QMetaObject.invokeMethod(
             self, "_start_text_stream",
@@ -4261,6 +4385,15 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self._update_defence_ui()
         self._update_shadow_service_status()
 
+        if (
+            self._pending_reaction_summary
+            and getattr(self.ros, "stream_target", None) is None
+            and not self._reaction_comment_inflight
+        ):
+            pending = self._pending_reaction_summary
+            self._pending_reaction_summary = None
+            self._request_reaction_summary_comment(pending)
+
     def _update_reaction_stats(self) -> None:
         with self.ros.lock:
             summary = self.ros.drill_summary
@@ -4313,6 +4446,14 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self.session_best_label.setText(f"Best: {best_rt:.3f}s" if best_rt is not None else "Best: --")
 
         # Bind last clip to last reaction time
+        if summary.get("is_final") and getattr(self, "_enable_session_analysis", False):
+            comment_key = (tuple(times), summary.get("best_time"), summary.get("avg_time"))
+            if comment_key != self._last_reaction_comment_key:
+                self._last_reaction_comment_key = comment_key
+                if getattr(self.ros, "stream_target", None) is not None or self._reaction_comment_inflight:
+                    self._pending_reaction_summary = summary
+                else:
+                    self._request_reaction_summary_comment(summary)
         if last_rt is not None and self._pending_replay_clip is not None:
             self._commit_reaction_clip(float(last_rt))
         if hasattr(self, "replay_btn"):
@@ -4966,7 +5107,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
 
         # Use real-time glove detections for continuous DETECTED label during drill
         self._update_shadow_detected_from_gloves()
-             
+
         # If we have a match, force green to show positive feedback
         if match_expected and self.shadow_detected_label.text() != "DETECTED: IDLE":
                   # Parse current text to preserve it
@@ -5012,6 +5153,81 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 self.shadow_checkbox_progress.tick(i)
         
         self._last_shadow_step = completed
+
+    def _request_reaction_summary_comment(self, summary: dict) -> None:
+        """Request a short LLM comment after a completed reaction drill."""
+        if self._reaction_comment_inflight:
+            return
+        if not hasattr(self, "reaction_coach_bar"):
+            return
+        if not self.ros.llm_client.service_is_ready():
+            return
+        times = summary.get("reaction_times", [])
+        if not times:
+            return
+
+        self._reaction_comment_summary = summary
+        best_time = min(times)
+        best_idx = times.index(best_time) + 1
+        context_parts = [
+            "Reaction drill complete.",
+            f"Times: {', '.join(f'{t:.3f}s' for t in times)}.",
+            f"Best: {best_time:.3f}s on attempt {best_idx}.",
+        ]
+        if len(times) >= 2:
+            improved = times[-1] < times[0]
+            trend = (
+                "Improved from first to last attempt."
+                if improved
+                else "No clear improvement from first to last attempt."
+            )
+            context_parts.append(trend)
+        context_text = " ".join(context_parts)
+
+        req = GenerateLLM.Request()
+        req.mode = "coach"
+        req.prompt = (
+            "Give one short coaching sentence about this session. "
+            "Mention the best attempt number if helpful. "
+            "Do not include labels like 'User:' or 'Coach:'."
+        )
+        req.context = json.dumps(
+            {"context_text": context_text, "use_stats": False, "use_memory": False}
+        )
+        # Prepare coach bar for streamed response
+        if hasattr(self.reaction_coach_bar, "_stream_timer") and self.reaction_coach_bar._stream_timer.isActive():
+            self.reaction_coach_bar._stream_timer.stop()
+        self.reaction_coach_bar._received_stream = False
+        self.reaction_coach_bar._streaming_text = ""
+        self.reaction_coach_bar._stream_target = f"coach_bar_{time.time_ns()}"
+        self.ros.stream_target = self.reaction_coach_bar._stream_target
+        self._reaction_comment_inflight = True
+        future = self.ros.llm_client.call_async(req)
+        future.add_done_callback(self._on_reaction_summary_comment)
+
+    def _on_reaction_summary_comment(self, future) -> None:
+        """Handle LLM response for reaction drill summary."""
+        try:
+            response = future.result()
+            text = response.response if response and response.response else ""
+        except Exception:
+            text = ""
+        self._reaction_comment_inflight = False
+        self._reaction_comment_summary = None
+        if not hasattr(self, "reaction_coach_bar"):
+            return
+        if not text and not self.reaction_coach_bar._received_stream:
+            self.ros.stream_target = None
+            return
+        text = _clean_llm_text(text) or text
+        if not self.reaction_coach_bar._received_stream and text:
+            QtCore.QMetaObject.invokeMethod(
+                self.reaction_coach_bar,
+                "_start_stream",
+                QtCore.Qt.ConnectionType.QueuedConnection,
+                QtCore.Q_ARG(str, text),
+            )
+        self.ros.stream_target = None
 
 
 
