@@ -4709,8 +4709,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             # Drill complete
             self._complete_defence_drill()
         else:
-            # Show next attack after brief delay
-            QtCore.QTimer.singleShot(self._defence_attack_interval_ms, self._show_defence_attack)
+            # Show next attack immediately after robot reports completion
+            self._show_defence_attack()
     
     def _complete_defence_drill(self) -> None:
         """Complete the defence drill."""
