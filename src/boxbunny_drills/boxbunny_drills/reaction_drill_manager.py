@@ -27,6 +27,11 @@ class ReactionDrillManager(Node):
         self.declare_parameter("max_response_time_s", 2.5)
         self.declare_parameter("min_reaction_time_s", 0.12)
         self.declare_parameter("baseline_velocity_margin", 0.25)
+        self.declare_parameter("pose_confirm_window_s", 0.35)
+        self.declare_parameter("action_confidence_threshold", 0.45)
+        self.declare_parameter("action_confirm_hits", 1)
+        self.declare_parameter("early_confidence_threshold", 0.6)
+        self.declare_parameter("early_confirm_hits", 2)
         self.declare_parameter("punch_topic", "punch_events")
         self.declare_parameter("glove_topic", "glove_detections")
         self.declare_parameter("num_trials", 5)
@@ -67,6 +72,12 @@ class ReactionDrillManager(Node):
         self._result_end: Optional[float] = None
         self._last_state_pub = 0.0
         self._last_penalty_time = 0.0
+        self._last_action_pred: Optional[tuple] = None
+        self._last_punch_event: Optional[tuple] = None
+        self._confirmed_this_cue = False
+        self._action_confirm_label: Optional[str] = None
+        self._action_confirm_count = 0
+        self._action_confirm_start = 0.0
 
         self.get_logger().info("Reaction drill manager ready")
 
@@ -122,6 +133,12 @@ class ReactionDrillManager(Node):
         self._baseline_end = None
         self._penalty_end = None
         self._result_end = None
+        self._last_action_pred = None
+        self._last_punch_event = None
+        self._confirmed_this_cue = False
+        self._action_confirm_label = None
+        self._action_confirm_count = 0
+        self._action_confirm_start = 0.0
         self._publish_state()
         self._publish_event("drill_stop", value=0.0)
         self.get_logger().info(f"Drill stopped: {reason}")
@@ -221,11 +238,20 @@ class ReactionDrillManager(Node):
         punch_labels = ["jab", "cross", "left_hook", "right_hook", "left_uppercut", "right_uppercut"]
         if msg.action_label not in punch_labels:
              return
+        conf = float(msg.confidence)
 
         # Check for Early Start (Punch before Cue)
         if self._state in ["waiting", "baseline"]:
             # Debounce early penalty to prevent looping
             if (time.time() - self._last_penalty_time) < 1.0:
+                return
+
+            if conf < float(self.get_parameter("early_confidence_threshold").value):
+                return
+            if not self._confirm_action_hit(
+                msg.action_label,
+                hits_needed=int(self.get_parameter("early_confirm_hits").value),
+            ):
                 return
 
             self._publish_event("early_start", glove=msg.action_label)
@@ -239,47 +265,29 @@ class ReactionDrillManager(Node):
         if self._state != "cue" or self._cue_time is None:
             return
 
+        if conf < float(self.get_parameter("action_confidence_threshold").value):
+            return
+
+        self._last_action_pred = (msg.action_label, time.time())
+        if self._confirmed_this_cue:
+            return
+
         reaction_time = time.time() - self._cue_time
         if reaction_time < float(self.get_parameter("min_reaction_time_s").value):
             return
+        if not self._confirm_action_hit(
+            msg.action_label,
+            hits_needed=int(self.get_parameter("action_confirm_hits").value),
+        ):
+            return
 
+        self._confirmed_this_cue = True
         self._record_result(msg.action_label, reaction_time, None)
         self._publish_event("punch_detected", glove=msg.action_label, value=reaction_time)
         self._advance_trial()
 
     def _on_punch(self, msg: PunchEvent) -> None:
-        if not self._running:
-            return
-
-        # Check for Early Start (Punch before Cue)
-        if self._state in ["waiting", "countdown", "baseline"]:
-            # Debounce early penalty to prevent looping
-            if (time.time() - self._last_penalty_time) < 1.0:
-                return
-
-            # Use specific threshold to avoid noise triggering early warnings - LOWERED for sensitivity
-            if msg.approach_velocity_mps > 0.1:
-                self._publish_event("early_start", glove=msg.glove)
-                # Penalty Logic
-                self._state = "early_penalty"
-                self._penalty_end = time.time() + 1.5 # 1.5s penalty
-                self._publish_state()
-            return
-
-        if self._state != "cue" or self._cue_time is None:
-            return
-
-        reaction_time = time.time() - self._cue_time
-        if reaction_time < float(self.get_parameter("min_reaction_time_s").value):
-            return
-
-        margin = float(self.get_parameter("baseline_velocity_margin").value)
-        if msg.approach_velocity_mps < (self._baseline_velocity_mps + margin):
-            return
-
-        self._record_result(msg.glove, reaction_time, msg)
-        self._publish_event("punch_detected", glove=msg.glove, value=reaction_time)
-        self._advance_trial()
+        return
 
     def _advance_trial(self) -> None:
         """Advance to next trial or complete the drill."""
@@ -292,9 +300,46 @@ class ReactionDrillManager(Node):
         self._state = "result"
         self._cue_time = None
         self._penalty_end = None
+        self._confirmed_this_cue = False
+        self._action_confirm_label = None
+        self._action_confirm_count = 0
+        self._action_confirm_start = 0.0
         self._publish_state()
         # Schedule transition to waiting after brief delay
         self._result_end = time.time() + 1.0  # 1 second to show result
+
+    def _recent_action_confirm(self, glove: str) -> bool:
+        window = float(self.get_parameter("pose_confirm_window_s").value)
+        if not self._last_action_pred:
+            return False
+        label, ts = self._last_action_pred
+        if (time.time() - ts) > window:
+            return False
+        return label == glove
+
+    def _confirm_action_hit(self, label: str, *, hits_needed: int) -> bool:
+        """Require short, consistent action hits to avoid noise."""
+        window = float(self.get_parameter("pose_confirm_window_s").value)
+        now = time.time()
+        if self._action_confirm_label != label or (now - self._action_confirm_start) > window:
+            self._action_confirm_label = label
+            self._action_confirm_count = 1
+            self._action_confirm_start = now
+            return hits_needed <= 1
+        self._action_confirm_count += 1
+        return self._action_confirm_count >= hits_needed
+
+    def _recent_punch_confirm(self, glove: str) -> bool:
+        window = float(self.get_parameter("pose_confirm_window_s").value)
+        if not self._last_punch_event:
+            return False
+        label, ts, velocity = self._last_punch_event
+        if (time.time() - ts) > window:
+            return False
+        if label != glove:
+            return False
+        margin = float(self.get_parameter("baseline_velocity_margin").value)
+        return velocity >= (self._baseline_velocity_mps + margin)
         
     def _open_log(self) -> None:
         log_dir = Path(os.path.expanduser(str(self.get_parameter("log_dir").value)))

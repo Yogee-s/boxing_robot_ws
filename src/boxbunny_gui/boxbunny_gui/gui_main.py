@@ -1323,6 +1323,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.setWindowTitle("BoxBunny Trainer")
         self._is_fullscreen = False
         self._use_aspect_scaling = True
+        self._llm_enabled = True
         
         # Default size for 7-inch touchscreen (1024x600), but allow resize
         self.resize(self.SCREEN_WIDTH, self.SCREEN_HEIGHT)
@@ -1341,6 +1342,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self._reaction_comment_inflight = False
         self._reaction_comment_summary = None
         self._pending_reaction_summary = None
+        self._last_screen = None
+        self._shadow_end_reset_pending = False
         self._enable_session_analysis = False
         self._pending_replay_clip = None
         self._pending_replay_time = None
@@ -1496,9 +1499,27 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
     
     def _on_screen_changed(self, index: int):
         """Update header title and back button when screen changes."""
+        previous_widget = self._last_screen
         current_widget = self.stack.widget(index)
         self._update_header_for_screen(current_widget)
         self._reset_llm_outputs()
+
+        # Reset modes when leaving/entering screens
+        if previous_widget == self.shadow_tab and current_widget != self.shadow_tab:
+            if hasattr(self, "shadow_stop_btn") and self.shadow_stop_btn.isEnabled():
+                self._stop_shadow_drill()
+            self._reset_shadow_ui()
+        if previous_widget == self.defence_tab and current_widget != self.defence_tab:
+            if getattr(self, "_defence_running", False):
+                self._stop_defence_drill()
+            else:
+                self._reset_defence_drill_ui()
+        if current_widget == self.shadow_tab:
+            self._reset_shadow_ui()
+        if current_widget == self.defence_tab:
+            self._reset_defence_drill_ui()
+        if current_widget == self.reaction_tab:
+            self._reset_reaction_ui()
         
         # Auto-switch detection mode based on verify screen requirements
         # Reaction Drill -> Needs Pose (AI Mode)
@@ -1517,6 +1538,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             # Let's default to Pose (AI) as it's the more robust default
              if hasattr(self, 'action_mode_radio') and not self.action_mode_radio.isChecked():
                 self.action_mode_radio.setChecked(True)
+
+        self._last_screen = current_widget
     
     def _on_startup_complete(self):
         """Called when startup loading is complete."""
@@ -1538,6 +1561,21 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self.defence_coach_bar.set_message("Tap a button for coaching tips!")
         if hasattr(self.ros, "stream_target"):
             self.ros.stream_target = None
+
+    def _reset_reaction_ui(self) -> None:
+        """Reset reaction drill UI and state."""
+        self._reaction_attempts = []
+        self._pending_reaction_summary = None
+        self._reaction_comment_inflight = False
+        self._reaction_comment_summary = None
+        self._last_reaction_summary_key = None
+        self._last_reaction_comment_key = None
+        if hasattr(self, "last_reaction_label"):
+            self.last_reaction_label.setText("--")
+        if hasattr(self, "total_attempts_label"):
+            self.total_attempts_label.setText("Attempts: 0")
+        if hasattr(self, "avg_reaction_label"):
+            self.avg_reaction_label.setText("Avg: --")
 
     def _update_header_for_screen(self, widget):
         """Update header title and back button visibility."""
@@ -2112,6 +2150,55 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         adv_panel_layout.addWidget(self.imu_toggle)
         
         adv_panel_layout.addSpacing(10)
+
+        llm_label = QtWidgets.QLabel("AI Coach:")
+        llm_label.setStyleSheet("font-size: 16px; color: #ff8c00; font-weight: 700;")
+        adv_panel_layout.addWidget(llm_label)
+
+        self.llm_state_label = QtWidgets.QLabel("LLM: Enabled")
+        self.llm_state_label.setStyleSheet("font-size: 13px; color: #cfcfcf; padding: 2px;")
+        adv_panel_layout.addWidget(self.llm_state_label)
+
+        llm_btn_row = QtWidgets.QHBoxLayout()
+        llm_btn_row.setSpacing(8)
+
+        self.llm_enable_btn = QtWidgets.QPushButton("Enable LLM")
+        self.llm_enable_btn.setFixedHeight(36)
+        self.llm_enable_btn.setStyleSheet("""
+            QPushButton {
+                background: #2a2a2a;
+                color: #00cc00;
+                border-radius: 8px;
+                font-size: 13px;
+                font-weight: 700;
+                border: 1px solid #00cc00;
+            }
+            QPushButton:hover { background: #1f2f1f; }
+            QPushButton:pressed { background: #163316; }
+        """)
+        self.llm_enable_btn.clicked.connect(lambda: self._set_llm_enabled(True))
+        llm_btn_row.addWidget(self.llm_enable_btn)
+
+        self.llm_disable_btn = QtWidgets.QPushButton("Disable LLM")
+        self.llm_disable_btn.setFixedHeight(36)
+        self.llm_disable_btn.setStyleSheet("""
+            QPushButton {
+                background: #2a2a2a;
+                color: #ff6666;
+                border-radius: 8px;
+                font-size: 13px;
+                font-weight: 700;
+                border: 1px solid #ff6666;
+            }
+            QPushButton:hover { background: #2f1f1f; }
+            QPushButton:pressed { background: #331616; }
+        """)
+        self.llm_disable_btn.clicked.connect(lambda: self._set_llm_enabled(False))
+        llm_btn_row.addWidget(self.llm_disable_btn)
+
+        adv_panel_layout.addLayout(llm_btn_row)
+        self.llm_enable_btn.setDisabled(True)
+        adv_panel_layout.addSpacing(6)
         
         self.height_btn = QtWidgets.QPushButton("Calibrate Height")
         self.height_btn.setFixedHeight(45)
@@ -2237,6 +2324,24 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         req = SetBool.Request()
         req.data = enabled
         self.ros.imu_input_client.call_async(req)
+
+    def _set_llm_enabled(self, enabled: bool) -> None:
+        if not hasattr(self.ros, "llm_param_client") or not self.ros.llm_param_client.service_is_ready():
+            if hasattr(self, "llm_state_label"):
+                self.llm_state_label.setText("LLM: Service not ready")
+            return
+        self._llm_enabled = enabled
+        req = SetParameters.Request()
+        param = Parameter("use_llm_if_available", Parameter.Type.BOOL, enabled)
+        req.parameters = [param.to_parameter_msg()]
+        self.ros.llm_param_client.call_async(req)
+        if hasattr(self, "llm_state_label"):
+            self.llm_state_label.setText("LLM: Enabled" if enabled else "LLM: Disabled")
+        if hasattr(self, "llm_enable_btn") and hasattr(self, "llm_disable_btn"):
+            self.llm_enable_btn.setDisabled(enabled)
+            self.llm_disable_btn.setDisabled(not enabled)
+        if hasattr(self, "llm_use_llm_toggle"):
+            self.llm_use_llm_toggle.setChecked(enabled)
 
     def _create_menu_btn(self, title, subtitle, target_widget):
         text = f"{title}\n{subtitle}" if subtitle else title
@@ -3222,6 +3327,12 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.ros.llm_param_client.call_async(req)
         if hasattr(self, "llm_params_status"):
             self.llm_params_status.setText("Applied")
+        if hasattr(self, "llm_state_label"):
+            self._llm_enabled = use_llm
+            self.llm_state_label.setText("LLM: Enabled" if use_llm else "LLM: Disabled")
+        if hasattr(self, "llm_enable_btn") and hasattr(self, "llm_disable_btn"):
+            self.llm_enable_btn.setDisabled(use_llm)
+            self.llm_disable_btn.setDisabled(not use_llm)
 
     def _reset_llm_params(self) -> None:
         """Reset LLM params to defaults used by the system."""
@@ -4626,6 +4737,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.ros.shadow_drill_client.call_async(req)
 
         self._reset_shadow_ui()
+        with self.ros.lock:
+            self.ros.drill_summary = {}
 
         drill = self._shadow_drill_map.get(drill_name)
         if drill and drill["sequence"]:
@@ -5000,8 +5113,10 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             if hasattr(self, "shadow_punch_count_label"):
                 self.shadow_punch_count_label.setText(f"Punches: {shadow_punch_counter}")
             
-            # Use glove_detections for continuous DETECTED label
-            self._update_shadow_detected_from_gloves()
+            # Do not tick combo boxes before START
+            self.shadow_detected_label.setText("DETECTED: --")
+            if hasattr(self, "_shadow_detected_style"):
+                self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
             return
 
         current_step = progress.current_step
@@ -5009,15 +5124,41 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         expected = progress.expected_actions[current_step] if current_step < len(progress.expected_actions) else None
         status = progress.status
 
+        if status != "in_progress":
+            self.shadow_start_btn.setText("▶  START")
+            if hasattr(self, "_shadow_start_style"):
+                self.shadow_start_btn.setStyleSheet(self._shadow_start_style)
+            self.shadow_stop_btn.setEnabled(False)
+            self._update_shadow_preview_from_gloves()
+            self.shadow_detected_label.setText("DETECTED: --")
+            if hasattr(self, "_shadow_detected_style"):
+                self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
+            if status in {"success", "failed", "timeout"} and not self._shadow_end_reset_pending:
+                self._shadow_end_reset_pending = True
+                QtCore.QTimer.singleShot(800, self._reset_shadow_ui)
+            return
+
         self.shadow_progress_label.setText(f"Step: {current_step}/{total_steps}")
         self.shadow_elapsed_label.setText(f"Time: {progress.elapsed_time_s:.1f}s")
         
         # Update Score from summary
         iterations = 0
         failures = 0
+        attempts_left = None
         if isinstance(self.ros.drill_summary, dict):
              iterations = self.ros.drill_summary.get("iterations", 0)
              failures = self.ros.drill_summary.get("failures", 0)
+             attempts_left = self.ros.drill_summary.get("attempts", None)
+
+        if attempts_left is not None and attempts_left <= 0:
+            self.shadow_detected_label.setText("DETECTED: --")
+            if hasattr(self, "_shadow_detected_style"):
+                self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
+            self.shadow_start_btn.setText("▶  START")
+            if hasattr(self, "_shadow_start_style"):
+                self.shadow_start_btn.setStyleSheet(self._shadow_start_style)
+            self.shadow_stop_btn.setEnabled(False)
+            return
         
         self.shadow_correct_label.setText(f"Correct: {iterations}")
         self.shadow_wrong_label.setText(f"Wrong: {failures}")
@@ -5162,10 +5303,13 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
             self.shadow_checkbox_progress.reset()
             self._last_shadow_step = 0
+            if attempts_left is not None and attempts_left <= 0:
+                return
         
         if status == "in_progress":
             self.shadow_start_btn.setText("▶  START")
             self.shadow_stop_btn.setEnabled(True)
+            self._shadow_end_reset_pending = False
         else:
             self.shadow_start_btn.setText("▶  START")
             if hasattr(self, "_shadow_start_style"):
@@ -5173,6 +5317,10 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self.shadow_stop_btn.setEnabled(False)
             # Use real-time glove detection for preview when drill is not in_progress
             self._update_shadow_preview_from_gloves()
+            if status in {"success", "failed", "timeout"} and not self._shadow_end_reset_pending:
+                self._shadow_end_reset_pending = True
+                QtCore.QTimer.singleShot(800, self._reset_shadow_ui)
+            return
 
         # LIVE FEEDBACK (Always runs to prevent lag)
         # Use live glove state instead of action prediction
@@ -5185,6 +5333,11 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                   match_expected = True
 
         # Use real-time glove detections for continuous DETECTED label during drill
+        if attempts_left is not None and attempts_left <= 0:
+            self.shadow_detected_label.setText("DETECTED: --")
+            if hasattr(self, "_shadow_detected_style"):
+                self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
+            return
         self._update_shadow_detected_from_gloves()
 
         # If we have a match, force green to show positive feedback
@@ -5228,6 +5381,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
              # Fall through to allow ticking up to current 'completed' if > 0
         
         if completed > self._last_shadow_step:
+            if attempts_left is not None and attempts_left <= 0:
+                return
             for i in range(self._last_shadow_step, min(completed, total_steps)):
                 self.shadow_checkbox_progress.tick(i)
         

@@ -1,0 +1,2 @@
+timestamp_unix,elapsed_s,drill_name,iteration,step_index,expected_action,detected_action,correct,attempts_left,failures,combo_complete,source,confidence
+1770373310.9018214,15.413,1-1-2 Combo,0,1,jab,cross,0,2,1,0,color_tracking,

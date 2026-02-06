@@ -73,15 +73,53 @@ class YOLOPoseWrapper:
         results = self.model(bgr_frame, verbose=False, save=False)
         if not results or not results[0].keypoints:
             return {'extended_hand': None}
-            
-        # Get keypoints for person with highest confidence
-        # Shape: (N, 17, 3) -> (17, 3) [x, y, conf]
-        kp = results[0].keypoints.data[0].cpu().numpy()
-        
+
+        keypoints = results[0].keypoints.data
+        if keypoints is None or len(keypoints) == 0:
+            return {'extended_hand': None}
+
+        boxes = results[0].boxes.xyxy if results[0].boxes is not None else None
+        h, w = bgr_frame.shape[:2]
+        center_x = w * 0.5
+        center_y = h * 0.5
+
+        def _bbox_for_index(idx: int) -> Optional[np.ndarray]:
+            if boxes is not None and len(boxes) > idx:
+                return boxes[idx].cpu().numpy()
+            kp = keypoints[idx].cpu().numpy()
+            valid = kp[:, 2] > 0.1
+            if not np.any(valid):
+                return None
+            xs = kp[valid, 0]
+            ys = kp[valid, 1]
+            return np.array([xs.min(), ys.min(), xs.max(), ys.max()], dtype=np.float32)
+
+        best_idx = None
+        best_score = None
+        for i in range(int(keypoints.shape[0])):
+            bbox_i = _bbox_for_index(i)
+            if bbox_i is None:
+                continue
+            bx = (bbox_i[0] + bbox_i[2]) * 0.5
+            by = (bbox_i[1] + bbox_i[3]) * 0.5
+            dist2 = (bx - center_x) ** 2 + (by - center_y) ** 2
+            area = max(0.0, (bbox_i[2] - bbox_i[0])) * max(0.0, (bbox_i[3] - bbox_i[1]))
+            score = (dist2, -area)
+            if best_score is None or score < best_score:
+                best_score = score
+                best_idx = i
+
+        if best_idx is None:
+            return {'extended_hand': None}
+
+        # Get keypoints for the person closest to image center
+        # Shape: (17, 3) [x, y, conf]
+        kp = keypoints[best_idx].cpu().numpy()
+
         # Get bounding box if available
         bbox = None
-        if results[0].boxes is not None and len(results[0].boxes) > 0:
-            bbox = results[0].boxes.xyxy[0].cpu().numpy()  # [x1, y1, x2, y2]
+        if boxes is not None and len(boxes) > best_idx:
+            bbox = boxes[best_idx].cpu().numpy()  # [x1, y1, x2, y2]
         
         l_wrist = kp[self.IDX_L_WRIST]
         r_wrist = kp[self.IDX_R_WRIST]

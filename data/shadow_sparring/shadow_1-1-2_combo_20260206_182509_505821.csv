@@ -1,0 +1,13 @@
+timestamp_unix,elapsed_s,drill_name,iteration,step_index,expected_action,detected_action,correct,attempts_left,failures,combo_complete,source,confidence
+1770373510.2265825,0.721,1-1-2 Combo,0,1,jab,jab,1,3,0,0,color_tracking,
+1770373510.8925207,1.387,1-1-2 Combo,0,2,jab,jab,1,3,0,0,color_tracking,
+1770373511.5283592,0.000,1-1-2 Combo,1,3,cross,cross,1,3,0,1,color_tracking,
+1770373512.927462,1.399,1-1-2 Combo,1,1,jab,jab,1,3,0,0,color_tracking,
+1770373513.6264868,2.098,1-1-2 Combo,1,2,jab,jab,1,3,0,0,color_tracking,
+1770373514.2310193,0.000,1-1-2 Combo,2,3,cross,cross,1,3,0,1,color_tracking,
+1770373515.3608553,1.130,1-1-2 Combo,2,1,jab,jab,1,3,0,0,color_tracking,
+1770373516.2242584,1.993,1-1-2 Combo,2,2,jab,jab,1,3,0,0,color_tracking,
+1770373517.0645657,0.000,1-1-2 Combo,3,3,cross,cross,1,3,0,1,color_tracking,
+1770373518.3284523,1.264,1-1-2 Combo,3,1,jab,jab,1,3,0,0,color_tracking,
+1770373519.1305048,2.066,1-1-2 Combo,3,2,jab,jab,1,3,0,0,color_tracking,
+1770373519.9085445,0.000,1-1-2 Combo,4,3,cross,cross,1,3,0,1,color_tracking,

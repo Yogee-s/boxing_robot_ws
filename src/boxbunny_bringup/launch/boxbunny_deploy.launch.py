@@ -45,6 +45,12 @@ def generate_launch_description():
     ws_root = "/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws"
     action_script = os.path.join(ws_root, "action_prediction/tools/inference/live_infer_rgbd.py")
     gui_path = os.path.join(ws_root, "src/boxbunny_gui/boxbunny_gui/gui_main.py")
+    conda_prefix = os.environ.get(
+        "BOXBUNNY_CONDA_PREFIX",
+        "/home/boxbunny/miniconda3/envs/boxing_ai",
+    )
+    conda_python = os.path.join(conda_prefix, "bin", "python")
+    conda_lib = os.path.join(conda_prefix, "lib")
     
     # Models for Action mode
     ckpt_path = os.path.join(ws_root, "models/action_prediction_model/best_acc_82.4_epoch_161.pth")
@@ -191,12 +197,36 @@ def generate_launch_description():
     # =========================================================================
     # GUI (runs via conda environment with PySide6 - system Python has Qt issues)
     # =========================================================================
+    def _merge_env_paths(*parts: str) -> str:
+        seen = set()
+        ordered = []
+        for part in parts:
+            if not part:
+                continue
+            for item in part.split(":"):
+                if not item or item in seen:
+                    continue
+                seen.add(item)
+                ordered.append(item)
+        return ":".join(ordered)
+
+    ws_msgs_lib = os.path.join(ws_root, "install", "boxbunny_msgs", "lib")
+    inherited_ld = os.environ.get("LD_LIBRARY_PATH", "")
+    gui_ld_library_path = _merge_env_paths(
+        conda_lib if os.path.isdir(conda_lib) else "",
+        ws_msgs_lib if os.path.isdir(ws_msgs_lib) else "",
+        inherited_ld,
+    )
+
     gui_process = ExecuteProcess(
         condition=UnlessCondition(headless),
         cmd=[
-            'conda', 'run', '-n', 'boxing_ai', '--no-capture-output',
-            'python', gui_path
+            conda_python,
+            gui_path
         ],
+        additional_env={
+            "LD_LIBRARY_PATH": gui_ld_library_path,
+        },
         output='screen'
     )
 

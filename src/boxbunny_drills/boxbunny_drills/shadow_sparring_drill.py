@@ -20,6 +20,7 @@ import rclpy
 from rclpy.node import Node
 from ament_index_python.packages import get_package_share_directory
 from std_msgs.msg import String
+from std_srvs.srv import Trigger
 from boxbunny_msgs.msg import ActionPrediction, DrillProgress, DrillDefinition, GloveDetections
 from boxbunny_msgs.srv import StartDrill, GenerateLLM
 
@@ -45,6 +46,7 @@ class ShadowSparringDrill(Node):
         self.declare_parameter('glove_distance_threshold_m', 0.45)
         self.declare_parameter('glove_velocity_threshold_mps', 1.5)
         self.declare_parameter('glove_debounce_s', 0.35)
+        self.declare_parameter('combo_cooldown_s', 0.8)
         self.declare_parameter('log_dir', str(data_root / "shadow_sparring"))
         
         # Get parameters
@@ -56,6 +58,7 @@ class ShadowSparringDrill(Node):
         self.glove_distance_threshold_m = float(self.get_parameter('glove_distance_threshold_m').value)
         self.glove_velocity_threshold_mps = float(self.get_parameter('glove_velocity_threshold_mps').value)
         self.glove_debounce_s = float(self.get_parameter('glove_debounce_s').value)
+        self.combo_cooldown_s = float(self.get_parameter('combo_cooldown_s').value)
         
         # Load drill definitions
         self.drills: Dict[str, Dict] = {}
@@ -72,6 +75,7 @@ class ShadowSparringDrill(Node):
         self.last_action_time = 0.0
         self.action_locked = False  # Prevent rapid duplicate detections
         self._last_glove_punch_time = {"left": 0.0, "right": 0.0}
+        self._combo_cooldown_until = 0.0
         self._log_path: Optional[str] = None
         
         # Survival Mode State
@@ -97,6 +101,8 @@ class ShadowSparringDrill(Node):
         # Services
         self.start_srv = self.create_service(
             StartDrill, 'start_drill', self._handle_start_drill)
+        self.stop_srv = self.create_service(
+            Trigger, 'stop_shadow_drill', self._handle_stop_drill)
         
         # LLM client for feedback
         self.llm_client = self.create_client(GenerateLLM, 'llm/generate')
@@ -252,6 +258,7 @@ class ShadowSparringDrill(Node):
         self.start_time = time.time()
         self.active = True
         self.action_locked = False
+        self._reset_tracking_state()
         
         # Reset Survival Mode State
         self.attempts_left = self.max_attempts
@@ -270,10 +277,38 @@ class ShadowSparringDrill(Node):
         self.get_logger().info(f"Starting drill: {drill_name}")
         
         return response
+
+    def _handle_stop_drill(self, request, response):
+        """Stop shadow sparring drill and reset tracking."""
+        if not self.active:
+            response.success = True
+            response.message = "Shadow sparring already stopped."
+            return response
+        self._complete_drill(success=False, reason='stopped')
+        self._reset_tracking_state()
+        response.success = True
+        response.message = "Shadow sparring stopped."
+        return response
+
+    def _reset_tracking_state(self) -> None:
+        """Reset tracking-related state to avoid stale detections."""
+        self.current_step = 0
+        self.step_completed = [False] * len(self.current_drill['sequence']) if self.current_drill else []
+        self.detected_actions = []
+        self.last_action = 'idle'
+        self.last_action_time = 0.0
+        self.action_locked = False
+        self._last_glove_punch_time = {"left": 0.0, "right": 0.0}
+        self._pending_punch = {"glove": None, "start_time": 0.0, "count": 0}
+        self._combo_cooldown_until = 0.0
     
     def _on_action(self, msg: ActionPrediction):
         """Handle action prediction message."""
         if not self.active or self.current_drill is None:
+            return
+        if self.attempts_left <= 0:
+            return
+        if time.time() < self._combo_cooldown_until:
             return
         if self.use_color_tracking:
             return
@@ -323,6 +358,10 @@ class ShadowSparringDrill(Node):
         if not self.active or self.current_drill is None:
             return
         now = time.time()
+        if self.attempts_left <= 0:
+            return
+        if now < self._combo_cooldown_until:
+            return
         
         # Collect distances for both gloves
         left_dist = 999.0
@@ -443,6 +482,7 @@ class ShadowSparringDrill(Node):
             if combo_complete:
                 self.iterations += 1
                 self.get_logger().info(f"Combo Complete! Iterations: {self.iterations}")
+                self._combo_cooldown_until = time.time() + max(0.0, self.combo_cooldown_s)
                 self._reset_sequence(keep_active=True)
             self._log_attempt(
                 step_index=step_index,
@@ -474,6 +514,7 @@ class ShadowSparringDrill(Node):
             
             if self.attempts_left <= 0:
                 self._complete_drill(success=False, reason='failed')
+                return
             else:
                 # Publish a status update for the GUI to show 'X'
                 self._publish_progress(status='wrong_action')
@@ -561,11 +602,13 @@ class ShadowSparringDrill(Node):
         )
         
         # Request LLM feedback (async)
-        self._request_llm_feedback(success, completed, total, elapsed)
+        if reason != 'stopped':
+            self._request_llm_feedback(success, completed, total, elapsed)
         
         # Reset state
         self.active = False
         self.current_drill = None
+        self._reset_tracking_state()
     
     def _request_llm_feedback(self, success: bool, completed: int, total: int, elapsed: float):
         """Request performance feedback from LLM."""
