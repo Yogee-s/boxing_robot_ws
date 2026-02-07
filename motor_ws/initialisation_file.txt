@@ -1,0 +1,33 @@
+Terminal 1: Start Micro-ROS Agent
+This establishes the connection between the Teensy and the computer.
+
+Enter the Micro-ROS workspace:
+
+Bash
+cd ~/microros_ws
+Source the ROS 2 environment and the workspace overlay:
+
+Bash
+source /opt/ros/humble/setup.bash
+source install/local_setup.bash
+Run the Agent (using the specific ID to prevent USB port swapping):
+
+Bash
+ros2 run micro_ros_agent micro_ros_agent serial --dev /dev/serial/by-id/usb-Teensyduino_USB_Serial_15398210-if00
+(Note: If that ID is not found, you can try the generic path: ... --dev /dev/ttyACM0)
+
+Terminal 2: Start the Control GUI
+This launches the user interface.
+
+Enter your project folder:
+
+Bash
+cd ~/boxing_robot
+Source the ROS 2 environment:
+
+Bash
+source /opt/ros/humble/setup.bash
+Run the Python script:
+
+Bash
+python arm_GUI_fair_3.py
