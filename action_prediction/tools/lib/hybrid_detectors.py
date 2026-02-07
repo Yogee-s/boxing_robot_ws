@@ -180,7 +180,7 @@ class RosImuHandler(threading.Thread):
         self.cooldown_duration = 0.4 # 400ms cooldown
         
         # Flags for external control
-        self.simple_mode = False
+        self.simple_mode = True  # Default to color tracking (matches launch default)
         self.calibrate_height_req = False
         
     def reset_stats(self):

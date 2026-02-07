@@ -238,11 +238,18 @@ class ActionPredictorNode(Node):
         # Add to buffer
         self.frame_buffer.append(rgbd)
         
-        # Run inference if buffer is full
-        if len(self.frame_buffer) < self.window_size:
+        # Allow early predictions with at least 4 frames by padding
+        min_frames_for_prediction = 4
+        if len(self.frame_buffer) < min_frames_for_prediction:
             return None
         
-        frames = np.stack(list(self.frame_buffer))  # (T, C, H, W)
+        # Pad buffer to window_size by repeating first frame
+        frames_list = list(self.frame_buffer)
+        while len(frames_list) < self.window_size:
+            frames_list.insert(0, frames_list[0])  # Duplicate first frame
+
+        
+        frames = np.stack(frames_list)  # (T, C, H, W) - Use padded list
         frames = torch.from_numpy(frames).float().unsqueeze(0).to(self.device)
         
         # FP16 if on CUDA and model supports it

@@ -69,9 +69,9 @@ class SimpleActionDetector:
         self.red_lower2 = np.array([170, 100, 100])
         self.red_upper2 = np.array([180, 255, 255])
         
-        self.min_area = 5000 # px
-        self.depth_threshold = 1.0 # meters
-        self.cooldown = 0.5
+        self.min_area = 2000 # px - lowered for better detection
+        self.depth_threshold = 1.5 # meters - increased for easier detection
+        self.cooldown = 0.3  # faster response
         self.last_time = 0.0
         
     def detect(self, rgb: np.ndarray, depth: np.ndarray) -> str:
@@ -116,11 +116,11 @@ class SimpleActionDetector:
                 diff = dist_r - dist_g
                 debug_msg = f"G:{dist_g:.2f} R:{dist_r:.2f} D:{diff:.2f}"
                 
-                if diff > 0.15:
+                if diff > 0.08:  # Lower threshold - 8cm difference
                     candidate = "jab"
                     active_color = (0, 255, 0)
                     dist = dist_g
-                elif diff < -0.15:
+                elif diff < -0.08:  # Lower threshold - 8cm difference
                     candidate = "cross"
                     active_color = (0, 0, 255)
                     dist = dist_r

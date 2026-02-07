@@ -1521,10 +1521,18 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 self._reset_defence_drill_ui()
         if current_widget == self.shadow_tab:
             self._reset_shadow_ui()
+            self._current_screen = "shadow"
         if current_widget == self.defence_tab:
             self._reset_defence_drill_ui()
+            self._current_screen = "defence"
         if current_widget == self.reaction_tab:
             self._reset_reaction_ui()
+            self._current_screen = "reaction"
+        elif current_widget == self.home_screen:
+            self._current_screen = "home"
+        else:
+            self._current_screen = None
+
         
         # Auto-switch detection mode based on verify screen requirements
         # Reaction Drill -> Needs Pose (AI Mode)
@@ -1728,8 +1736,37 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self._toggle_fullscreen()
         elif event.key() == QtCore.Qt.Key.Key_Escape and self._is_fullscreen:
             self._toggle_fullscreen()
+        # Keyboard punch trigger - works on reaction screen
+        elif event.key() in (QtCore.Qt.Key.Key_Space, QtCore.Qt.Key.Key_J, QtCore.Qt.Key.Key_K):
+            self._trigger_keyboard_punch(event.key())
         else:
             super().keyPressEvent(event)
+    
+    def _trigger_keyboard_punch(self, key):
+        """Trigger punch via keyboard - publishes ActionPrediction directly."""
+        # Only trigger when on reaction screen
+        if not hasattr(self, '_current_screen') or self._current_screen != "reaction":
+            return
+        
+        # Determine punch type based on key
+        if key == QtCore.Qt.Key.Key_K:
+            label = "cross"
+        else:
+            label = "jab"  # Space or J
+        
+        # Publish ActionPrediction message directly
+        from boxbunny_msgs.msg import ActionPrediction
+        msg = ActionPrediction()
+        msg.header.stamp = self.ros.get_clock().now().to_msg()
+        msg.action_label = label
+        msg.confidence = 1.0  # Keyboard = 100% confidence
+        
+        # Create publisher if not exists
+        if not hasattr(self.ros, 'keyboard_action_pub'):
+            self.ros.keyboard_action_pub = self.ros.create_publisher(ActionPrediction, "action_prediction", 10)
+        
+        self.ros.keyboard_action_pub.publish(msg)
+        print(f"[GUI] Keyboard punch: {label}")
 
     def _apply_styles(self):
         self.setStyleSheet("""
@@ -4270,23 +4307,57 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         return [int(s.value()) for s in sliders]
 
     def _start_drill(self) -> None:
-        if not self.ros.start_stop_client.service_is_ready():
-            self.ros.get_logger().warn("start_stop_drill service not ready")
-            return
-        req = StartStopDrill.Request()
-        req.start = True
-        req.num_trials = 3  # 3 attempts as requested
-        self.ros.start_stop_client.call_async(req)
+        try:
+            if not self.ros.start_stop_client.service_is_ready():
+                print("[GUI] Start drill failed: start_stop_drill service not ready")
+                if hasattr(self, "status_indicator"):
+                    self.status_indicator.setText("● Reaction service not ready")
+                    self.status_indicator.setStyleSheet("font-size: 11px; color: #ff6666; padding: 4px;")
+                return
+            req = StartStopDrill.Request()
+            req.start = True
+            req.num_trials = 3  # 3 attempts as requested
+            self.ros.start_stop_client.call_async(req)
+            print("[GUI] Start drill requested")
+        except Exception as e:
+            print(f"[GUI] Start drill failed: {e}")
 
     def _stop_drill(self) -> None:
+        """Stop the drill and reset UI."""
         try:
-            req = StartStopDrill.Request()
-            req.start = False
-            req.num_trials = 0
-            self.ros.start_stop_client.call_async(req)
-            print("[GUI] Stop drill requested")
+            if not self.ros.start_stop_client.service_is_ready():
+                print("[GUI] Stop drill warning: start_stop_drill service not ready; resetting UI locally")
+            else:
+                req = StartStopDrill.Request()
+                req.start = False
+                req.num_trials = 0
+                self.ros.start_stop_client.call_async(req)
+                print("[GUI] Stop drill requested")
+            # Force local state reset immediately so cue/result UI doesn't stay stuck.
+            with self.ros.lock:
+                self.ros.drill_state = "idle"
+                self.ros.drill_countdown = 0
+                self.ros.drill_summary = {}
         except Exception as e:
             print(f"[GUI] Stop drill failed: {e}")
+        
+        # Reset the UI regardless of service call success
+        self._reset_reaction_ui()
+        
+        # Reset cue panel to waiting state
+        if hasattr(self, 'cue_panel'):
+            self.cue_panel.setStyleSheet("""
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #1a1a1a, stop:1 #151515);
+                border-radius: 10px;
+                border: 1px solid #333;
+            """)
+        if hasattr(self, 'state_label'):
+            self.state_label.setText("STOPPED")
+            self.state_label.setStyleSheet("font-size: 28px; font-weight: 800; color: #888; border: none; background: transparent;")
+        if hasattr(self, 'countdown_label'):
+            self.countdown_label.setText("Press START to begin")
+            self.countdown_label.setStyleSheet("font-size: 11px; color: #666; border: none; background: transparent;")
 
     def _send_llm_prompt(self, force_fresh: bool = False) -> None:
         if self._llm_request_inflight:
@@ -4496,19 +4567,25 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         mean_rt = summary.get("avg_time") if isinstance(summary, dict) else None
         best_rt = summary.get("best_time") if isinstance(summary, dict) else None
         reaction_times = summary.get("reaction_times", []) if isinstance(summary, dict) else []
+        trial_results = summary.get("trial_results", []) if isinstance(summary, dict) else []
+        total_attempts = int(summary.get("total_attempts", len(reaction_times))) if isinstance(summary, dict) else len(reaction_times)
         
         # Update individual attempt labels (3 attempts)
         if hasattr(self, 'attempt_labels'):
             for i, lbl in enumerate(self.attempt_labels):
-                if i < len(reaction_times):
-                    rt = reaction_times[i]
-                    is_best = (best_rt is not None and abs(rt - best_rt) < 0.001)
-                    if is_best:
-                        lbl.setText(f"{rt:.3f}s")
-                        lbl.setStyleSheet("font-size: 16px; color: #ff8c00; font-weight: 700;")
+                if i < len(trial_results):
+                    rt = trial_results[i]
+                    if rt is None:
+                        lbl.setText("MISS")
+                        lbl.setStyleSheet("font-size: 16px; color: #ff4757; font-weight: 700;")
                     else:
-                        lbl.setText(f"{rt:.3f}s")
-                        lbl.setStyleSheet("font-size: 16px; color: #f0f0f0; font-weight: 700;")
+                        is_best = (best_rt is not None and abs(rt - best_rt) < 0.001)
+                        if is_best:
+                            lbl.setText(f"{rt:.3f}s")
+                            lbl.setStyleSheet("font-size: 16px; color: #ff8c00; font-weight: 700;")
+                        else:
+                            lbl.setText(f"{rt:.3f}s")
+                            lbl.setStyleSheet("font-size: 16px; color: #f0f0f0; font-weight: 700;")
                 else:
                     lbl.setText("--")
                     lbl.setStyleSheet("font-size: 16px; color: #555; font-weight: 700;")
@@ -4524,7 +4601,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         
         # Update session stats panel
         if hasattr(self, 'total_attempts_label'):
-            self.total_attempts_label.setText(f"Attempts: {len(reaction_times)}")
+            self.total_attempts_label.setText(f"Attempts: {total_attempts}")
         if hasattr(self, 'avg_reaction_label'):
             self.avg_reaction_label.setText(f"Avg: {mean_rt:.3f}s" if mean_rt is not None else "Avg: --")
         if hasattr(self, 'session_best_label'):

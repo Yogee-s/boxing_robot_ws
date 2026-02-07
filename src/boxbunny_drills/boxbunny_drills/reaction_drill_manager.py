@@ -59,8 +59,11 @@ class ReactionDrillManager(Node):
         self._cue_time: Optional[float] = None
         self._trial_index = 0
         self._num_trials = int(self.get_parameter("num_trials").value)
+        self._attempt_count = 0
         self._results = []
+        self._trial_results = []
         self._master_log_path = None
+        self._log_path = None  # Backward-compatible alias used in summaries
         self._summary_path = None
         self._current_user_id = 1
 
@@ -68,10 +71,8 @@ class ReactionDrillManager(Node):
         self._next_countdown_tick: Optional[float] = None
         self._baseline_end: Optional[float] = None
         self._baseline_velocity_mps = 0.0
-        self._baseline_velocity_mps = 0.0
         self._baseline_samples = deque(maxlen=200)
         self._penalty_end: Optional[float] = None
-        self._result_end: Optional[float] = None
         self._result_end: Optional[float] = None
         self._last_state_pub = 0.0
         self._last_penalty_time = 0.0
@@ -97,13 +98,14 @@ class ReactionDrillManager(Node):
 
     def _on_start_stop(self, request, response):
         if request.start and not self._running:
-            self._start_drill(request.num_trials or self._num_trials)
+            requested = int(request.num_trials or self._num_trials)
+            self._start_drill(max(3, requested))
             response.accepted = True
             response.message = "Drill started"
-        elif not request.start and self._running:
+        elif not request.start:
             self._stop_drill("Stopped by user")
             response.accepted = True
-            response.message = "Drill stopped"
+            response.message = "Drill stopped/reset"
         else:
             response.accepted = False
             response.message = "No change"
@@ -112,10 +114,22 @@ class ReactionDrillManager(Node):
     def _start_drill(self, num_trials: int) -> None:
         self._running = True
         self._trial_index = 0
-        self._num_trials = max(1, int(num_trials))
+        self._num_trials = max(3, int(num_trials))
+        self._attempt_count = 0
         self._results = []
+        self._trial_results = []
+        self._next_cue_time = None
         self._cue_time = None
         self._state = "countdown"
+        self._baseline_end = None
+        self._penalty_end = None
+        self._result_end = None
+        self._last_action_pred = None
+        self._last_punch_event = None
+        self._confirmed_this_cue = False
+        self._action_confirm_label = None
+        self._action_confirm_count = 0
+        self._action_confirm_start = 0.0
         self._baseline_velocity_mps = 0.0
         self._baseline_samples.clear()
         now = time.time()
@@ -125,6 +139,7 @@ class ReactionDrillManager(Node):
         self._open_log()
         self._publish_state()
         self._publish_event("drill_start")
+        self.get_logger().info(f"Reaction drill started with {self._num_trials} attempts")
 
     def _stop_drill(self, reason: str) -> None:
         self._running = False
@@ -132,8 +147,9 @@ class ReactionDrillManager(Node):
         self._next_cue_time = None
         self._cue_time = None
         self._countdown_end = None
-        self._countdown_end = None
+        self._next_countdown_tick = None
         self._baseline_end = None
+        self._baseline_samples.clear()
         self._penalty_end = None
         self._result_end = None
         self._last_action_pred = None
@@ -160,7 +176,7 @@ class ReactionDrillManager(Node):
         
         # Heartbeat: Republish state every 0.5s to keep GUI synced
         if now - self._last_state_pub > 0.5:
-             self._publish_state()
+            self._publish_state()
 
         if self._state == "countdown":
             self._update_countdown(now)
@@ -168,12 +184,11 @@ class ReactionDrillManager(Node):
 
         if self._state == "early_penalty":
             if self._penalty_end is not None and now >= self._penalty_end:
-                 # Restart Waiting Phase
-                 self._state = "waiting"
-                 self._last_penalty_time = now
-                 self._next_cue_time = now + self._random_delay()
-                 self._next_cue_time = now + self._random_delay()
-                 self._publish_state()
+                # Restart waiting phase
+                self._state = "waiting"
+                self._last_penalty_time = now
+                self._next_cue_time = now + self._random_delay()
+                self._publish_state()
             return
 
         if self._state == "result":
@@ -228,41 +243,85 @@ class ReactionDrillManager(Node):
         self._publish_event("baseline_done", value=self._baseline_velocity_mps)
 
     def _on_detections(self, msg: GloveDetections) -> None:
-        if self._state != "baseline":
+        """Handle glove detections for baseline and punch detection."""
+        # Collect baseline samples
+        if self._state == "baseline":
+            for det in msg.detections:
+                self._baseline_samples.append(abs(det.approach_velocity_mps))
+
+        # Detect early punch using glove velocity before cue appears.
+        if self._state in ["waiting", "baseline", "countdown"]:
+            if (time.time() - self._last_penalty_time) < 1.0:
+                return
+            velocity_threshold = 0.35
+            distance_threshold = 1.5
+            for det in msg.detections:
+                if det.approach_velocity_mps >= velocity_threshold and det.distance_m <= distance_threshold:
+                    self._publish_event("early_start", glove=det.glove or "punch")
+                    self._state = "early_penalty"
+                    self._penalty_end = time.time() + 1.5
+                    self._publish_state()
+                    self.get_logger().info(
+                        f"Early punch detected (velocity): glove={det.glove}, "
+                        f"v={det.approach_velocity_mps:.2f}, d={det.distance_m:.2f}"
+                    )
+                    return
+
+        # Velocity-based punch detection during cue state
+        if self._state != "cue" or self._cue_time is None:
             return
+        
+        if self._confirmed_this_cue:
+            return
+
+        # Check for approaching glove (fast forward motion)
+        velocity_threshold = 0.5  # m/s - adjust for sensitivity
+        distance_threshold = 1.2  # meters - glove must be close enough
+        
         for det in msg.detections:
-            self._baseline_samples.append(abs(det.approach_velocity_mps))
+            if det.approach_velocity_mps >= velocity_threshold and det.distance_m <= distance_threshold:
+                reaction_time = time.time() - self._cue_time
+                if reaction_time < float(self.get_parameter("min_reaction_time_s").value):
+                    continue
+                    
+                self._confirmed_this_cue = True
+                glove = det.glove if det.glove else "punch"
+                self.get_logger().info(f"[VELOCITY] Punch detected: velocity={det.approach_velocity_mps:.2f}m/s, dist={det.distance_m:.2f}m, reaction={reaction_time:.3f}s")
+                self._record_result(glove, reaction_time, None)
+                self._publish_event("punch_detected", glove=glove, value=reaction_time)
+                self._advance_trial()
+                return
+
 
     def _on_action(self, msg: ActionPrediction) -> None:
+        # DEBUG: Log ALL incoming action predictions
+        self.get_logger().info(f"[ACTION] label={msg.action_label} conf={msg.confidence:.2f} running={self._running} state={self._state}")
+        
         if not self._running:
             return
 
         # Only react to punch actions
+        action_label = (msg.action_label or "").strip().lower()
         punch_labels = ["jab", "cross", "left_hook", "right_hook", "left_uppercut", "right_uppercut"]
-        if msg.action_label not in punch_labels:
-             return
+        if action_label not in punch_labels:
+            return
         conf = float(msg.confidence)
 
         # Check for Early Start (Punch before Cue)
-        if self._state in ["waiting", "baseline"]:
+        if self._state in ["waiting", "baseline", "countdown"]:
             # Debounce early penalty to prevent looping
             if (time.time() - self._last_penalty_time) < 1.0:
                 return
 
-            if conf < float(self.get_parameter("early_confidence_threshold").value):
-                return
-            if not self._confirm_action_hit(
-                msg.action_label,
-                hits_needed=int(self.get_parameter("early_confirm_hits").value),
-            ):
+            if conf < float(self.get_parameter("action_confidence_threshold").value):
                 return
 
-            self._publish_event("early_start", glove=msg.action_label)
+            self._publish_event("early_start", glove=action_label)
             # Penalty Logic
             self._state = "early_penalty"
             self._penalty_end = time.time() + 1.5  # 1.5s penalty
             self._publish_state()
-            self.get_logger().info(f"Early punch detected: {msg.action_label}")
+            self.get_logger().info(f"Early punch detected: {action_label}")
             return
 
         if self._state != "cue" or self._cue_time is None:
@@ -271,7 +330,7 @@ class ReactionDrillManager(Node):
         if conf < float(self.get_parameter("action_confidence_threshold").value):
             return
 
-        self._last_action_pred = (msg.action_label, time.time())
+        self._last_action_pred = (action_label, time.time())
         if self._confirmed_this_cue:
             return
 
@@ -279,19 +338,21 @@ class ReactionDrillManager(Node):
         if reaction_time < float(self.get_parameter("min_reaction_time_s").value):
             return
         if not self._confirm_action_hit(
-            msg.action_label,
+            action_label,
             hits_needed=int(self.get_parameter("action_confirm_hits").value),
         ):
             return
 
         self._confirmed_this_cue = True
-        self._record_result(msg.action_label, reaction_time, None)
-        self._publish_event("punch_detected", glove=msg.action_label, value=reaction_time)
+        self._record_result(action_label, reaction_time, None)
+        self._publish_event("punch_detected", glove=action_label, value=reaction_time)
         self._advance_trial()
 
     def _on_punch(self, msg: PunchEvent) -> None:
         """Handle color tracking punch detections."""
         if not self._running:
+            return
+        if not msg.is_punch:
             return
 
         # Store for recent_punch_confirm
@@ -300,15 +361,15 @@ class ReactionDrillManager(Node):
         # Map punch types to glove sides for consistency
         punch_label = msg.punch_type if msg.punch_type else "punch"
         glove = msg.glove if hasattr(msg, 'glove') else "unknown"
-        conf = float(msg.confidence)
+        conf = float(msg.confidence) if float(msg.confidence) > 0.0 else 1.0
 
         # Check for Early Start (Punch before Cue)
-        if self._state in ["waiting", "baseline"]:
+        if self._state in ["waiting", "baseline", "countdown"]:
             # Debounce early penalty
             if (time.time() - self._last_penalty_time) < 1.0:
                 return
 
-            if conf < float(self.get_parameter("early_confidence_threshold").value):
+            if conf < float(self.get_parameter("action_confidence_threshold").value):
                 return
             
             self._publish_event("early_start", glove=glove)
@@ -397,6 +458,7 @@ class ReactionDrillManager(Node):
         
         # Use a single master log file
         self._master_log_path = str(log_dir / "reaction_drill_log.csv")
+        self._log_path = self._master_log_path
         self._summary_path = str(log_dir.parent / "reaction_drill_sessions.csv")
         
         # Create header if file doesn't exist
@@ -469,6 +531,8 @@ class ReactionDrillManager(Node):
                     ]
                 )
 
+        self._attempt_count += 1
+        self._trial_results.append(reaction_time)
         if reaction_time is not None:
             self._results.append(reaction_time)
         self._publish_summary(reaction_time)
@@ -492,12 +556,13 @@ class ReactionDrillManager(Node):
         summary = {
             "drill_name": "reaction_drill",
             "trial_index": self._trial_index,
-            "total_attempts": len(self._results),
+            "total_attempts": self._attempt_count,
             "reaction_times": self._results,
+            "trial_results": self._trial_results,
             "last_reaction_time_s": last_reaction,
             "avg_time": (sum(self._results) / len(self._results)) if self._results else None,
             "best_time": min(self._results) if self._results else None,
-            "log_path": self._log_path,
+            "log_path": self._master_log_path,
             "is_final": False,
         }
         msg = String()
@@ -509,12 +574,13 @@ class ReactionDrillManager(Node):
         summary = {
             "drill_name": "reaction_drill",
             "trial_index": self._trial_index,
-            "total_attempts": len(self._results),
+            "total_attempts": self._attempt_count,
             "reaction_times": self._results,
+            "trial_results": self._trial_results,
             "last_reaction_time_s": self._results[-1] if self._results else None,
             "avg_time": (sum(self._results) / len(self._results)) if self._results else None,
             "best_time": min(self._results) if self._results else None,
-            "log_path": self._log_path,
+            "log_path": self._master_log_path,
             "is_final": True,
         }
         msg = String()
