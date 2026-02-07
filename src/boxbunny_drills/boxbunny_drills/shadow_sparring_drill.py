@@ -45,8 +45,8 @@ class ShadowSparringDrill(Node):
         self.declare_parameter('glove_topic', 'glove_detections')
         self.declare_parameter('glove_distance_threshold_m', 0.45)
         self.declare_parameter('glove_velocity_threshold_mps', 1.5)
-        self.declare_parameter('glove_debounce_s', 0.35)
-        self.declare_parameter('combo_cooldown_s', 0.8)
+        self.declare_parameter('glove_debounce_s', 0.45)
+        self.declare_parameter('combo_cooldown_s', 1.5)
         self.declare_parameter('log_dir', str(data_root / "shadow_sparring"))
         
         # Get parameters
@@ -406,7 +406,7 @@ class ShadowSparringDrill(Node):
                 right_det = det
         
         # Minimum difference required between gloves to register a punch
-        MIN_GLOVE_DIFFERENCE = 0.15  # meters
+        MIN_GLOVE_DIFFERENCE = 0.18  # meters - increased to reduce false positives
         
         # Check if left glove is punching (close AND significantly ahead of right)
         left_punching = (
@@ -464,7 +464,8 @@ class ShadowSparringDrill(Node):
             self._pending_punch = {"glove": det.glove, "start_time": now, "count": 1}
         
         # Only register punch after confirmation threshold
-        if self._pending_punch["count"] >= 2:
+        # Require 3 consecutive frames for punch confirmation (increased from 2)
+        if self._pending_punch["count"] >= 3:
             self._last_glove_punch_time[det.glove] = now
             action = "jab" if det.glove == "left" else "cross"
             self._handle_detected_action(
@@ -510,7 +511,8 @@ class ShadowSparringDrill(Node):
             if combo_complete:
                 self.iterations += 1
                 self.get_logger().info(f"Combo Complete! Iterations: {self.iterations}")
-                self._combo_cooldown_until = time.time() + max(0.0, self.combo_cooldown_s)
+                # Extended cooldown after combo completion to prevent accidental re-triggers
+                self._combo_cooldown_until = time.time() + self.combo_cooldown_s + 0.5
                 self._reset_sequence(keep_active=True)
             self._log_attempt(
                 step_index=step_index,
