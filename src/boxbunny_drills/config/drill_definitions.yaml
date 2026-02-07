@@ -1,21 +1,26 @@
 # Drill Definitions Configuration
 # Defines available drills for shadow sparring and defence modes
 
+# Shadow sparring combos organized by punch type:
+# - Straight/Hook combos (jab, cross, hooks - no uppercuts)
+# - Uppercut combos (include uppercuts with hooks)
+
 shadow_sparring_drills:
+  # === STRAIGHT/HOOK COMBOS (no uppercuts) ===
   - name: "1-1-2 Combo"
     sequence: ["jab", "jab", "cross"]
     time_limit_s: 6.0
     description: "Classic jab-jab-cross combination"
     
-  - name: "Jab-Cross-Hook"
-    sequence: ["jab", "cross", "left_hook"]
-    time_limit_s: 7.0
-    description: "Jab to cross followed by left hook"
-    
   - name: "Double Jab"
     sequence: ["jab", "jab"]
     time_limit_s: 4.0
     description: "Two quick jabs"
+    
+  - name: "Jab-Cross-Hook"
+    sequence: ["jab", "cross", "left_hook"]
+    time_limit_s: 7.0
+    description: "Jab to cross followed by left hook"
     
   - name: "Cross-Hook-Cross"
     sequence: ["cross", "left_hook", "cross"]
@@ -26,11 +31,22 @@ shadow_sparring_drills:
     sequence: ["jab", "cross", "left_hook", "cross"]
     time_limit_s: 8.0
     description: "Classic four punch combination"
-    
+
+  # === UPPERCUT COMBOS (include hooks and uppercuts) ===
   - name: "Uppercut Combo"
     sequence: ["jab", "cross", "left_uppercut", "right_uppercut"]
     time_limit_s: 9.0
     description: "Jab-cross into double uppercuts"
+    
+  - name: "Hook-Uppercut Combo"
+    sequence: ["left_hook", "right_hook", "left_uppercut"]
+    time_limit_s: 8.0
+    description: "Hooks flowing into uppercut"
+    
+  - name: "Body Shot Combo"
+    sequence: ["right_uppercut", "left_hook", "right_uppercut"]
+    time_limit_s: 8.0
+    description: "Uppercut and hook body attack"
 
 defence_drills:
   - name: "Head Defense"
