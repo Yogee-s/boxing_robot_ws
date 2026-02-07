@@ -39,6 +39,9 @@ class GloveTracker(Node):
         self.declare_parameter("approach_velocity_mps", 1.5)
         self.declare_parameter("approach_frames", 3)
         self.declare_parameter("debounce_time_s", 0.5)
+        
+        # Max detection distance - ignore background colors beyond this
+        self.declare_parameter("max_detection_distance_m", 2.0)
 
         # Depth scaling
         self.declare_parameter("depth_scale", 0.001)
@@ -214,6 +217,11 @@ class GloveTracker(Node):
         distance_m = self._median_depth_m(roi_depth)
         if distance_m is None:
             return None
+        
+        # Filter out background colors beyond max detection distance
+        max_dist = float(self.get_parameter("max_detection_distance_m").value)
+        if distance_m > max_dist:
+            return None  # Ignore - too far away (likely background)
 
         confidence = min(1.0, area / (min_area * 3.0))
 

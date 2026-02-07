@@ -66,6 +66,9 @@ class ColorTracker:
         self.prev_dist = {"left": deque(maxlen=5), "right": deque(maxlen=5)}
         self.prev_time = {"left": 0.0, "right": 0.0}
         
+        # Max detection distance - ignore background colors beyond this
+        self.max_detection_distance_m = 2.0
+        
         # Morphology kernel
         self.kernel = np.ones((5, 5), np.uint8)
         
@@ -135,6 +138,10 @@ class ColorTracker:
                 dist_m = 0.0
         else:
             dist_m = 0.0
+        
+        # Filter out background colors beyond max detection distance
+        if dist_m > self.max_detection_distance_m:
+            return None  # Ignore - too far away (likely background)
         
         # Calculate velocity (approach speed)
         velocity = 0.0

@@ -1,6 +1,0 @@
-timestamp_unix,elapsed_s,drill_name,iteration,step_index,expected_action,detected_action,correct,attempts_left,failures,combo_complete,source,confidence
-1770371121.4665835,0.976,1-1-2 Combo,0,1,jab,jab,1,3,0,0,color_tracking,
-1770371122.5336494,2.043,1-1-2 Combo,0,2,jab,jab,1,3,0,0,color_tracking,
-1770371122.9423518,2.452,1-1-2 Combo,0,3,cross,jab,0,2,1,0,color_tracking,
-1770371123.464652,0.522,1-1-2 Combo,0,1,jab,cross,0,1,2,0,color_tracking,
-1770371123.902009,0.436,1-1-2 Combo,0,1,jab,cross,0,0,3,0,color_tracking,

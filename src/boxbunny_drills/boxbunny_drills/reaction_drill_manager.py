@@ -11,6 +11,7 @@ from typing import Optional, List
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String, Int32
+from std_srvs.srv import Trigger
 from boxbunny_msgs.msg import DrillEvent, PunchEvent, GloveDetections, ActionPrediction
 from boxbunny_msgs.srv import StartStopDrill
 
@@ -28,11 +29,11 @@ class ReactionDrillManager(Node):
         self.declare_parameter("min_reaction_time_s", 0.12)
         self.declare_parameter("baseline_velocity_margin", 0.25)
         self.declare_parameter("pose_confirm_window_s", 0.35)
-        self.declare_parameter("action_confidence_threshold", 0.45)
+        self.declare_parameter("action_confidence_threshold", 0.15)
         self.declare_parameter("action_confirm_hits", 1)
-        self.declare_parameter("early_confidence_threshold", 0.6)
+        self.declare_parameter("early_confidence_threshold", 0.35)
         self.declare_parameter("early_confirm_hits", 2)
-        self.declare_parameter("punch_topic", "punch_events")
+        self.declare_parameter("punch_topic", "punch_events_raw")
         self.declare_parameter("glove_topic", "glove_detections")
         self.declare_parameter("num_trials", 5)
         self.declare_parameter("log_dir", str(data_root / "reaction_drill"))
@@ -48,6 +49,7 @@ class ReactionDrillManager(Node):
         self.det_sub = self.create_subscription(GloveDetections, glove_topic, self._on_detections, 10)
         self.action_sub = self.create_subscription(ActionPrediction, "action_prediction", self._on_action, 10)
         self.service = self.create_service(StartStopDrill, "start_stop_drill", self._on_start_stop)
+        self.new_user_srv = self.create_service(Trigger, "reaction_drill/new_user", self._on_new_user)
 
         self.timer = self.create_timer(0.05, self._tick)
 
@@ -58,8 +60,9 @@ class ReactionDrillManager(Node):
         self._trial_index = 0
         self._num_trials = int(self.get_parameter("num_trials").value)
         self._results = []
-        self._log_path = None
+        self._master_log_path = None
         self._summary_path = None
+        self._current_user_id = 1
 
         self._countdown_end: Optional[float] = None
         self._next_countdown_tick: Optional[float] = None
@@ -287,7 +290,53 @@ class ReactionDrillManager(Node):
         self._advance_trial()
 
     def _on_punch(self, msg: PunchEvent) -> None:
-        return
+        """Handle color tracking punch detections."""
+        if not self._running:
+            return
+
+        # Store for recent_punch_confirm
+        self._last_punch_event = (msg.punch_type, time.time(), abs(msg.approach_velocity_mps))
+        
+        # Map punch types to glove sides for consistency
+        punch_label = msg.punch_type if msg.punch_type else "punch"
+        glove = msg.glove if hasattr(msg, 'glove') else "unknown"
+        conf = float(msg.confidence)
+
+        # Check for Early Start (Punch before Cue)
+        if self._state in ["waiting", "baseline"]:
+            # Debounce early penalty
+            if (time.time() - self._last_penalty_time) < 1.0:
+                return
+
+            if conf < float(self.get_parameter("early_confidence_threshold").value):
+                return
+            
+            self._publish_event("early_start", glove=glove)
+            self._state = "early_penalty"
+            self._penalty_end = time.time() + 1.5
+            self._publish_state()
+            self.get_logger().info(f"Early punch detected (color): {punch_label}")
+            return
+
+        if self._state != "cue" or self._cue_time is None:
+            return
+
+        if conf < float(self.get_parameter("action_confidence_threshold").value):
+            return
+
+        if self._confirmed_this_cue:
+            return
+
+        reaction_time = time.time() - self._cue_time
+        if reaction_time < float(self.get_parameter("min_reaction_time_s").value):
+            return
+
+        self._confirmed_this_cue = True
+        self._record_result(glove, reaction_time, msg)
+        self._publish_event("punch_detected", glove=glove, value=reaction_time)
+        self.get_logger().info(f"Punch detected (color): {punch_label}, reaction: {reaction_time:.3f}s")
+        self._advance_trial()
+
 
     def _advance_trial(self) -> None:
         """Advance to next trial or complete the drill."""
@@ -342,31 +391,53 @@ class ReactionDrillManager(Node):
         return velocity >= (self._baseline_velocity_mps + margin)
         
     def _open_log(self) -> None:
+        """Initialize master log file path (creates file with header if needed)."""
         log_dir = Path(os.path.expanduser(str(self.get_parameter("log_dir").value)))
         log_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        filename = f"reaction_drill_{timestamp}.csv"
-        self._log_path = str(log_dir / filename)
+        
+        # Use a single master log file
+        self._master_log_path = str(log_dir / "reaction_drill_log.csv")
         self._summary_path = str(log_dir.parent / "reaction_drill_sessions.csv")
-        with open(self._log_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(
-                [
-                    "trial_index",
-                    "timestamp_unix",
-                    "cue_time_unix",
-                    "detection_time_unix",
-                    "reaction_time_s",
-                    "glove",
-                    "confidence",
-                    "velocity_mps",
-                    "punch_type",
-                    "imu_confirmed",
-                    "baseline_velocity_mps",
-                ]
-            )
+        
+        # Create header if file doesn't exist
+        if not os.path.exists(self._master_log_path):
+            with open(self._master_log_path, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(
+                    [
+                        "user_id",
+                        "session_timestamp",
+                        "trial_index",
+                        "timestamp_unix",
+                        "cue_time_unix",
+                        "detection_time_unix",
+                        "reaction_time_s",
+                        "glove",
+                        "confidence",
+                        "velocity_mps",
+                        "punch_type",
+                        "imu_confirmed",
+                        "baseline_velocity_mps",
+                    ]
+                )
+
+    def _on_new_user(self, request, response):
+        """Mark new user by inserting empty separator row and incrementing user ID."""
+        self._current_user_id += 1
+        
+        # Insert empty row as separator
+        if self._master_log_path and os.path.exists(self._master_log_path):
+            with open(self._master_log_path, "a", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow([])  # Empty row separator
+        
+        response.success = True
+        response.message = f"New user marked. User ID: {self._current_user_id}"
+        self.get_logger().info(f"New user started. ID: {self._current_user_id}")
+        return response
 
     def _record_result(self, glove: Optional[str], reaction_time: Optional[float], msg: Optional[PunchEvent] = None):
+        """Append result row to master log file."""
         cue_time = self._cue_time if self._cue_time is not None else time.time()
         detection_time = time.time() if reaction_time is not None else None
 
@@ -374,24 +445,29 @@ class ReactionDrillManager(Node):
         velocity = msg.approach_velocity_mps if msg else 0.0
         punch_type = msg.punch_type if msg else ""
         imu_confirmed = msg.imu_confirmed if msg else False
+        
+        session_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        with open(self._log_path, "a", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(
-                [
-                    self._trial_index,
-                    time.time(),
-                    cue_time,
-                    detection_time or "",
-                    reaction_time or "",
-                    glove or "",
-                    confidence,
-                    velocity,
-                    punch_type,
-                    imu_confirmed,
-                    self._baseline_velocity_mps,
-                ]
-            )
+        if self._master_log_path:
+            with open(self._master_log_path, "a", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(
+                    [
+                        self._current_user_id,
+                        session_timestamp,
+                        self._trial_index,
+                        time.time(),
+                        cue_time,
+                        detection_time or "",
+                        f"{reaction_time:.3f}" if reaction_time else "",
+                        glove or "",
+                        confidence,
+                        velocity,
+                        punch_type,
+                        imu_confirmed,
+                        self._baseline_velocity_mps,
+                    ]
+                )
 
         if reaction_time is not None:
             self._results.append(reaction_time)

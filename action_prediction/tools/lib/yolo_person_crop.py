@@ -37,6 +37,7 @@ class YOLOPersonCrop:
         padding_ratio: float = 0.15,
         temporal_smoothing: float = 0.3,
         detect_interval: int = 1,
+        selection_method: str = 'area',
     ):
         """
         Initialize YOLO person cropper.
@@ -48,6 +49,8 @@ class YOLOPersonCrop:
             padding_ratio: Extra padding around detected person (0.15 = 15%)
             temporal_smoothing: Smoothing factor for bounding box (0 = no smoothing, 1 = full smoothing)
             detect_interval: Run detection every N frames (1 = every frame)
+            selection_method: How to select person when multiple detected:
+                              'area' (largest bbox = closest), 'confidence' (highest YOLO score)
         """
         if YOLO is None:
             raise ImportError("ultralytics not installed. Run: pip install ultralytics")
@@ -57,6 +60,7 @@ class YOLOPersonCrop:
         self.padding_ratio = padding_ratio
         self.temporal_smoothing = temporal_smoothing
         self.detect_interval = detect_interval
+        self.selection_method = selection_method
         self.frame_count = 0
         
         # Load YOLO model
@@ -126,7 +130,14 @@ class YOLOPersonCrop:
             if len(person_boxes) == 0:
                 bboxes.append(None)
             else:
-                best_idx = np.argmax(person_confs)
+                # Select based on selection_method
+                if self.selection_method == 'area':
+                    # Largest bounding box area = closest person to camera
+                    areas = (person_boxes[:, 2] - person_boxes[:, 0]) * (person_boxes[:, 3] - person_boxes[:, 1])
+                    best_idx = np.argmax(areas)
+                else:
+                    # Highest confidence
+                    best_idx = np.argmax(person_confs)
                 bboxes.append(person_boxes[best_idx])
                 
         return bboxes
@@ -170,8 +181,14 @@ class YOLOPersonCrop:
         if len(person_boxes) == 0:
             return None
         
-        # Select the person with highest confidence
-        best_idx = np.argmax(person_confs)
+        # Select person based on selection_method
+        if self.selection_method == 'area':
+            # Largest bounding box area = closest person to camera
+            areas = (person_boxes[:, 2] - person_boxes[:, 0]) * (person_boxes[:, 3] - person_boxes[:, 1])
+            best_idx = np.argmax(areas)
+        else:
+            # Highest confidence (original behavior)
+            best_idx = np.argmax(person_confs)
         bbox = person_boxes[best_idx]  # [x1, y1, x2, y2]
         
         return bbox

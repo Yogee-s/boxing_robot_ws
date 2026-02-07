@@ -76,7 +76,9 @@ class ShadowSparringDrill(Node):
         self.action_locked = False  # Prevent rapid duplicate detections
         self._last_glove_punch_time = {"left": 0.0, "right": 0.0}
         self._combo_cooldown_until = 0.0
-        self._log_path: Optional[str] = None
+        self._master_log_path: Optional[str] = None
+        self._current_user_id = 1
+        self._drill_session_start: Optional[str] = None
         
         # Survival Mode State
         self.max_attempts = 3
@@ -103,6 +105,8 @@ class ShadowSparringDrill(Node):
             StartDrill, 'start_drill', self._handle_start_drill)
         self.stop_srv = self.create_service(
             Trigger, 'stop_shadow_drill', self._handle_stop_drill)
+        self.new_user_srv = self.create_service(
+            Trigger, 'shadow_drill/new_user', self._on_new_user)
         
         # LLM client for feedback
         self.llm_client = self.create_client(GenerateLLM, 'llm/generate')
@@ -124,31 +128,52 @@ class ShadowSparringDrill(Node):
         return Path(os.path.expanduser("~/boxbunny_data"))
 
     def _open_log(self, drill_name: str) -> None:
+        """Initialize master log file path (creates file with header if needed)."""
         log_dir = Path(os.path.expanduser(str(self.get_parameter("log_dir").value)))
         log_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        safe_name = drill_name.replace(" ", "_").lower()
-        filename = f"shadow_{safe_name}_{timestamp}.csv"
-        self._log_path = str(log_dir / filename)
-        with open(self._log_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(
-                [
-                    "timestamp_unix",
-                    "elapsed_s",
-                    "drill_name",
-                    "iteration",
-                    "step_index",
-                    "expected_action",
-                    "detected_action",
-                    "correct",
-                    "attempts_left",
-                    "failures",
-                    "combo_complete",
-                    "source",
-                    "confidence",
-                ]
-            )
+        
+        # Use a single master log file
+        self._master_log_path = str(log_dir / "shadow_sparring_log.csv")
+        self._drill_session_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Create header if file doesn't exist
+        if not os.path.exists(self._master_log_path):
+            with open(self._master_log_path, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(
+                    [
+                        "user_id",
+                        "session_timestamp",
+                        "timestamp_unix",
+                        "elapsed_s",
+                        "drill_name",
+                        "iteration",
+                        "step_index",
+                        "expected_action",
+                        "detected_action",
+                        "correct",
+                        "attempts_left",
+                        "failures",
+                        "combo_complete",
+                        "source",
+                        "confidence",
+                    ]
+                )
+
+    def _on_new_user(self, request, response):
+        """Mark new user by inserting empty separator row and incrementing user ID."""
+        self._current_user_id += 1
+        
+        # Insert empty row as separator
+        if self._master_log_path and os.path.exists(self._master_log_path):
+            with open(self._master_log_path, "a", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow([])  # Empty row separator
+        
+        response.success = True
+        response.message = f"New user marked. User ID: {self._current_user_id}"
+        self.get_logger().info(f"New user started. ID: {self._current_user_id}")
+        return response
 
     def _log_attempt(
         self,
@@ -161,13 +186,16 @@ class ShadowSparringDrill(Node):
         source: str,
         confidence: Optional[float],
     ) -> None:
-        if not self._log_path:
+        """Append attempt row to master log file."""
+        if not self._master_log_path:
             return
         elapsed = time.time() - self.start_time
-        with open(self._log_path, "a", newline="") as f:
+        with open(self._master_log_path, "a", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(
                 [
+                    self._current_user_id,
+                    self._drill_session_start or "",
                     time.time(),
                     f"{elapsed:.3f}",
                     self.current_drill["name"] if self.current_drill else "",

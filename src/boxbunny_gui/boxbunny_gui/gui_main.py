@@ -1181,6 +1181,10 @@ class RosInterface(Node):
         self.mode_client = self.create_client(SetBool, "action_predictor/set_simple_mode")
         self.height_trigger_client = self.create_client(Trigger, "action_predictor/calibrate_height")
         
+        # New User services for data logging
+        self.reaction_new_user_client = self.create_client(Trigger, "reaction_drill/new_user")
+        self.shadow_new_user_client = self.create_client(Trigger, "shadow_drill/new_user")
+        
         # Publisher for motor commands
         self.motor_pub = self.create_publisher(String, '/robot/robot_action_trigger', 10)
 
@@ -1351,6 +1355,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self._best_reaction_clip = None
         self._replay_active = False
         self._llm_request_inflight = False
+        self._shadow_drill_active = False  # Gate punch detection UI updates
 
         self._apply_styles()
         
@@ -1527,17 +1532,18 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         if current_widget == self.reaction_tab:
             if hasattr(self, 'action_mode_radio') and not self.action_mode_radio.isChecked():
                 self.action_mode_radio.setChecked(True)
-                # self._on_detection_mode_changed() # Triggered by setChecked signal?
-                # Signal might not fire if not user interaction, let's force call if needed
-                # But typically setChecked fires toggled.
+                # buttonClicked signal doesn't fire on programmatic setChecked, so call explicitly
+                self._on_detection_mode_changed()
         elif current_widget == self.shadow_tab or current_widget == self.defence_tab:
             if hasattr(self, 'color_mode_radio') and not self.color_mode_radio.isChecked():
                 self.color_mode_radio.setChecked(True)
+                # buttonClicked signal doesn't fire on programmatic setChecked, so call explicitly
+                self._on_detection_mode_changed()
         elif current_widget == self.home_screen:
-            # Revert to AI mode on home screen for general usage? Or keep last?
-            # Let's default to Pose (AI) as it's the more robust default
-             if hasattr(self, 'action_mode_radio') and not self.action_mode_radio.isChecked():
-                self.action_mode_radio.setChecked(True)
+            # Default to Color Mode on home screen (Color is the primary mode)
+            if hasattr(self, 'color_mode_radio') and not self.color_mode_radio.isChecked():
+                self.color_mode_radio.setChecked(True)
+                self._on_detection_mode_changed()
 
         self._last_screen = current_widget
     
@@ -2104,8 +2110,10 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         mode_label.setStyleSheet("font-size: 16px; color: #ff8c00; font-weight: 700;")
         adv_panel_layout.addWidget(mode_label)
         
+        # Button group for mutual exclusivity
+        self.detection_mode_group = QtWidgets.QButtonGroup(self)
+        
         self.color_mode_radio = QtWidgets.QRadioButton("Color Mode")
-        self.color_mode_radio.setChecked(True)
         self.color_mode_radio.setStyleSheet("""
             QRadioButton {
                 font-size: 15px; color: #e6edf3; spacing: 8px; padding: 4px;
@@ -2115,7 +2123,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             }
             QRadioButton::indicator:checked { border: 2px solid #ff8c00; background: #ff8c00; }
         """)
-        self.color_mode_radio.toggled.connect(self._on_detection_mode_changed)
+        self.detection_mode_group.addButton(self.color_mode_radio, 0)
         adv_panel_layout.addWidget(self.color_mode_radio)
         
         self.action_mode_radio = QtWidgets.QRadioButton("AI Mode")
@@ -2128,7 +2136,12 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             }
             QRadioButton::indicator:checked { border: 2px solid #ff8c00; background: #ff8c00; }
         """)
+        self.detection_mode_group.addButton(self.action_mode_radio, 1)
         adv_panel_layout.addWidget(self.action_mode_radio)
+        
+        # Set default to Color Mode after both buttons are added to group
+        self.color_mode_radio.setChecked(True)
+        self.detection_mode_group.buttonClicked.connect(self._on_detection_mode_changed)
         
         # Separator
         sep = QtWidgets.QFrame()
@@ -2149,56 +2162,51 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.imu_toggle.toggled.connect(self._toggle_imu_input)
         adv_panel_layout.addWidget(self.imu_toggle)
         
-        adv_panel_layout.addSpacing(10)
+        adv_panel_layout.addSpacing(6)
 
         llm_label = QtWidgets.QLabel("AI Coach:")
-        llm_label.setStyleSheet("font-size: 16px; color: #ff8c00; font-weight: 700;")
+        llm_label.setStyleSheet("font-size: 14px; color: #ff8c00; font-weight: 700;")
         adv_panel_layout.addWidget(llm_label)
 
-        self.llm_state_label = QtWidgets.QLabel("LLM: Enabled")
-        self.llm_state_label.setStyleSheet("font-size: 13px; color: #cfcfcf; padding: 2px;")
-        adv_panel_layout.addWidget(self.llm_state_label)
-
         llm_btn_row = QtWidgets.QHBoxLayout()
-        llm_btn_row.setSpacing(8)
+        llm_btn_row.setSpacing(6)
 
-        self.llm_enable_btn = QtWidgets.QPushButton("Enable LLM")
-        self.llm_enable_btn.setFixedHeight(36)
+        self.llm_enable_btn = QtWidgets.QPushButton("Enable")
+        self.llm_enable_btn.setFixedHeight(32)
         self.llm_enable_btn.setStyleSheet("""
             QPushButton {
-                background: #2a2a2a;
-                color: #00cc00;
-                border-radius: 8px;
-                font-size: 13px;
-                font-weight: 700;
-                border: 1px solid #00cc00;
+                background: #2a2a2a; color: #00cc00; border-radius: 6px;
+                font-size: 12px; font-weight: 700; border: 1px solid #00cc00;
             }
             QPushButton:hover { background: #1f2f1f; }
-            QPushButton:pressed { background: #163316; }
+            QPushButton:disabled { background: #1a3a1a; color: #4ade4a; border: 1px solid #4ade4a; }
         """)
         self.llm_enable_btn.clicked.connect(lambda: self._set_llm_enabled(True))
         llm_btn_row.addWidget(self.llm_enable_btn)
 
-        self.llm_disable_btn = QtWidgets.QPushButton("Disable LLM")
-        self.llm_disable_btn.setFixedHeight(36)
+        self.llm_disable_btn = QtWidgets.QPushButton("Disable")
+        self.llm_disable_btn.setFixedHeight(32)
         self.llm_disable_btn.setStyleSheet("""
             QPushButton {
-                background: #2a2a2a;
-                color: #ff6666;
-                border-radius: 8px;
-                font-size: 13px;
-                font-weight: 700;
-                border: 1px solid #ff6666;
+                background: #2a2a2a; color: #ff6666; border-radius: 6px;
+                font-size: 12px; font-weight: 700; border: 1px solid #ff6666;
             }
             QPushButton:hover { background: #2f1f1f; }
-            QPushButton:pressed { background: #331616; }
+            QPushButton:disabled { background: #3a1a1a; color: #ff8888; border: 1px solid #ff8888; }
         """)
         self.llm_disable_btn.clicked.connect(lambda: self._set_llm_enabled(False))
         llm_btn_row.addWidget(self.llm_disable_btn)
 
         adv_panel_layout.addLayout(llm_btn_row)
         self.llm_enable_btn.setDisabled(True)
-        adv_panel_layout.addSpacing(6)
+        
+        # State label showing current LLM status
+        self.llm_state_label = QtWidgets.QLabel("● ON")
+        self.llm_state_label.setStyleSheet("font-size: 13px; color: #4ade4a; font-weight: 700; padding: 2px;")
+        self.llm_state_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        adv_panel_layout.addWidget(self.llm_state_label)
+        
+        adv_panel_layout.addSpacing(4)
         
         self.height_btn = QtWidgets.QPushButton("Calibrate Height")
         self.height_btn.setFixedHeight(45)
@@ -2211,6 +2219,56 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """)
         self.height_btn.clicked.connect(self._start_height_calibration)
         adv_panel_layout.addWidget(self.height_btn)
+        
+        adv_panel_layout.addSpacing(4)
+        
+        # Shadow Sparring Mode - simplified inline label
+        self.shadow_mode_combo = QtWidgets.QComboBox()
+        self.shadow_mode_combo.addItems(["Shadow: Color", "Shadow: AI"])
+        self.shadow_mode_combo.setFixedHeight(38)
+        self.shadow_mode_combo.setStyleSheet("""
+            QComboBox {
+                background: #2a2a2a; color: #e6edf3; border: 1px solid #555;
+                border-radius: 6px; padding: 8px 12px; font-size: 14px; font-weight: 600;
+            }
+            QComboBox::drop-down { border: none; width: 20px; }
+            QComboBox::down-arrow { image: none; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid #ff8c00; }
+            QComboBox QAbstractItemView { background: #2a2a2a; color: #e6edf3; selection-background-color: #ff8c00; }
+        """)
+        self.shadow_mode_combo.currentIndexChanged.connect(self._on_shadow_mode_changed)
+        adv_panel_layout.addWidget(self.shadow_mode_combo)
+        
+        # Reaction Mode - simplified inline label
+        self.reaction_mode_combo = QtWidgets.QComboBox()
+        self.reaction_mode_combo.addItems(["Reaction: Pose", "Reaction: Color"])
+        self.reaction_mode_combo.setFixedHeight(38)
+        self.reaction_mode_combo.setStyleSheet("""
+            QComboBox {
+                background: #2a2a2a; color: #e6edf3; border: 1px solid #555;
+                border-radius: 6px; padding: 8px 12px; font-size: 14px; font-weight: 600;
+            }
+            QComboBox::drop-down { border: none; width: 20px; }
+            QComboBox::down-arrow { image: none; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid #ff8c00; }
+            QComboBox QAbstractItemView { background: #2a2a2a; color: #e6edf3; selection-background-color: #ff8c00; }
+        """)
+        self.reaction_mode_combo.currentIndexChanged.connect(self._on_reaction_mode_changed)
+        adv_panel_layout.addWidget(self.reaction_mode_combo)
+        
+        adv_panel_layout.addSpacing(6)
+        
+        # New User Button - compact
+        self.new_user_btn = QtWidgets.QPushButton("➕ New User")
+        self.new_user_btn.setFixedHeight(40)
+        self.new_user_btn.setStyleSheet("""
+            QPushButton {
+                background: #2a6b2a; color: #fff; font-size: 14px; font-weight: 700; border-radius: 8px;
+                border: 1px solid #3a8b3a;
+            }
+            QPushButton:hover { background: #3a8b3a; }
+            QPushButton:pressed { background: #1f4f1f; }
+        """)
+        self.new_user_btn.clicked.connect(self._mark_new_user)
+        adv_panel_layout.addWidget(self.new_user_btn)
         
         right_col_layout.addWidget(self.advanced_panel)
         right_col_layout.addStretch(1) # Push to top
@@ -2305,11 +2363,14 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self.status_indicator.setText("● Color Mode")
             self.status_indicator.setStyleSheet("font-size: 11px; color: #26d0ce; padding: 4px;")
         
-        # Send mode change to backend
-        if self.ros.mode_client.service_is_ready():
+        # Send mode change to backend (always try, don't check readiness)
+        try:
             req = SetBool.Request()
             req.data = not is_action  # simple_mode = True for color tracking
             self.ros.mode_client.call_async(req)
+            print(f"[GUI] Mode change requested: simple_mode={req.data}")
+        except Exception as e:
+            print(f"[GUI] Mode change failed: {e}")
 
     def _toggle_advanced(self, checked: bool) -> None:
         if hasattr(self, 'right_col_container'):
@@ -2328,7 +2389,8 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
     def _set_llm_enabled(self, enabled: bool) -> None:
         if not hasattr(self.ros, "llm_param_client") or not self.ros.llm_param_client.service_is_ready():
             if hasattr(self, "llm_state_label"):
-                self.llm_state_label.setText("LLM: Service not ready")
+                self.llm_state_label.setText("● NO SERVICE")
+                self.llm_state_label.setStyleSheet("font-size: 13px; color: #888; font-weight: 700; padding: 2px;")
             return
         self._llm_enabled = enabled
         req = SetParameters.Request()
@@ -2336,7 +2398,12 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         req.parameters = [param.to_parameter_msg()]
         self.ros.llm_param_client.call_async(req)
         if hasattr(self, "llm_state_label"):
-            self.llm_state_label.setText("LLM: Enabled" if enabled else "LLM: Disabled")
+            if enabled:
+                self.llm_state_label.setText("● ON")
+                self.llm_state_label.setStyleSheet("font-size: 13px; color: #4ade4a; font-weight: 700; padding: 2px;")
+            else:
+                self.llm_state_label.setText("● OFF")
+                self.llm_state_label.setStyleSheet("font-size: 13px; color: #ff6666; font-weight: 700; padding: 2px;")
         if hasattr(self, "llm_enable_btn") and hasattr(self, "llm_disable_btn"):
             self.llm_enable_btn.setDisabled(enabled)
             self.llm_disable_btn.setDisabled(not enabled)
@@ -4212,12 +4279,14 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.ros.start_stop_client.call_async(req)
 
     def _stop_drill(self) -> None:
-        if not self.ros.start_stop_client.service_is_ready():
-            return
-        req = StartStopDrill.Request()
-        req.start = False
-        req.num_trials = 0
-        self.ros.start_stop_client.call_async(req)
+        try:
+            req = StartStopDrill.Request()
+            req.start = False
+            req.num_trials = 0
+            self.ros.start_stop_client.call_async(req)
+            print("[GUI] Stop drill requested")
+        except Exception as e:
+            print(f"[GUI] Stop drill failed: {e}")
 
     def _send_llm_prompt(self, force_fresh: bool = False) -> None:
         if self._llm_request_inflight:
@@ -4737,6 +4806,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         self.ros.shadow_drill_client.call_async(req)
 
         self._reset_shadow_ui()
+        self._shadow_drill_active = True  # Gate punch detection UI - drill now active
         with self.ros.lock:
             self.ros.drill_summary = {}
 
@@ -4750,6 +4820,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
 
     def _reset_shadow_ui(self) -> None:
         """Reset shadow sparring UI to a clean state."""
+        self._shadow_drill_active = False  # Drill stopped, gate punch detection UI
         self._last_shadow_step = 0
         self._last_failures = 0
         self._last_iterations = 0
@@ -4790,6 +4861,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self.shadow_coach_bar.set_message("Stop service not ready.")
             return
         self.ros.shadow_stop_client.call_async(Trigger.Request())
+        self._shadow_drill_active = False  # Drill stopped, gate punch detection UI
         self.shadow_start_btn.setText("▶  START")
         if hasattr(self, "_shadow_start_style"):
             self.shadow_start_btn.setStyleSheet(self._shadow_start_style)
@@ -5117,6 +5189,9 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self.shadow_detected_label.setText("DETECTED: --")
             if hasattr(self, "_shadow_detected_style"):
                 self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
+            # Also reset checkbox progress to ensure clean state
+            if not getattr(self, '_shadow_drill_active', False):
+                self.shadow_checkbox_progress.reset()
             return
 
         current_step = progress.current_step
@@ -5854,6 +5929,73 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         """Navigate to video replay page and load video."""
         self.video_replay.load_video(video_path)
         self.stack.setCurrentWidget(self.video_replay)
+
+    def _mark_new_user(self) -> None:
+        """Mark new user in data logs by calling both drill services."""
+        # Call both services to insert separator rows
+        if self.ros.reaction_new_user_client.service_is_ready():
+            self.ros.reaction_new_user_client.call_async(Trigger.Request())
+        
+        if self.ros.shadow_new_user_client.service_is_ready():
+            self.ros.shadow_new_user_client.call_async(Trigger.Request())
+        
+        # Update button briefly to show feedback
+        if hasattr(self, 'new_user_btn'):
+            self.new_user_btn.setText("✓ User Marked")
+            self.new_user_btn.setStyleSheet("""
+                QPushButton {
+                    background: #1f4f1f; color: #4ade4a; font-size: 14px; font-weight: 700; border-radius: 8px;
+                    border: 2px solid #4ade4a;
+                }
+            """)
+            # Reset after 1.5 seconds
+            QtCore.QTimer.singleShot(1500, self._reset_new_user_btn)
+    
+    def _reset_new_user_btn(self) -> None:
+        """Reset New User button to default state."""
+        if hasattr(self, 'new_user_btn'):
+            self.new_user_btn.setText("➕ NEW USER")
+            self.new_user_btn.setStyleSheet("""
+                QPushButton {
+                    background: #2a6b2a; color: #fff; font-size: 14px; font-weight: 700; border-radius: 8px;
+                    border: 2px solid #3a8b3a;
+                }
+                QPushButton:hover { background: #3a8b3a; }
+                QPushButton:pressed { background: #1f4f1f; }
+            """)
+
+    def _on_shadow_mode_changed(self, index: int) -> None:
+        """Handle shadow sparring mode dropdown change."""
+        use_color = (index == 0)  # 0 = Color Tracking, 1 = AI Model
+        
+        # Store preference for when shadow drill starts
+        self._shadow_use_color = use_color
+        
+        # Update status indicator
+        mode_str = "Color" if use_color else "AI"
+        if hasattr(self, 'status_indicator'):
+            self.status_indicator.setText(f"● Shadow: {mode_str}")
+            self.status_indicator.setStyleSheet(f"font-size: 11px; color: {'#26d0ce' if use_color else '#f0b429'}; padding: 4px;")
+
+    def _on_reaction_mode_changed(self, index: int) -> None:
+        """Handle reaction mode dropdown change."""
+        use_pose = (index == 0)  # 0 = Pose Model, 1 = Color Tracking
+        
+        # Update detection mode via mode_client
+        if self.ros.mode_client.service_is_ready():
+            req = SetBool.Request()
+            req.data = not use_pose  # simple_mode = True for color tracking
+            self.ros.mode_client.call_async(req)
+        
+        # Store preference
+        self._reaction_use_pose = use_pose
+        
+        # Update status indicator
+        mode_str = "Pose" if use_pose else "Color"
+        if hasattr(self, 'status_indicator'):
+            self.status_indicator.setText(f"● Reaction: {mode_str}")
+            self.status_indicator.setStyleSheet(f"font-size: 11px; color: {'#f0b429' if use_pose else '#26d0ce'}; padding: 4px;")
+
 
     def _start_height_calibration(self) -> None:
         # Create a dedicated calibration countdown (don't reuse shadow_countdown)
