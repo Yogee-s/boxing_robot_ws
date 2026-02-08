@@ -4882,7 +4882,20 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         req.drill_name = drill_name
         self.ros.shadow_drill_client.call_async(req)
 
+        # Force reset (bypass guard) when starting new drill
+        self._shadow_drill_active = False  # Temporarily disable to allow reset
+        self._shadow_end_reset_pending = False  # Cancel any pending delayed reset
         self._reset_shadow_ui()
+        
+        # Reset all tracking flags BEFORE activating drill
+        self._last_shadow_step = 0
+        self._last_failures = 0
+        self._last_iterations = 0
+        self._shadow_tracking_step = 0
+        self._feedback_end_time = 0
+        self._last_wrong_step = -1
+        self._pending_checkbox_reset = False
+        
         self._shadow_drill_active = True  # Gate punch detection UI - drill now active
         with self.ros.lock:
             self.ros.drill_summary = {}
@@ -4897,11 +4910,18 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
 
     def _reset_shadow_ui(self) -> None:
         """Reset shadow sparring UI to a clean state."""
+        # Don't reset if drill is currently active (prevents race with delayed timer)
+        if getattr(self, '_shadow_drill_active', False):
+            return
         self._shadow_drill_active = False  # Drill stopped, gate punch detection UI
+        self._shadow_end_reset_pending = False  # Clear pending delayed reset timer
         self._last_shadow_step = 0
         self._last_failures = 0
         self._last_iterations = 0
         self._shadow_tracking_step = 0
+        self._feedback_end_time = 0  # Clear feedback timer
+        self._last_wrong_step = -1
+        self._pending_checkbox_reset = False  # Clear pending reset
         self.shadow_checkbox_progress.reset()
         self.shadow_detected_label.setText("DETECTED: IDLE")
         if hasattr(self, "_shadow_detected_style"):
@@ -5254,6 +5274,21 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             shadow_punch_counter = self.ros.shadow_punch_counter
             last_action = self.ros.last_action
         
+        # Check if drill is active (gate all UI updates on this flag)
+        drill_active = getattr(self, '_shadow_drill_active', False)
+        
+        # EARLY EXIT: If drill is not active, freeze ALL checkbox/history updates
+        # Only allow preview updates when no drill is active
+        if not drill_active:
+            self._update_shadow_preview_from_gloves()
+            if hasattr(self, "shadow_punch_count_label"):
+                self.shadow_punch_count_label.setText(f"Punches: {shadow_punch_counter}")
+            self.shadow_detected_label.setText("DETECTED: --")
+            if hasattr(self, "_shadow_detected_style"):
+                self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
+            # Don't update checkboxes or history - keep frozen
+            return
+        
         if progress is None or not progress.drill_name:
             # No drill active - show real-time glove detection preview
             # Use glove_detections for continuous state display (idle/jab/cross)
@@ -5262,13 +5297,10 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             if hasattr(self, "shadow_punch_count_label"):
                 self.shadow_punch_count_label.setText(f"Punches: {shadow_punch_counter}")
             
-            # Do not tick combo boxes before START
+            # Do not update anything else before START - keep UI frozen
             self.shadow_detected_label.setText("DETECTED: --")
             if hasattr(self, "_shadow_detected_style"):
                 self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
-            # Also reset checkbox progress to ensure clean state
-            if not getattr(self, '_shadow_drill_active', False):
-                self.shadow_checkbox_progress.reset()
             return
 
         current_step = progress.current_step
@@ -5276,7 +5308,80 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         expected = progress.expected_actions[current_step] if current_step < len(progress.expected_actions) else None
         status = progress.status
 
-        if status != "in_progress":
+        # Allow wrong_action status to continue processing (drill is still active)
+        if status not in {"in_progress", "wrong_action"}:
+            # Handle final failure when status is 'failed' - this means all attempts used
+            if status == "failed":
+                # Get final counts from summary (may have timing issues, so use fallback)
+                failures_from_summary = 0
+                iterations_from_summary = 0
+                max_attempts = 3
+                if isinstance(self.ros.drill_summary, dict):
+                    failures_from_summary = self.ros.drill_summary.get("failures", 0)
+                    iterations_from_summary = self.ros.drill_summary.get("iterations", 0)
+                    max_attempts = self.ros.drill_summary.get("max_attempts", 3)
+                
+                # IMPORTANT: status='failed' from backend means ALL attempts used
+                # So we always treat this as drill exhausted, regardless of summary timing
+                if not hasattr(self, "_last_failures"):
+                    self._last_failures = 0
+                
+                # Add final failure to history (status='failed' means a failure just happened)
+                if hasattr(self, 'shadow_combo_history'):
+                    self.shadow_combo_history.add_result('wrong')
+                wrong_step = getattr(self, "_shadow_tracking_step", current_step)
+                try:
+                    self.shadow_checkbox_progress.set_wrong(wrong_step)
+                except:
+                    pass
+                
+                # Use max of summary count or our tracked count + 1
+                final_failures = max(failures_from_summary, self._last_failures + 1, max_attempts)
+                self._last_failures = final_failures
+                
+                # Update score labels
+                self.shadow_correct_label.setText(f"Correct: {iterations_from_summary}")
+                self.shadow_wrong_label.setText(f"Wrong: {final_failures}")
+                
+                # ALWAYS show DRILL OVER when status='failed' (backend only sends this when attempts=0)
+                self._shadow_drill_active = False
+                self._shadow_end_reset_pending = False
+                self._pending_checkbox_reset = False
+                self.action_label.setText("DRILL OVER")
+                self.action_label.setStyleSheet(
+                    "font-size: 36px; font-weight: 800; color: #ff4757; "
+                    "background: transparent; padding: 4px 0px;"
+                )
+                self.action_conf_label.setText(f"Completed {iterations_from_summary} combos")
+                self.shadow_start_btn.setText("▶  START")
+                if hasattr(self, "_shadow_start_style"):
+                    self.shadow_start_btn.setStyleSheet(self._shadow_start_style)
+                self.shadow_stop_btn.setEnabled(False)
+                self.shadow_detected_label.setText("DETECTED: --")
+                if hasattr(self, "_shadow_detected_style"):
+                    self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
+                
+                # Reset history and checkboxes after delay so user sees final state
+                def _delayed_failed_reset():
+                    if not getattr(self, '_shadow_drill_active', False):
+                        if hasattr(self, 'shadow_combo_history'):
+                            self.shadow_combo_history.reset()
+                        self.shadow_checkbox_progress.reset()
+                        self._last_shadow_step = 0
+                        self._last_failures = 0
+                        self._last_iterations = 0
+                        self.action_label.setText("READY")
+                        self.action_label.setStyleSheet(
+                            "font-size: 34px; font-weight: 800; color: #ff8c00; "
+                            "background: transparent; padding: 4px 0px;"
+                        )
+                        self.action_conf_label.setText("Select combo • Press START")
+                
+                QtCore.QTimer.singleShot(2000, _delayed_failed_reset)
+                return
+            
+            # Other non-active statuses (success, timeout, etc.)
+            self._shadow_drill_active = False  # Freeze all updates
             self.shadow_start_btn.setText("▶  START")
             if hasattr(self, "_shadow_start_style"):
                 self.shadow_start_btn.setStyleSheet(self._shadow_start_style)
@@ -5285,7 +5390,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self.shadow_detected_label.setText("DETECTED: --")
             if hasattr(self, "_shadow_detected_style"):
                 self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
-            if status in {"success", "failed", "timeout"} and not self._shadow_end_reset_pending:
+            if status in {"success", "timeout"} and not self._shadow_end_reset_pending:
                 self._shadow_end_reset_pending = True
                 QtCore.QTimer.singleShot(800, self._reset_shadow_ui)
             return
@@ -5297,12 +5402,43 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
         iterations = 0
         failures = 0
         attempts_left = None
+        max_attempts = 3  # Hardcoded max attempts for backup check
         if isinstance(self.ros.drill_summary, dict):
              iterations = self.ros.drill_summary.get("iterations", 0)
              failures = self.ros.drill_summary.get("failures", 0)
              attempts_left = self.ros.drill_summary.get("attempts", None)
+             max_attempts = self.ros.drill_summary.get("max_attempts", 3)
 
-        if attempts_left is not None and attempts_left <= 0:
+        # Always update score labels
+        self.shadow_correct_label.setText(f"Correct: {iterations}")
+        self.shadow_wrong_label.setText(f"Wrong: {failures}")
+
+        # When all attempts are used (3 failures), freeze UI until START is pressed again
+        # Check both attempts_left (from summary) AND failures >= max_attempts (backup for race condition)
+        drill_exhausted = (attempts_left is not None and attempts_left <= 0) or (failures >= max_attempts)
+        if drill_exhausted:
+            # IMPORTANT: Add the final failure to history BEFORE freezing UI
+            # This ensures the 3rd X shows in history even when drill ends
+            if not hasattr(self, "_last_failures"):
+                self._last_failures = 0
+            if failures > self._last_failures:
+                # There was a new failure that triggered exhaustion - add it to history
+                if hasattr(self, 'shadow_combo_history'):
+                    self.shadow_combo_history.add_result('wrong')
+                # Mark the final wrong step with X
+                wrong_step = getattr(self, "_shadow_tracking_step", progress.current_step if progress else 0)
+                try:
+                    self.shadow_checkbox_progress.set_wrong(wrong_step)
+                except:
+                    pass
+            
+            self._shadow_drill_active = False  # Stop all updates
+            drill_active = False  # Update local variable too
+            self._pending_checkbox_reset = False  # Cancel any pending resets
+            self._shadow_end_reset_pending = False  # Cancel any delayed resets
+            # Sync tracking state to prevent spurious new_failure triggers
+            self._last_failures = failures
+            self._last_iterations = iterations
             self.shadow_detected_label.setText("DETECTED: --")
             if hasattr(self, "_shadow_detected_style"):
                 self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
@@ -5310,12 +5446,42 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             if hasattr(self, "_shadow_start_style"):
                 self.shadow_start_btn.setStyleSheet(self._shadow_start_style)
             self.shadow_stop_btn.setEnabled(False)
+            # Show final result
+            self.action_label.setText("DRILL OVER")
+            self.action_label.setStyleSheet(
+                "font-size: 36px; font-weight: 800; color: #ff4757; "
+                "background: transparent; padding: 4px 0px;"
+            )
+            self.action_conf_label.setText(f"Completed {iterations} combos")
+            
+            # Send stop signal to backend to ensure drill is fully stopped
+            if self.ros.shadow_stop_client.service_is_ready():
+                self.ros.shadow_stop_client.call_async(Trigger.Request())
+            
+            # Reset history and checkboxes after a delay so user can see the final state
+            def _delayed_drill_over_reset():
+                # Only reset if drill is still inactive (user hasn't pressed START)
+                if not getattr(self, '_shadow_drill_active', False):
+                    if hasattr(self, 'shadow_combo_history'):
+                        self.shadow_combo_history.reset()
+                    self.shadow_checkbox_progress.reset()
+                    self._last_shadow_step = 0
+                    self._last_failures = 0
+                    self._last_iterations = 0
+                    self.action_label.setText("READY")
+                    self.action_label.setStyleSheet(
+                        "font-size: 34px; font-weight: 800; color: #ff8c00; "
+                        "background: transparent; padding: 4px 0px;"
+                    )
+                    self.action_conf_label.setText("Select combo • Press START")
+            
+            QtCore.QTimer.singleShot(2000, _delayed_drill_over_reset)
             return
-        
-        self.shadow_correct_label.setText(f"Correct: {iterations}")
-        self.shadow_wrong_label.setText(f"Wrong: {failures}")
 
         # Visual feedback for wrong action (Check status OR failure count increase)
+        # Only process feedback when drill is active
+        if not drill_active:
+            return
         
         # Track failures to trigger on increment
         if not hasattr(self, "_last_failures"):
@@ -5324,18 +5490,30 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self._last_wrong_step = -1
         if not hasattr(self, "_last_iterations"):
             self._last_iterations = 0
+        if not hasattr(self, "_feedback_end_time"):
+            self._feedback_end_time = 0
+        if not hasattr(self, "_pending_checkbox_reset"):
+            self._pending_checkbox_reset = False
             
         new_failure = failures > self._last_failures
         new_success = iterations > self._last_iterations
         
+        # Check if feedback period just expired - reset checkboxes now
+        feedback_active = time.time() < self._feedback_end_time
+        if self._pending_checkbox_reset and not feedback_active:
+            self.shadow_checkbox_progress.reset()
+            self._last_shadow_step = 0
+            self._pending_checkbox_reset = False
+        
         # Track which step was wrong (before reset)
-        if new_failure:
+        if new_failure and drill_active:
             # The wrong step is tracked by comparing last known step before reset
             wrong_step = getattr(self, "_shadow_tracking_step", current_step)
             self._last_wrong_step = wrong_step
             self._last_failures = failures
             
-            self._feedback_end_time = time.time() + 1.2  # Show for 1.2 seconds
+            self._feedback_end_time = time.time() + 1.0  # Show for 1.0 seconds
+            self._pending_checkbox_reset = True  # Flag to reset after feedback
             self.action_label.setText("WRONG! ❌")
             self.action_label.setStyleSheet(
                 "font-size: 36px; font-weight: 800; color: #ff4757; "
@@ -5361,14 +5539,15 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 }
             """)
             
-            # Add to combo history
+            # Add to combo history (only when drill is active)
             if hasattr(self, 'shadow_combo_history'):
                 self.shadow_combo_history.add_result('wrong')
         
         # Check for combo complete
-        if new_success:
+        if new_success and drill_active:
             self._last_iterations = iterations
-            self._feedback_end_time = time.time() + 1.2
+            self._feedback_end_time = time.time() + 1.0
+            self._pending_checkbox_reset = True  # Reset after feedback for next combo
             
             # Show COMPLETE in combo result box
             self.shadow_combo_result.setText("✓ COMBO COMPLETE")
@@ -5455,10 +5634,14 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                 self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
             self.shadow_checkbox_progress.reset()
             self._last_shadow_step = 0
-            if attempts_left is not None and attempts_left <= 0:
+            if drill_exhausted:
                 return
+        elif status == "wrong_action":
+            # This status is sent when user throws wrong punch - keep drill running
+            # The feedback is handled above via failure count tracking
+            pass
         
-        if status == "in_progress":
+        if status in {"in_progress", "wrong_action"}:
             self.shadow_start_btn.setText("▶  START")
             self.shadow_stop_btn.setEnabled(True)
             self._shadow_end_reset_pending = False
@@ -5485,7 +5668,7 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                   match_expected = True
 
         # Use real-time glove detections for continuous DETECTED label during drill
-        if attempts_left is not None and attempts_left <= 0:
+        if drill_exhausted:
             self.shadow_detected_label.setText("DETECTED: --")
             if hasattr(self, "_shadow_detected_style"):
                 self.shadow_detected_label.setStyleSheet(self._shadow_detected_style)
@@ -5508,7 +5691,10 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
                     }
                 """)
 
-        # Update checkbox progress for completed steps
+        # Update checkbox progress for completed steps (only when drill active)
+        if not drill_active:
+            return
+            
         completed = sum(progress.step_completed) if progress.step_completed else 0
         if not hasattr(self, "_last_shadow_step"):
             self._last_shadow_step = 0
@@ -5519,21 +5705,19 @@ class BoxBunnyGui(QtWidgets.QMainWindow):
             self.shadow_checkbox_progress.reset()
             self._last_shadow_step = 0
             
-        # Handle reset/restart (completed dropped below last step)
-        if completed < self._last_shadow_step:
-             feedback_active = (hasattr(self, "_feedback_end_time") and time.time() < self._feedback_end_time)
-             
-             # If feedback active (wrong punch or combo complete), keep the X visible
-             if feedback_active:
-                 return
-             
-             # Otherwise (feedback expired and user ready to continue), perform reset
+        # Handle reset/restart (completed dropped below last step) - skip if pending reset handles it
+        if completed < self._last_shadow_step and not self._pending_checkbox_reset:
+             # Reset happened without wrong punch (e.g., manual restart)
              self.shadow_checkbox_progress.reset()
              self._last_shadow_step = 0
              # Fall through to allow ticking up to current 'completed' if > 0
         
+        # Don't tick while feedback is active (showing X)
+        if feedback_active:
+            return
+        
         if completed > self._last_shadow_step:
-            if attempts_left is not None and attempts_left <= 0:
+            if drill_exhausted:
                 return
             for i in range(self._last_shadow_step, min(completed, total_steps)):
                 self.shadow_checkbox_progress.tick(i)

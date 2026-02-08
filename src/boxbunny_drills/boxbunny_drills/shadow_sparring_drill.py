@@ -611,6 +611,17 @@ class ShadowSparringDrill(Node):
         """Complete the drill and generate feedback."""
         elapsed = time.time() - self.start_time
         
+        # Publish final summary FIRST (before progress) so GUI has correct counts
+        summary_msg = String()
+        summary_msg.data = json.dumps({
+            "attempts": self.attempts_left,
+            "max_attempts": self.max_attempts,
+            "iterations": self.iterations,
+            "failures": self.failures,
+            "score": self.iterations * 100 
+        })
+        self.summary_pub.publish(summary_msg)
+        
         # Publish final progress
         status = 'success' if success else ('timeout' if reason == 'timeout' else 'failed')
         self._publish_progress(status)
