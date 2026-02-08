@@ -1204,7 +1204,7 @@ class RosInterface(Node):
         self.state_sub = self.create_subscription(String, "drill_state", self._on_state, 5)
         self.summary_sub = self.create_subscription(String, "drill_summary", self._on_summary, 5)
         self.countdown_sub = self.create_subscription(Int32, "drill_countdown", self._on_countdown, 5)
-        self.trash_sub = self.create_subscription(TrashTalk, "trash_talk", self._on_trash, 5)
+        self.trash_sub = self.create_subscription(TrashTalk, "coaching_feedback", self._on_trash, 5)
         self.robot_status_sub = self.create_subscription(
             String, "/robot/robot_action_status", self._on_robot_action_status, 5
         )

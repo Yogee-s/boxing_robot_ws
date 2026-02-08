@@ -109,7 +109,7 @@ class LlmCoachNode(Node):
             "/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws/src/boxbunny_llm/config/singlish_prompt.txt",
         )
 
-        self.pub = self.create_publisher(TrashTalk, "trash_talk", 10)
+        self.pub = self.create_publisher(TrashTalk, "coaching_feedback", 10)
         self.punch_sub = self.create_subscription(PunchEvent, "punch_events", self._on_punch, 10)
         self.drill_sub = self.create_subscription(DrillEvent, "drill_events", self._on_drill_event, 10)
         self.summary_sub = self.create_subscription(String, "drill_summary", self._on_summary, 10)
