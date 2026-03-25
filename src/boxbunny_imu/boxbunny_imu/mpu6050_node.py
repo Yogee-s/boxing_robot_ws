@@ -70,7 +70,7 @@ class Mpu6050Node(Node):
         super().__init__("mpu6050_node")
 
         # Declare ROS parameters
-        self.declare_parameter("i2c_bus", 1)
+        self.declare_parameter("i2c_bus", 7)
         self.declare_parameter("i2c_address", MPU6050_ADDR)
         self.declare_parameter("rate_hz", 50.0)
         self.declare_parameter("accel_bias", [0.0, 0.0, 0.0])
@@ -95,12 +95,11 @@ class Mpu6050Node(Node):
     def _init_device(self) -> None:
         """
         Initialize the MPU6050 sensor hardware.
-        
+
         Configures the I2C bus connection and sets up the sensor
         with appropriate sampling rate and sensitivity settings.
-        
-        Raises:
-            Logs error if smbus2 library is not available.
+        If the device is not reachable, logs a warning and leaves
+        self._bus as None so _tick becomes a no-op until retry.
         """
         if SMBus is None:
             self.get_logger().error(
@@ -111,22 +110,41 @@ class Mpu6050Node(Node):
 
         bus_num = int(self.get_parameter("i2c_bus").value)
         address = int(self.get_parameter("i2c_address").value)
-        self._bus = SMBus(bus_num)
 
-        # Wake up device (clear sleep bit)
-        self._bus.write_byte_data(address, PWR_MGMT_1, 0x00)
-        
-        # Set sample rate divider (1kHz / (1 + 7) = 125Hz internal rate)
-        self._bus.write_byte_data(address, SMPLRT_DIV, 0x07)
-        
-        # Set DLPF (Digital Low Pass Filter) for noise reduction
-        self._bus.write_byte_data(address, CONFIG, 0x03)
-        
-        # Configure gyroscope: ±250 degrees/second (highest sensitivity)
-        self._bus.write_byte_data(address, GYRO_CONFIG, 0x00)
-        
-        # Configure accelerometer: ±2g (highest sensitivity)
-        self._bus.write_byte_data(address, ACCEL_CONFIG, 0x00)
+        try:
+            bus = SMBus(bus_num)
+
+            # Wake up device (clear sleep bit)
+            bus.write_byte_data(address, PWR_MGMT_1, 0x00)
+
+            # Set sample rate divider (1kHz / (1 + 7) = 125Hz internal rate)
+            bus.write_byte_data(address, SMPLRT_DIV, 0x07)
+
+            # Set DLPF (Digital Low Pass Filter) for noise reduction
+            bus.write_byte_data(address, CONFIG, 0x03)
+
+            # Configure gyroscope: ±250 degrees/second (highest sensitivity)
+            bus.write_byte_data(address, GYRO_CONFIG, 0x00)
+
+            # Configure accelerometer: ±2g (highest sensitivity)
+            bus.write_byte_data(address, ACCEL_CONFIG, 0x00)
+
+            self._bus = bus
+        except OSError as e:
+            self.get_logger().warn(
+                f"MPU6050 not reachable on bus {bus_num} addr 0x{address:02X}: {e}. "
+                "Will retry every 5 seconds..."
+            )
+            self._bus = None
+            if not hasattr(self, '_retry_timer'):
+                self._retry_timer = self.create_timer(5.0, self._retry_init)
+
+    def _retry_init(self) -> None:
+        """Retry connecting to the MPU6050 sensor."""
+        self._init_device()
+        if self._bus is not None:
+            self.get_logger().info("MPU6050 connected successfully.")
+            self._retry_timer.cancel()
 
     def _read_word(self, address: int, reg: int) -> int:
         """
