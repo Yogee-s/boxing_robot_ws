@@ -61,6 +61,7 @@ class StationPage(QWidget):
         top = QHBoxLayout()
         self._config_lbl = QLabel(self._config_name)
         self._config_lbl.setFont(font(20, bold=True))
+        self._config_lbl.setWordWrap(True)
         top.addWidget(self._config_lbl)
         top.addStretch()
         self._participant_lbl = QLabel(f"Participant #{self._participant}")

@@ -106,14 +106,22 @@ class HistoryPage(QWidget):
         top.addStretch()
         root.addLayout(top)
 
-        # Filters
+        # Filters — use plain QPushButton to avoid text clipping
+        from PySide6.QtWidgets import QPushButton
         filters = QHBoxLayout()
-        filters.setSpacing(Size.SPACING_SM)
-        self._filter_btns: list[BigButton] = []
+        filters.setSpacing(8)
+        self._filter_btns: list[QPushButton] = []
         for f in _FILTERS:
-            btn = BigButton(f, stylesheet=SURFACE_BTN)
-            btn.setFixedHeight(40)
-            btn.setFixedWidth(120)
+            btn = QPushButton(f)
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    font-size: 14px; font-weight: 600; padding: 8px 18px;
+                    background-color: {Color.SURFACE_LIGHT}; color: {Color.TEXT_SECONDARY};
+                    border: 1px solid {Color.BORDER}; border-radius: 8px;
+                    min-height: 0; min-width: 0;
+                }}
+                QPushButton:hover {{ color: {Color.TEXT}; border-color: {Color.PRIMARY}; }}
+            """)
             btn.clicked.connect(lambda _c=False, flt=f: self._set_filter(flt))
             filters.addWidget(btn)
             self._filter_btns.append(btn)

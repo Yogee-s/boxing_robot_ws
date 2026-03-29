@@ -87,7 +87,7 @@ class StaminaTestPage(QWidget):
         )
         rate_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._rate_lbl = QLabel("0")
-        self._rate_lbl.setFont(font(48, bold=True))
+        self._rate_lbl.setFont(font(36, bold=True))
         self._rate_lbl.setStyleSheet(f"color: {Color.PRIMARY};")
         self._rate_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         rate_col.addWidget(rate_label)

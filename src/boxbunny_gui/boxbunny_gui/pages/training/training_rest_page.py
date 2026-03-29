@@ -46,7 +46,7 @@ class TrainingRestPage(QWidget):
 
         # Title
         title = QLabel("REST")
-        title.setFont(font(Size.TEXT_HEADER, bold=True))
+        title.setFont(font(28, bold=True))
         title.setStyleSheet(f"color: {Color.TEXT_SECONDARY};")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(title)

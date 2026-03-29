@@ -45,7 +45,7 @@ class StatCard(QFrame):
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self.setFixedHeight(120)
+        self.setFixedHeight(100)
         self.setStyleSheet(
             f"QFrame {{ background-color: {Color.SURFACE};"
             f" border-radius: {Size.RADIUS}px; }}"
@@ -60,7 +60,7 @@ class StatCard(QFrame):
         self._title_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
         self._value_lbl = QLabel(value)
-        self._value_lbl.setStyleSheet(f"color: {Color.TEXT}; font-size: 36px; font-weight: bold;")
+        self._value_lbl.setStyleSheet(f"color: {Color.TEXT}; font-size: 28px; font-weight: bold;")
         self._value_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
         self._sub_lbl = QLabel()

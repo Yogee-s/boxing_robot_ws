@@ -32,9 +32,10 @@ logger = logging.getLogger("boxbunny.dashboard")
 _PACKAGE_DIR = Path(__file__).resolve().parent
 _PROJECT_DIR = _PACKAGE_DIR.parent
 _STATIC_DIR = _PROJECT_DIR / "static" / "dist"
+_WS_ROOT = _PROJECT_DIR.parents[1]  # boxing_robot_ws/
 _DATA_DIR = os.environ.get(
     "BOXBUNNY_DATA_DIR",
-    str(Path.home() / ".boxbunny" / "data"),
+    str(_WS_ROOT / "data"),
 )
 
 

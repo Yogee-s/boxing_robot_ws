@@ -94,7 +94,8 @@ class TrainingResultsPage(QWidget):
 
         # QR + buttons
         bottom = QHBoxLayout()
-        self._qr = QRWidget(data="https://boxbunny.local/session/latest", size=64)
+        self._qr = QRWidget(size=64)
+        self._qr.set_text("https://boxbunny.local/session/latest")
         bottom.addWidget(self._qr)
         bottom.addStretch()
 

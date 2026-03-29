@@ -6,11 +6,23 @@ and launches the 1024x600 frameless window for the Jetson Orin NX touchscreen.
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Optional
 
+# Fix Qt platform plugin discovery when conda or virtualenv overrides paths
+if not os.environ.get("QT_QPA_PLATFORM_PLUGIN_PATH"):
+    try:
+        import PySide6
+        _pyside_plugins = Path(PySide6.__path__[0]) / "Qt" / "plugins" / "platforms"
+        if _pyside_plugins.exists():
+            os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(_pyside_plugins)
+    except Exception:
+        pass
+
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget, QWidget
 
 from boxbunny_gui.gui_bridge import GuiBridge
@@ -40,15 +52,28 @@ class BoxBunnyApp:
         # ── Qt application ──────────────────────────────────────────────
         self._qapp = QApplication(argv or sys.argv)
         self._qapp.setApplicationName("BoxBunny")
+
+        # ── Load Inter font before any widgets are created ─────────────
+        assets_dir = self._resolve_assets_dir()
+        font_path = assets_dir / "fonts" / "InterVariable.ttf"
+        if font_path.exists():
+            font_id = QFontDatabase.addApplicationFont(str(font_path))
+            if font_id < 0:
+                logger.warning("Failed to load Inter font from %s", font_path)
+            else:
+                families = QFontDatabase.applicationFontFamilies(font_id)
+                logger.info("Loaded font families: %s", families)
+        font_italic_path = assets_dir / "fonts" / "InterVariable-Italic.ttf"
+        if font_italic_path.exists():
+            QFontDatabase.addApplicationFont(str(font_italic_path))
+
         self._qapp.setStyleSheet(GLOBAL_STYLESHEET)
 
-        # ── Main window (frameless, fixed size) ─────────────────────────
+        # ── Main window (fixed size, standard title bar as backup close) ─
         self._window = QMainWindow()
-        self._window.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window
-        )
         self._window.setFixedSize(Size.SCREEN_W, Size.SCREEN_H)
         self._window.setWindowTitle("BoxBunny")
+        self._window.setStyleSheet("background-color: #0A0A0A;")
 
         # ── Central stacked widget for page routing ─────────────────────
         self._stack = QStackedWidget()
@@ -86,7 +111,7 @@ class BoxBunnyApp:
 
     def run(self) -> int:
         """Show the window and enter the Qt event loop."""
-        self._router.navigate("home")
+        self._router.navigate("auth")
         self._window.show()
         exit_code = self._qapp.exec()
         self._shutdown()
@@ -137,19 +162,15 @@ class BoxBunnyApp:
             "dev_overlay": self._dev_overlay,
         }
 
-        # Register placeholder pages for every expected route
+        # Register all pages — each gets its actual class from the page_map
         page_names = [
-            "auth",
-            "home",
-            "training_select",
-            "training_session",
-            "sparring_select",
-            "sparring_session",
-            "performance",
-            "history",
-            "presets",
-            "coach",
-            "settings",
+            "auth", "home", "home_guest", "home_coach",
+            "guest_assessment", "account_picker", "pattern_lock", "signup",
+            "training_select", "training_config", "training_session",
+            "training_rest", "training_results",
+            "sparring_select", "sparring_session", "sparring_results",
+            "performance", "power_test", "stamina_test", "reaction_test",
+            "history", "presets", "coach", "settings",
         ]
         for name in page_names:
             page = self._try_load_page(name, deps)
@@ -157,19 +178,33 @@ class BoxBunnyApp:
 
     def _try_load_page(self, name: str, deps: dict) -> QWidget:
         """Attempt to import and instantiate a page, falling back to a stub."""
-        # Map route name -> module path and class name
+        # Map route name -> (module_path, class_name)
+        # These match the actual filenames and class names in pages/
         page_map = {
-            "auth": ("boxbunny_gui.pages.auth", "AuthPage"),
-            "home": ("boxbunny_gui.pages.home", "HomePage"),
-            "training_select": ("boxbunny_gui.pages.training", "TrainingSelectPage"),
-            "training_session": ("boxbunny_gui.pages.training", "TrainingSessionPage"),
-            "sparring_select": ("boxbunny_gui.pages.sparring", "SparringSelectPage"),
-            "sparring_session": ("boxbunny_gui.pages.sparring", "SparringSessionPage"),
-            "performance": ("boxbunny_gui.pages.performance", "PerformancePage"),
-            "history": ("boxbunny_gui.pages.history", "HistoryPage"),
-            "presets": ("boxbunny_gui.pages.presets", "PresetsPage"),
-            "coach": ("boxbunny_gui.pages.coach", "CoachPage"),
-            "settings": ("boxbunny_gui.pages.settings", "SettingsPage"),
+            "auth": ("boxbunny_gui.pages.auth.startup_page", "StartupPage"),
+            "home": ("boxbunny_gui.pages.home.home_individual", "HomeIndividualPage"),
+            "home_guest": ("boxbunny_gui.pages.home.home_guest", "HomeGuestPage"),
+            "home_coach": ("boxbunny_gui.pages.home.home_coach", "HomeCoachPage"),
+            "guest_assessment": ("boxbunny_gui.pages.auth.guest_assessment_page", "GuestAssessmentPage"),
+            "account_picker": ("boxbunny_gui.pages.auth.account_picker_page", "AccountPickerPage"),
+            "pattern_lock": ("boxbunny_gui.pages.auth.pattern_lock_page", "PatternLockPage"),
+            "signup": ("boxbunny_gui.pages.auth.signup_page", "SignupPage"),
+            "training_select": ("boxbunny_gui.pages.training.combo_select_page", "ComboSelectPage"),
+            "training_config": ("boxbunny_gui.pages.training.training_config_page", "TrainingConfigPage"),
+            "training_session": ("boxbunny_gui.pages.training.training_session_page", "TrainingSessionPage"),
+            "training_rest": ("boxbunny_gui.pages.training.training_rest_page", "TrainingRestPage"),
+            "training_results": ("boxbunny_gui.pages.training.training_results_page", "TrainingResultsPage"),
+            "sparring_select": ("boxbunny_gui.pages.sparring.sparring_config_page", "SparringConfigPage"),
+            "sparring_session": ("boxbunny_gui.pages.sparring.sparring_session_page", "SparringSessionPage"),
+            "sparring_results": ("boxbunny_gui.pages.sparring.sparring_results_page", "SparringResultsPage"),
+            "performance": ("boxbunny_gui.pages.performance.performance_menu_page", "PerformanceMenuPage"),
+            "power_test": ("boxbunny_gui.pages.performance.power_test_page", "PowerTestPage"),
+            "stamina_test": ("boxbunny_gui.pages.performance.stamina_test_page", "StaminaTestPage"),
+            "reaction_test": ("boxbunny_gui.pages.performance.reaction_test_page", "ReactionTestPage"),
+            "history": ("boxbunny_gui.pages.history.history_page", "HistoryPage"),
+            "presets": ("boxbunny_gui.pages.presets.presets_page", "PresetsPage"),
+            "coach": ("boxbunny_gui.pages.coach.station_page", "StationPage"),
+            "settings": ("boxbunny_gui.pages.settings.settings_page", "SettingsPage"),
         }
 
         if name not in page_map:
@@ -178,11 +213,23 @@ class BoxBunnyApp:
         module_path, class_name = page_map[name]
         try:
             import importlib
+            import inspect
             mod = importlib.import_module(module_path)
             cls = getattr(mod, class_name)
-            return cls(**deps)
-        except (ImportError, AttributeError):
-            logger.debug("Page '%s' not yet implemented -- using placeholder", name)
+            # Only pass kwargs the constructor actually accepts
+            sig = inspect.signature(cls.__init__)
+            accepted = set(sig.parameters.keys()) - {"self"}
+            if "kwargs" in str(sig):
+                # Constructor accepts **kwargs, pass everything
+                filtered_deps = deps
+            else:
+                filtered_deps = {k: v for k, v in deps.items() if k in accepted}
+            # Always try with parent=None too
+            if "parent" in accepted and "parent" not in filtered_deps:
+                filtered_deps["parent"] = None
+            return cls(**filtered_deps)
+        except Exception as exc:
+            logger.warning("Page '%s' failed to load: %s", name, exc)
             return self._make_placeholder(name)
 
     @staticmethod

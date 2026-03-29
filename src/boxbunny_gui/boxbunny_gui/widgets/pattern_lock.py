@@ -19,9 +19,9 @@ log = logging.getLogger(__name__)
 
 _ROWS = 3
 _COLS = 3
-_DOT_RADIUS = 20
-_DOT_RADIUS_ACTIVE = 24
-_HIT_RADIUS = 36  # touch hit-test area
+_DOT_RADIUS = 22
+_DOT_RADIUS_ACTIVE = 28
+_HIT_RADIUS = 48  # generous touch hit-test area for gloved fingers
 
 
 class PatternLock(QWidget):
@@ -47,10 +47,13 @@ class PatternLock(QWidget):
         self._selected: list[int] = []
         self._cursor: int = 4  # centre dot for keyboard nav
         self._dragging: bool = False
+        self._drag_pos: Optional[QPointF] = None  # current finger position for trailing line
 
         self.setMinimumSize(220, 220)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setMouseTracking(True)  # receive mouseMoveEvent even without button pressed
+        self.setAttribute(Qt.WidgetAttribute.WA_AcceptTouchEvents, True)
 
         # pulse timer for cursor blink
         self._blink_on: bool = True
@@ -92,17 +95,20 @@ class PatternLock(QWidget):
             return
         self._selected.clear()
         self._dragging = True
+        self._drag_pos = event.position()
         self._try_add(event.position())
         self.update()
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
         if self._dragging:
+            self._drag_pos = event.position()
             self._try_add(event.position())
             self.update()
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if self._dragging:
             self._dragging = False
+            self._drag_pos = None
             if self._selected:
                 self.pattern_entered.emit(list(self._selected))
             self.update()
@@ -159,14 +165,21 @@ class PatternLock(QWidget):
 
         selected_set = set(self._selected)
 
-        # draw path lines
+        # draw path lines between selected dots
         if len(self._selected) > 1:
-            pen = QPen(QColor(Color.PRIMARY), 4)
+            pen = QPen(QColor(Color.PRIMARY), 5)
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             p.setPen(pen)
             for i in range(len(self._selected) - 1):
                 p.drawLine(self._dot_center(self._selected[i]),
                            self._dot_center(self._selected[i + 1]))
+
+        # draw trailing line from last selected dot to current finger position
+        if self._dragging and self._selected and self._drag_pos is not None:
+            trail_pen = QPen(QColor(Color.PRIMARY), 3, Qt.PenStyle.DashLine)
+            trail_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            p.setPen(trail_pen)
+            p.drawLine(self._dot_center(self._selected[-1]), self._drag_pos)
 
         # draw dots
         for idx in range(_ROWS * _COLS):

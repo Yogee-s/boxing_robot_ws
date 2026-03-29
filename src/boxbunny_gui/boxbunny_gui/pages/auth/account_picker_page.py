@@ -86,6 +86,13 @@ class AccountPickerPage(QWidget):
         top.addWidget(self._btn_back)
         self._search = QLineEdit()
         self._search.setPlaceholderText("Search users...")
+        self._search.setStyleSheet(
+            f"QLineEdit {{ background-color: {Color.SURFACE}; color: {Color.TEXT};"
+            f" border: 1px solid {Color.BORDER_LIGHT}; border-radius: {Size.RADIUS_SM}px;"
+            f" padding: 8px 12px; font-size: 16px; }}"
+            f" QLineEdit:focus {{ border-color: {Color.PRIMARY}; }}"
+        )
+        self._search.setFixedHeight(40)
         self._search.textChanged.connect(self._filter)
         top.addWidget(self._search)
         root.addLayout(top)
@@ -105,7 +112,8 @@ class AccountPickerPage(QWidget):
         signup_lbl = QLabel("New? Scan QR to sign up")
         signup_lbl.setStyleSheet(f"color: {Color.TEXT_SECONDARY}; font-size: 14px;")
         bottom.addWidget(signup_lbl)
-        self._qr = QRWidget(data="https://boxbunny.local/signup", size=60)
+        self._qr = QRWidget(size=60)
+        self._qr.set_text("https://boxbunny.local/signup")
         bottom.addWidget(self._qr)
         bottom.addStretch()
         root.addLayout(bottom)

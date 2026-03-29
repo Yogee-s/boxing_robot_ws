@@ -102,6 +102,7 @@ class TrainingConfigPage(QWidget):
         self._combo_lbl = QLabel()
         self._combo_lbl.setFont(font(20, bold=True))
         self._combo_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._combo_lbl.setWordWrap(True)
         root.addWidget(self._combo_lbl)
 
         # TODO: add ComboDisplay widget showing visual punch sequence

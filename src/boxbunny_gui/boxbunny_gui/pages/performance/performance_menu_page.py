@@ -54,7 +54,7 @@ class _TestCard(QFrame):
         super().__init__(parent)
         self.test = test
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedHeight(130)
+        self.setFixedHeight(110)
         self.setStyleSheet(
             f"QFrame {{ background-color: {Color.SURFACE};"
             f" border-radius: {Size.RADIUS_LG}px; }}"

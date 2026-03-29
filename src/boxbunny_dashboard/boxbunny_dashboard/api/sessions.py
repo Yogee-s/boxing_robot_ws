@@ -137,7 +137,7 @@ async def get_session_trends(
     request: Request,
     user: dict = Depends(get_current_user),
     db: DatabaseManager = Depends(_get_db),
-    range: str = Query(default="30d", regex="^(7d|30d|90d|all)$"),
+    range: str = Query(default="30d", pattern="^(7d|30d|90d|all)$"),
 ) -> Dict[str, Any]:
     """Return time-series trend data for analytics dashboards.
 

@@ -48,7 +48,7 @@ class PunchCounter(QWidget):
         self._number = QLabel("0")
         self._number.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._number.setStyleSheet(
-            f"color: {Color.PRIMARY}; font-size: 72px; font-weight: bold;"
+            f"color: {Color.PRIMARY}; font-size: 56px; font-weight: bold;"
             " background: transparent;"
         )
 
@@ -70,7 +70,7 @@ class PunchCounter(QWidget):
 
     def _set_pulse(self, v: float) -> None:
         self._pulse_val = v
-        pt = int(72 * v)
+        pt = int(56 * v)
         self._number.setStyleSheet(
             f"color: {Color.PRIMARY}; font-size: {pt}px; font-weight: bold;"
             " background: transparent;"

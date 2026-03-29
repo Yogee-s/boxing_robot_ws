@@ -86,9 +86,9 @@ class ReactionTestPage(QWidget):
 
         # Stimulus area (large central region)
         self._stimulus = QWidget()
-        self._stimulus.setMinimumHeight(250)
+        self._stimulus.setMinimumHeight(180)
         self._stimulus_lbl = QLabel("Tap Start to begin")
-        self._stimulus_lbl.setFont(font(32, bold=True))
+        self._stimulus_lbl.setFont(font(28, bold=True))
         self._stimulus_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         stim_lay = QVBoxLayout(self._stimulus)
         stim_lay.addWidget(self._stimulus_lbl)

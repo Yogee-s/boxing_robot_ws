@@ -1,136 +1,168 @@
-"""Quick skill assessment for guest users (3 questions, one at a time).
+"""Quick skill assessment — all questions on one page.
 
-Collects experience level, goal, and preferred intensity.
-Progress dots at top indicate current question.
+Collects experience, goal, and intensity in a single clean screen.
 """
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import Any, Dict, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, font, PRIMARY_BTN, SURFACE_BTN
-from boxbunny_gui.widgets import BigButton
-
-if TYPE_CHECKING:
-    from boxbunny_gui.nav.router import PageRouter
-
 logger = logging.getLogger(__name__)
 
-_QUESTIONS: List[Dict[str, Any]] = [
-    {
-        "prompt": "Have you boxed before?",
-        "key": "experience",
-        "options": ["Yes", "No"],
-    },
-    {
-        "prompt": "What's your goal?",
-        "key": "goal",
-        "options": ["Fitness", "Learn Boxing", "Improve Skills"],
-    },
-    {
-        "prompt": "Preferred intensity?",
-        "key": "intensity",
-        "options": ["Light", "Medium", "Hard"],
-    },
-]
+
+def _option_btn(text: str, selected: bool = False) -> QPushButton:
+    """Create a selectable option button."""
+    btn = QPushButton(text)
+    bg = "#FF6B35" if selected else "#1E1E1E"
+    fg = "#0D0D0D" if selected else "#FFFFFF"
+    border = "#FF6B35" if selected else "#333"
+    btn.setStyleSheet(f"""
+        QPushButton {{
+            font-size: 16px; font-weight: 600; padding: 8px 16px;
+            min-height: 40px; min-width: 120px;
+            background-color: {bg}; color: {fg};
+            border: 2px solid {border}; border-radius: 12px;
+        }}
+        QPushButton:hover {{ border-color: #FF6B35; }}
+    """)
+    return btn
 
 
 class GuestAssessmentPage(QWidget):
-    """Three-question wizard that feeds into the guest home page."""
+    """Single-page skill assessment with three question rows."""
 
-    def __init__(self, router: PageRouter, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
+    def __init__(self, router=None, **kwargs):
+        super().__init__()
         self._router = router
-        self._step: int = 0
         self._answers: Dict[str, str] = {}
-        self._option_btns: list[BigButton] = []
-        self._build_ui()
+        self._btn_groups: Dict[str, list] = {}
 
-    # ── UI ─────────────────────────────────────────────────────────────
-    def _build_ui(self) -> None:
-        self._root = QVBoxLayout(self)
-        self._root.setContentsMargins(Size.SPACING_LG, Size.SPACING_LG,
-                                      Size.SPACING_LG, Size.SPACING_LG)
-        self._root.setSpacing(Size.SPACING)
+        root = QVBoxLayout(self)
+        root.setSpacing(0)
+        root.setContentsMargins(80, 30, 80, 30)
 
-        # Progress dots
-        self._dots_layout = QHBoxLayout()
-        self._dots_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._dots: list[QLabel] = []
-        for i in range(len(_QUESTIONS)):
-            dot = QLabel()
-            dot.setFixedSize(14, 14)
-            self._dots.append(dot)
-            self._dots_layout.addWidget(dot)
-        self._root.addLayout(self._dots_layout)
+        # ── Title ────────────────────────────────────────────────────────
+        title = QLabel("Quick Assessment")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("font-size: 28px; font-weight: 700; color: #FFFFFF;")
 
-        # Prompt label
-        self._prompt = QLabel()
-        self._prompt.setFont(font(Size.TEXT_HEADER, bold=True))
-        self._prompt.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._prompt.setWordWrap(True)
-        self._root.addStretch(1)
-        self._root.addWidget(self._prompt)
-        self._root.addStretch(1)
+        sub = QLabel("Help us personalize your experience")
+        sub.setAlignment(Qt.AlignCenter)
+        sub.setStyleSheet("font-size: 16px; color: #B0B0B0;")
 
-        # Option buttons container
-        self._btn_layout = QVBoxLayout()
-        self._btn_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._btn_layout.setSpacing(Size.SPACING)
-        self._root.addLayout(self._btn_layout)
-        self._root.addStretch(2)
+        root.addStretch(2)
+        root.addWidget(title, alignment=Qt.AlignCenter)
+        root.addSpacing(4)
+        root.addWidget(sub, alignment=Qt.AlignCenter)
+        root.addStretch(2)
 
-    def _refresh_step(self) -> None:
-        """Rebuild widgets for the current question step."""
-        # Clear old buttons
-        for btn in self._option_btns:
-            self._btn_layout.removeWidget(btn)
-            btn.deleteLater()
-        self._option_btns.clear()
+        # ── Question 1: Experience ───────────────────────────────────────
+        root.addLayout(self._make_question(
+            "Have you boxed before?", "experience", ["No", "A Little", "Yes"]
+        ))
+        root.addStretch(1)
 
-        q = _QUESTIONS[self._step]
-        self._prompt.setText(q["prompt"])
+        # ── Question 2: Goal ─────────────────────────────────────────────
+        root.addLayout(self._make_question(
+            "What's your goal?", "goal", ["Fitness", "Learn Boxing", "Improve Skills"]
+        ))
+        root.addStretch(1)
 
-        # Update dots
-        for i, dot in enumerate(self._dots):
-            active = i == self._step
-            dot.setStyleSheet(
-                f"background-color: {Color.PRIMARY if active else Color.SURFACE_LIGHT};"
-                f" border-radius: 7px;"
-            )
+        # ── Question 3: Intensity ────────────────────────────────────────
+        root.addLayout(self._make_question(
+            "Preferred intensity?", "intensity", ["Light", "Medium", "Hard"]
+        ))
+        root.addStretch(2)
 
-        # Create option buttons
-        for opt in q["options"]:
-            btn = BigButton(opt, stylesheet=SURFACE_BTN)
-            btn.setFixedWidth(int(Size.SCREEN_W * 0.55))
-            btn.clicked.connect(lambda _checked=False, o=opt: self._pick(o))
-            self._btn_layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
-            self._option_btns.append(btn)
+        # ── Start button ─────────────────────────────────────────────────
+        start_btn = QPushButton("Let's Go!")
+        start_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 22px; font-weight: 700; padding: 12px;
+                min-width: 350px; min-height: 52px;
+                background-color: #FF6B35; color: #FFFFFF;
+                border: none; border-radius: 14px;
+            }
+            QPushButton:hover { background-color: #E55A2B; }
+        """)
+        start_btn.clicked.connect(self._on_start)
+        root.addWidget(start_btn, alignment=Qt.AlignCenter)
 
-    def _pick(self, value: str) -> None:
-        q = _QUESTIONS[self._step]
-        self._answers[q["key"]] = value
-        self._step += 1
-        if self._step >= len(_QUESTIONS):
-            logger.info("Guest assessment complete: %s", self._answers)
-            self._router.navigate("home_guest", **self._answers)
-        else:
-            self._refresh_step()
+        root.addStretch(1)
 
-    # ── Lifecycle ──────────────────────────────────────────────────────
+        # ── Back link ────────────────────────────────────────────────────
+        back = QPushButton("Back")
+        back.setStyleSheet("""
+            QPushButton {
+                font-size: 14px; color: #B0B0B0; background: transparent;
+                border: none; min-height: 0; min-width: 0; padding: 4px;
+            }
+            QPushButton:hover { color: #FFF; }
+        """)
+        back.clicked.connect(lambda: self._router.navigate("auth") if self._router else None)
+        root.addWidget(back, alignment=Qt.AlignCenter)
+        root.addSpacing(8)
+
+    def _make_question(self, prompt: str, key: str, options: list) -> QVBoxLayout:
+        """Build a question row: label + horizontal option buttons."""
+        col = QVBoxLayout()
+        col.setSpacing(8)
+
+        label = QLabel(prompt)
+        label.setAlignment(Qt.AlignCenter)
+        label.setStyleSheet("font-size: 16px; font-weight: 600; color: #FFFFFF;")
+        col.addWidget(label, alignment=Qt.AlignCenter)
+
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        row.setAlignment(Qt.AlignCenter)
+        btns = []
+        for opt in options:
+            btn = _option_btn(opt)
+            btn.clicked.connect(lambda checked, k=key, o=opt, bl=btns: self._select(k, o, bl))
+            row.addWidget(btn)
+            btns.append((opt, btn))
+        col.addLayout(row)
+
+        self._btn_groups[key] = btns
+        # Default to first option
+        self._select(key, options[0], btns)
+        return col
+
+    def _select(self, key: str, value: str, btns: list) -> None:
+        """Mark a button as selected and update answer."""
+        self._answers[key] = value
+        for opt_text, btn in btns:
+            selected = (opt_text == value)
+            bg = "#FF6B35" if selected else "#1E1E1E"
+            fg = "#0D0D0D" if selected else "#FFFFFF"
+            border = "#FF6B35" if selected else "#333"
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    font-size: 16px; font-weight: 600; padding: 8px 16px;
+                    min-height: 40px; min-width: 120px;
+                    background-color: {bg}; color: {fg};
+                    border: 2px solid {border}; border-radius: 12px;
+                }}
+                QPushButton:hover {{ border-color: #FF6B35; }}
+            """)
+
+    def _on_start(self) -> None:
+        logger.info("Guest assessment: %s", self._answers)
+        if self._router:
+            self._router.navigate("home_guest", answers=self._answers)
+
     def on_enter(self, **kwargs: Any) -> None:
-        self._step = 0
-        self._answers.clear()
-        self._refresh_step()
-        logger.debug("GuestAssessmentPage entered")
+        pass
 
     def on_leave(self) -> None:
         pass

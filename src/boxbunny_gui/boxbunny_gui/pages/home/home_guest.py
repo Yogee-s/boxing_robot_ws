@@ -1,131 +1,117 @@
-"""Guest home page shown after the skill assessment.
+"""Guest home page — shown after skill assessment.
 
-Recommended drill card at top, 2x2 mode grid, QR to save progress.
+Dark surface buttons with subtle colored left accent. Clean, minimal.
 """
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QFrame,
-    QGridLayout,
-    QHBoxLayout,
-    QLabel,
-    QVBoxLayout,
-    QWidget,
-)
-
-from boxbunny_gui.theme import Color, Size, font, GHOST_BTN
-from boxbunny_gui.widgets import BigButton, QRWidget
-
-if TYPE_CHECKING:
-    from boxbunny_gui.nav.router import PageRouter
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 logger = logging.getLogger(__name__)
 
-_MODES = [
-    ("Training", "combo_select"),
-    ("Sparring", "sparring_config"),
-    ("Free Training", "training_config"),
-    ("Performance", "performance_menu"),
-]
 
-_DIFFICULTY_MAP = {"Light": "beginner", "Medium": "intermediate", "Hard": "advanced"}
-
-
-class _ModeCard(QFrame):
-    """Touchable card for a training mode."""
-
-    def __init__(self, label: str, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setFixedSize(230, 120)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet(
-            f"QFrame {{ background-color: {Color.SURFACE};"
-            f" border-radius: {Size.RADIUS_LG}px; }}"
-            f" QFrame:hover {{ background-color: {Color.SURFACE_HOVER}; }}"
-        )
-        lay = QVBoxLayout(self)
-        lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl = QLabel(label)
-        lbl.setFont(font(20, bold=True))
-        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lay.addWidget(lbl)
+def _mode_btn(text: str, accent: str) -> QPushButton:
+    """Dark button with a thin colored left border accent."""
+    btn = QPushButton(text)
+    btn.setStyleSheet(f"""
+        QPushButton {{
+            font-size: 22px; font-weight: 600; padding: 14px 20px;
+            min-width: 480px; min-height: 60px;
+            background-color: #141414; color: #E0E0E0;
+            border: none; border-radius: 14px;
+            border-left: 4px solid {accent};
+            text-align: left; padding-left: 28px;
+        }}
+        QPushButton:hover {{
+            background-color: #1C1C1C; color: #FFFFFF;
+            border-left: 4px solid {accent};
+        }}
+        QPushButton:pressed {{ background-color: #242424; }}
+    """)
+    return btn
 
 
 class HomeGuestPage(QWidget):
-    """Dashboard for a guest (unauthenticated) user."""
+    """Menu for guest (unauthenticated) users."""
 
-    def __init__(self, router: PageRouter, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
+    def __init__(self, router=None, **kwargs):
+        super().__init__()
         self._router = router
-        self._build_ui()
 
-    def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(Size.SPACING, Size.SPACING_SM, Size.SPACING, Size.SPACING_SM)
-        root.setSpacing(Size.SPACING)
+        root.setSpacing(0)
+        root.setContentsMargins(80, 25, 80, 25)
 
-        # Top bar
+        # ── Top bar ──────────────────────────────────────────────────────
         top = QHBoxLayout()
-        guest_lbl = QLabel("Guest")
-        guest_lbl.setFont(font(22, bold=True))
-        top.addWidget(guest_lbl)
+        title = QLabel("Guest Mode")
+        title.setStyleSheet("font-size: 24px; font-weight: 700; color: #F5F5F5;")
+        top.addWidget(title)
         top.addStretch()
-        self._qr_top = QRWidget(data="https://boxbunny.local/signup", size=48)
-        top.addWidget(self._qr_top)
-        save_lbl = QLabel("Scan to save progress")
-        save_lbl.setStyleSheet(f"color: {Color.TEXT_SECONDARY}; font-size: 13px;")
-        top.addWidget(save_lbl)
+
+        close_btn = QPushButton("\u2715")
+        close_btn.setFixedSize(38, 38)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 14px; background-color: #1C1C1C; color: #666;
+                border: 1px solid #2A2A2A; border-radius: 19px;
+                min-height: 0; min-width: 0; padding: 0;
+            }
+            QPushButton:hover { background-color: #E53935; color: white; border-color: #E53935; }
+        """)
+        close_btn.clicked.connect(lambda: self.window().close())
+        top.addWidget(close_btn)
         root.addLayout(top)
 
-        # Recommended card
-        self._rec_card = QFrame()
-        self._rec_card.setFixedHeight(90)
-        self._rec_card.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._rec_card.setStyleSheet(
-            f"QFrame {{ background-color: {Color.SURFACE};"
-            f" border: 2px solid {Color.PRIMARY};"
-            f" border-radius: {Size.RADIUS_LG}px; }}"
-        )
-        rec_lay = QVBoxLayout(self._rec_card)
-        self._rec_title = QLabel("Recommended for You")
-        self._rec_title.setFont(font(16, bold=True))
-        self._rec_title.setStyleSheet(f"color: {Color.PRIMARY};")
-        self._rec_desc = QLabel("Jab-Cross Combo -- Beginner")
-        self._rec_desc.setStyleSheet(f"color: {Color.TEXT_SECONDARY}; font-size: 14px;")
-        rec_lay.addWidget(self._rec_title)
-        rec_lay.addWidget(self._rec_desc)
-        self._rec_card.mousePressEvent = lambda _e: self._router.navigate("combo_select")
-        root.addWidget(self._rec_card)
+        root.addStretch(2)
 
-        # 2x2 mode grid
-        grid = QGridLayout()
-        grid.setSpacing(Size.SPACING)
-        for i, (label, route) in enumerate(_MODES):
-            card = _ModeCard(label, self)
-            card.mousePressEvent = lambda _e, r=route: self._router.navigate(r)
-            grid.addWidget(card, i // 2, i % 2)
-        root.addLayout(grid)
+        # ── Mode buttons ─────────────────────────────────────────────────
+        training = _mode_btn("Training", "#FF6B35")
+        training.clicked.connect(lambda: self._nav("training_select"))
 
-        root.addStretch()
+        sparring = _mode_btn("Sparring", "#E53935")
+        sparring.clicked.connect(lambda: self._nav("sparring_select"))
 
-    # ── Lifecycle ──────────────────────────────────────────────────────
+        free = _mode_btn("Free Training", "#FF8A65")
+        free.clicked.connect(lambda: self._nav("training_session"))
+
+        perf = _mode_btn("Performance", "#FF5252")
+        perf.clicked.connect(lambda: self._nav("performance"))
+
+        root.addWidget(training, alignment=Qt.AlignCenter)
+        root.addStretch(1)
+        root.addWidget(sparring, alignment=Qt.AlignCenter)
+        root.addStretch(1)
+        root.addWidget(free, alignment=Qt.AlignCenter)
+        root.addStretch(1)
+        root.addWidget(perf, alignment=Qt.AlignCenter)
+
+        root.addStretch(3)
+
+        # ── Back ─────────────────────────────────────────────────────────
+        back = QPushButton("Back")
+        back.setStyleSheet("""
+            QPushButton {
+                font-size: 16px; padding: 10px;
+                min-width: 200px; min-height: 40px;
+                background-color: transparent; color: #999;
+                border: 1px solid #2A2A2A; border-radius: 10px;
+            }
+            QPushButton:hover { color: #F5F5F5; border-color: #555; }
+        """)
+        back.clicked.connect(lambda: self._nav("auth"))
+        root.addWidget(back, alignment=Qt.AlignCenter)
+        root.addSpacing(8)
+
+    def _nav(self, page: str):
+        if self._router:
+            self._router.navigate(page)
+
     def on_enter(self, **kwargs: Any) -> None:
-        experience = kwargs.get("experience", "No")
-        goal = kwargs.get("goal", "Fitness")
-        intensity = kwargs.get("intensity", "Light")
-        difficulty = _DIFFICULTY_MAP.get(intensity, "beginner")
-
-        # Pick a recommendation based on assessment
-        if experience == "No":
-            rec_text = f"Jab-Cross Combo -- {difficulty.title()}"
-        else:
-            rec_text = f"Jab-Cross-Hook-Cross -- {difficulty.title()}"
-        self._rec_desc.setText(rec_text)
-        logger.debug("HomeGuestPage entered (goal=%s, intensity=%s)", goal, intensity)
+        pass
 
     def on_leave(self) -> None:
         pass

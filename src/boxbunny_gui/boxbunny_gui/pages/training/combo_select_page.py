@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QProgressBar,
+    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -122,14 +123,21 @@ class ComboSelectPage(QWidget):
         top.addStretch()
         root.addLayout(top)
 
-        # Difficulty tabs
+        # Difficulty tabs — use plain QPushButton to avoid BigButton min-height
         tabs = QHBoxLayout()
-        tabs.setSpacing(Size.SPACING_SM)
-        self._tab_btns: list[BigButton] = []
+        tabs.setSpacing(8)
+        self._tab_btns: list[QPushButton] = []
         for tab in _TABS:
-            btn = BigButton(tab, stylesheet=SURFACE_BTN)
-            btn.setFixedHeight(44)
-            btn.setFixedWidth(130)
+            btn = QPushButton(tab)
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    font-size: 14px; font-weight: 600; padding: 8px 18px;
+                    background-color: {Color.SURFACE_LIGHT}; color: {Color.TEXT_SECONDARY};
+                    border: 1px solid {Color.BORDER}; border-radius: 8px;
+                    min-height: 0; min-width: 0;
+                }}
+                QPushButton:hover {{ color: {Color.TEXT}; border-color: {Color.PRIMARY}; }}
+            """)
             btn.clicked.connect(lambda _c=False, t=tab: self._set_tab(t))
             tabs.addWidget(btn)
             self._tab_btns.append(btn)

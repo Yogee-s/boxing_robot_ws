@@ -51,7 +51,7 @@ class PresetCard(QFrame):
         self._preset_id: int = 0
         self._favorite: bool = False
 
-        self.setFixedSize(250, 100)
+        self.setFixedSize(200, 80)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._apply_bg(hovered=False)
 
@@ -65,7 +65,7 @@ class PresetCard(QFrame):
 
         self._name_lbl = QLabel()
         self._name_lbl.setStyleSheet(
-            f"color: {Color.TEXT}; font-size: 20px; font-weight: bold;"
+            f"color: {Color.TEXT}; font-size: 16px; font-weight: bold;"
             " background: transparent;"
         )
 

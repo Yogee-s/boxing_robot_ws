@@ -77,6 +77,7 @@ class PowerTestPage(QWidget):
         self._imu_warn.setFont(font(18, bold=True))
         self._imu_warn.setStyleSheet(f"color: {Color.WARNING};")
         self._imu_warn.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._imu_warn.setWordWrap(True)
         self._imu_warn.setVisible(False)
         instr_lay.addWidget(self._imu_warn)
         instr_text = QLabel("Throw 10 punches as hard as you can.\nWe will measure your peak force.")

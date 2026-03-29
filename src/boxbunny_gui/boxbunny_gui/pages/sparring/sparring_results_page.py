@@ -137,7 +137,8 @@ class SparringResultsPage(QWidget):
 
         # QR + buttons
         bottom = QHBoxLayout()
-        self._qr = QRWidget(data="https://boxbunny.local/session/latest", size=56)
+        self._qr = QRWidget(size=56)
+        self._qr.set_text("https://boxbunny.local/session/latest")
         bottom.addWidget(self._qr)
         bottom.addStretch()
         btn_again = BigButton("Spar Again", stylesheet=PRIMARY_BTN)

@@ -80,7 +80,8 @@ class HomeCoachPage(QWidget):
         self._preset_layout = QVBoxLayout(preset_container)
         self._preset_layout.setSpacing(Size.SPACING_SM)
         for i in range(4):
-            card = PresetCard(name=f"Station Preset {i+1}", parent=self)
+            card = PresetCard(parent=self)
+            card.set_preset({"id": i, "name": f"Station Preset {i+1}", "mode": "training", "summary": ""})
             self._preset_layout.addWidget(card)
         self._preset_layout.addStretch()
         scroll.setWidget(preset_container)
