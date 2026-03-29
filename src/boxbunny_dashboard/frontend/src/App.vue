@@ -19,7 +19,7 @@ const route = useRoute()
 const auth = useAuthStore()
 
 const showNav = computed(() => {
-  const noNavRoutes = ['login']
+  const noNavRoutes = ['login', 'chat']
   return auth.isAuthenticated && !noNavRoutes.includes(route.name)
 })
 </script>

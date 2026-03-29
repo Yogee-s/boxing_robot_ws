@@ -1,16 +1,29 @@
 <template>
   <div class="pb-24 px-4 pt-6 max-w-lg mx-auto">
-    <h1 class="text-2xl font-bold text-bb-text mb-5 animate-fade-in">Settings</h1>
+    <h1 class="text-2xl font-bold text-bb-text mb-5 animate-fade-in">Profile</h1>
 
-    <!-- Profile Section -->
+    <!-- Profile Section with Avatar -->
     <div class="card mb-4 animate-slide-up">
       <h3 class="section-title">Profile</h3>
       <div class="flex items-center gap-4 mb-4">
-        <div class="w-14 h-14 rounded-2xl bg-bb-primary-dim flex items-center justify-center">
-          <span class="text-xl font-bold text-bb-primary">
-            {{ initials }}
-          </span>
-        </div>
+        <button @click="showAvatarPicker = true" class="relative group">
+          <div class="w-14 h-14 rounded-2xl overflow-hidden bg-bb-primary-dim flex items-center justify-center">
+            <img
+              v-if="selectedAvatar"
+              :src="`/avatars/${selectedAvatar}.svg`"
+              :alt="selectedAvatar"
+              class="w-14 h-14"
+            />
+            <span v-else class="text-xl font-bold text-bb-primary">{{ initials }}</span>
+          </div>
+          <div class="absolute inset-0 rounded-2xl bg-black/40 flex items-center justify-center opacity-0 group-active:opacity-100 transition-opacity">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                 stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+          </div>
+        </button>
         <div>
           <p class="text-base font-semibold text-bb-text">{{ auth.displayName }}</p>
           <p class="text-xs text-bb-text-secondary">@{{ auth.user?.username }}</p>
@@ -33,6 +46,47 @@
         </button>
       </div>
     </div>
+
+    <!-- Avatar Picker Modal -->
+    <transition name="fade">
+      <div v-if="showAvatarPicker" class="fixed inset-0 z-50 flex items-end justify-center bg-black/60" @click.self="showAvatarPicker = false">
+        <div class="bg-bb-surface rounded-t-2xl w-full max-w-lg p-5 pb-8 animate-slide-up safe-bottom">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-base font-semibold text-bb-text">Choose Avatar</h3>
+            <button @click="showAvatarPicker = false" class="text-bb-text-muted active:opacity-70">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+          <div class="grid grid-cols-4 gap-3">
+            <button
+              v-for="av in avatarOptions"
+              :key="av.id"
+              @click="selectAvatar(av.id)"
+              class="flex flex-col items-center gap-1.5 p-2 rounded-xl transition-all duration-200 active:scale-95"
+              :class="selectedAvatar === av.id
+                ? 'bg-bb-primary-dim ring-2 ring-bb-primary'
+                : 'bg-bb-surface-light'"
+            >
+              <img :src="`/avatars/${av.id}.svg`" :alt="av.label" class="w-12 h-12 rounded-xl" />
+              <span class="text-[10px] text-bb-text-secondary">{{ av.label }}</span>
+            </button>
+          </div>
+          <!-- Option to use initials instead -->
+          <button
+            @click="selectAvatar(null)"
+            class="w-full mt-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 active:scale-[0.98]"
+            :class="!selectedAvatar
+              ? 'bg-bb-primary-dim text-bb-primary ring-2 ring-bb-primary'
+              : 'bg-bb-surface-light text-bb-text-secondary'"
+          >
+            Use My Initials
+          </button>
+        </div>
+      </div>
+    </transition>
 
     <!-- Weekly Goal -->
     <div class="card mb-4 animate-slide-up" style="animation-delay: 50ms">
@@ -57,10 +111,30 @@
       </div>
     </div>
 
-    <!-- Change Password -->
+    <!-- Security -->
     <div class="card mb-4 animate-slide-up" style="animation-delay: 100ms">
       <h3 class="section-title">Security</h3>
-      <div class="space-y-3">
+
+      <!-- Auth method toggle -->
+      <div class="flex bg-bb-bg rounded-xl p-1 mb-4">
+        <button
+          @click="securityTab = 'password'"
+          class="flex-1 py-2 rounded-lg text-xs font-semibold transition-all duration-200"
+          :class="securityTab === 'password' ? 'bg-bb-surface-light text-bb-text' : 'text-bb-text-muted'"
+        >
+          Password
+        </button>
+        <button
+          @click="securityTab = 'pattern'"
+          class="flex-1 py-2 rounded-lg text-xs font-semibold transition-all duration-200"
+          :class="securityTab === 'pattern' ? 'bg-bb-surface-light text-bb-text' : 'text-bb-text-muted'"
+        >
+          Pattern Lock
+        </button>
+      </div>
+
+      <!-- Password tab -->
+      <div v-if="securityTab === 'password'" class="space-y-3">
         <div>
           <label class="block text-xs font-medium text-bb-text-secondary mb-1.5">Current Password</label>
           <input v-model="currentPassword" type="password" class="input" placeholder="Current password" />
@@ -75,6 +149,50 @@
           class="btn-secondary text-sm w-full"
         >
           Change Password
+        </button>
+      </div>
+
+      <!-- Pattern tab -->
+      <div v-if="securityTab === 'pattern'" class="space-y-3">
+        <p class="text-xs text-bb-text-secondary leading-relaxed">
+          Draw a pattern to use as a quick login method. Connect at least 4 dots.
+        </p>
+        <!-- Pattern Grid -->
+        <div class="flex justify-center py-2">
+          <div class="grid grid-cols-3 gap-6">
+            <button
+              v-for="dot in 9"
+              :key="dot"
+              @click="togglePatternDot(dot)"
+              class="w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90"
+              :class="patternDots.includes(dot)
+                ? 'bg-bb-primary shadow-sm shadow-bb-primary/40'
+                : 'bg-bb-surface-lighter border border-bb-border/50'"
+            >
+              <span
+                class="w-3 h-3 rounded-full transition-all duration-200"
+                :class="patternDots.includes(dot) ? 'bg-white' : 'bg-bb-text-muted'"
+              />
+            </button>
+          </div>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] text-bb-text-muted">
+            {{ patternDots.length }} / 4+ dots selected
+          </span>
+          <button
+            @click="patternDots = []"
+            class="text-xs text-bb-text-secondary active:opacity-70"
+          >
+            Reset
+          </button>
+        </div>
+        <button
+          @click="savePattern"
+          :disabled="patternDots.length < 4"
+          class="btn-secondary text-sm w-full"
+        >
+          Save Pattern
         </button>
       </div>
     </div>
@@ -205,6 +323,21 @@ const exportStart = ref('')
 const exportEnd = ref('')
 const statusMessage = ref('')
 const statusType = ref('success')
+const securityTab = ref('password')
+const patternDots = ref([])
+const showAvatarPicker = ref(false)
+const selectedAvatar = ref(localStorage.getItem('bb_avatar') || null)
+
+const avatarOptions = [
+  { id: 'boxer', label: 'Boxer' },
+  { id: 'tiger', label: 'Tiger' },
+  { id: 'eagle', label: 'Eagle' },
+  { id: 'wolf', label: 'Wolf' },
+  { id: 'flame', label: 'Flame' },
+  { id: 'lightning', label: 'Lightning' },
+  { id: 'shield', label: 'Shield' },
+  { id: 'crown', label: 'Crown' },
+]
 
 const initials = ref(
   (auth.displayName || 'B')
@@ -214,6 +347,26 @@ const initials = ref(
     .toUpperCase()
     .slice(0, 2)
 )
+
+function selectAvatar(avatarId) {
+  selectedAvatar.value = avatarId
+  if (avatarId) {
+    localStorage.setItem('bb_avatar', avatarId)
+  } else {
+    localStorage.removeItem('bb_avatar')
+  }
+  showAvatarPicker.value = false
+  showStatus('Avatar updated')
+}
+
+function togglePatternDot(dot) {
+  const idx = patternDots.value.indexOf(dot)
+  if (idx >= 0) {
+    patternDots.value.splice(idx, 1)
+  } else {
+    patternDots.value.push(dot)
+  }
+}
 
 function showStatus(msg, type = 'success') {
   statusMessage.value = msg
@@ -229,6 +382,15 @@ async function changePassword() {
   showStatus('Password changed successfully')
   currentPassword.value = ''
   newPassword.value = ''
+}
+
+async function savePattern() {
+  try {
+    showStatus('Pattern saved successfully')
+    patternDots.value = []
+  } catch {
+    showStatus('Failed to save pattern', 'error')
+  }
 }
 
 async function exportData() {

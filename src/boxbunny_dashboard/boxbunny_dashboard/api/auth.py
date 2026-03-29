@@ -21,7 +21,7 @@ router = APIRouter()
 class LoginRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=64)
     password: str = Field(..., min_length=1)
-    device_type: str = Field(default="mobile")
+    device_type: str = Field(default="phone")
 
 
 class SignupRequest(BaseModel):
@@ -123,7 +123,7 @@ async def signup(body: SignupRequest, db: DatabaseManager = Depends(get_db)) -> 
             status_code=status.HTTP_409_CONFLICT,
             detail="Username already exists",
         )
-    token = db.create_auth_session(user_id, "mobile")
+    token = db.create_auth_session(user_id, "phone")
     logger.info("User created: %s (id=%d)", body.username, user_id)
     return TokenResponse(
         token=token,
@@ -147,7 +147,7 @@ async def pattern_verify(
     user = db.get_user(body.user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    token = db.create_auth_session(user["id"], "mobile")
+    token = db.create_auth_session(user["id"], "phone")
     logger.info("Pattern verified for user_id=%d", body.user_id)
     return TokenResponse(
         token=token,
@@ -176,7 +176,7 @@ async def guest_claim(
     claimed = db.claim_guest_session(body.guest_token, user_id)
     if not claimed:
         logger.warning("Guest token claim failed for token=%s", body.guest_token)
-    token = db.create_auth_session(user_id, "mobile")
+    token = db.create_auth_session(user_id, "phone")
     logger.info("Guest claimed: %s -> user_id=%d", body.guest_token, user_id)
     return TokenResponse(
         token=token,

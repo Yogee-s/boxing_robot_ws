@@ -4,13 +4,19 @@
     :class="unlocked ? 'bg-bb-surface-light' : 'bg-bb-surface opacity-40'"
   >
     <div
-      class="w-12 h-12 rounded-xl flex items-center justify-center text-xl transition-transform duration-300"
+      class="w-12 h-12 rounded-xl flex items-center justify-center transition-transform duration-300 overflow-hidden"
       :class="[
-        unlocked ? iconBg : 'bg-bb-surface-lighter text-bb-text-muted',
+        unlocked ? iconBg : 'bg-bb-surface-lighter',
         unlocked ? 'scale-100' : 'scale-90',
       ]"
     >
-      {{ unlocked ? iconText : '?' }}
+      <img
+        v-if="unlocked"
+        :src="`/achievements/${achievementId}.svg`"
+        :alt="name"
+        class="w-8 h-8"
+      />
+      <span v-else class="text-xl text-bb-text-muted">?</span>
     </div>
     <div class="text-center">
       <p
@@ -36,28 +42,26 @@ const props = defineProps({
 })
 
 const achievementMeta = {
-  first_blood: { name: 'First Blood', icon: 'I', bg: 'bg-bb-primary-dim text-bb-primary' },
-  century: { name: 'Century', icon: 'C', bg: 'bg-blue-500/20 text-blue-400' },
-  fury: { name: 'Fury', icon: 'F', bg: 'bg-bb-danger-dim text-bb-danger' },
-  thousand_fists: { name: '1000 Fists', icon: 'K', bg: 'bg-purple-500/20 text-purple-400' },
-  speed_demon: { name: 'Speed Demon', icon: 'S', bg: 'bg-yellow-500/20 text-yellow-400' },
-  weekly_warrior: { name: 'Weekly Warrior', icon: 'W', bg: 'bg-bb-warning-dim text-bb-warning' },
-  consistent: { name: 'Consistent', icon: '30', bg: 'bg-bb-primary-dim text-bb-primary' },
-  iron_chin: { name: 'Iron Chin', icon: '10', bg: 'bg-gray-500/20 text-gray-400' },
-  marathon: { name: 'Marathon', icon: '50', bg: 'bg-blue-500/20 text-blue-400' },
-  centurion: { name: 'Centurion', icon: 'C', bg: 'bg-bb-warning-dim text-bb-warning' },
-  well_rounded: { name: 'Well Rounded', icon: 'R', bg: 'bg-purple-500/20 text-purple-400' },
-  perfect_round: { name: 'Perfect Round', icon: 'P', bg: 'bg-bb-primary-dim text-bb-primary' },
+  first_blood: { name: 'First Blood', bg: 'bg-bb-primary-dim' },
+  century: { name: 'Century', bg: 'bg-blue-500/20' },
+  fury: { name: 'Fury', bg: 'bg-bb-danger-dim' },
+  thousand_fists: { name: '1000 Fists', bg: 'bg-purple-500/20' },
+  speed_demon: { name: 'Speed Demon', bg: 'bg-yellow-500/20' },
+  weekly_warrior: { name: 'Weekly Warrior', bg: 'bg-bb-warning-dim' },
+  consistent: { name: 'Consistent', bg: 'bg-bb-primary-dim' },
+  iron_chin: { name: 'Iron Chin', bg: 'bg-gray-500/20' },
+  marathon: { name: 'Marathon', bg: 'bg-blue-500/20' },
+  centurion: { name: 'Centurion', bg: 'bg-bb-warning-dim' },
+  well_rounded: { name: 'Well Rounded', bg: 'bg-purple-500/20' },
+  perfect_round: { name: 'Perfect Round', bg: 'bg-bb-primary-dim' },
 }
 
 const meta = computed(() => achievementMeta[props.achievementId] || {
   name: props.achievementId,
-  icon: '?',
-  bg: 'bg-bb-surface-lighter text-bb-text-secondary',
+  bg: 'bg-bb-surface-lighter',
 })
 
 const name = computed(() => meta.value.name)
-const iconText = computed(() => meta.value.icon)
 const iconBg = computed(() => meta.value.bg)
 
 const formattedDate = computed(() => {

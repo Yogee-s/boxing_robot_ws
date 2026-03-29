@@ -99,10 +99,11 @@ def create_app() -> FastAPI:
         return JSONResponse({"status": "ok", "service": "boxbunny_dashboard"})
 
     # -- Static file serving --
-    if _STATIC_DIR.is_dir():
+    _ASSETS_DIR = _STATIC_DIR / "assets"
+    if _ASSETS_DIR.is_dir():
         app.mount(
             "/assets",
-            StaticFiles(directory=str(_STATIC_DIR)),
+            StaticFiles(directory=str(_ASSETS_DIR)),
             name="static",
         )
 

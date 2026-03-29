@@ -40,7 +40,15 @@ async function request(method, path, body = null, opts = {}) {
   }
 
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`
-  const response = await fetch(url, config)
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), opts.timeout || 15000)
+  config.signal = controller.signal
+  let response
+  try {
+    response = await fetch(url, config)
+  } finally {
+    clearTimeout(timeoutId)
+  }
 
   // Handle 204 No Content
   if (response.status === 204) {
@@ -80,7 +88,7 @@ export async function login(username, password) {
   const data = await request('POST', '/auth/login', {
     username,
     password,
-    device_type: 'mobile',
+    device_type: 'phone',
   })
   setToken(data.token)
   return data

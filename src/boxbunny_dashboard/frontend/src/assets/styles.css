@@ -147,11 +147,15 @@
   }
 
   .glow-green {
-    box-shadow: 0 0 20px rgba(0, 230, 118, 0.3);
+    box-shadow: 0 0 20px rgba(255, 107, 53, 0.3);
   }
 
   .glow-green-sm {
-    box-shadow: 0 0 10px rgba(0, 230, 118, 0.2);
+    box-shadow: 0 0 10px rgba(255, 107, 53, 0.2);
+  }
+
+  .glow-primary-sm {
+    box-shadow: 0 0 10px rgba(255, 107, 53, 0.2);
   }
 }
 

@@ -26,8 +26,9 @@
     <!-- User Profile Card -->
     <div v-if="profile" class="card mb-4 animate-slide-up" style="animation-delay: 30ms">
       <div class="flex items-center gap-3 mb-3">
-        <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-bb-primary/30 to-bb-primary/5 flex items-center justify-center border border-bb-primary/20">
-          <span class="text-bb-primary font-bold text-lg">{{ profileInitial }}</span>
+        <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-bb-primary/30 to-bb-primary/5 flex items-center justify-center border border-bb-primary/20 overflow-hidden">
+          <img v-if="userAvatar" :src="`/avatars/${userAvatar}.svg`" :alt="userAvatar" class="w-12 h-12" />
+          <span v-else class="text-bb-primary font-bold text-lg">{{ profileInitial }}</span>
         </div>
         <div class="flex-1 min-w-0">
           <p class="text-sm font-semibold text-bb-text truncate">{{ profile.display_name || auth.displayName }}</p>
@@ -306,6 +307,7 @@ const gamification = computed(() => sessionStore.gamification)
 const recentSession = computed(() => sessionStore.recentSession)
 
 const profile = ref(null)
+const userAvatar = ref(localStorage.getItem('bb_avatar') || null)
 const benchmarks = ref(null)
 const trends = ref(null)
 
