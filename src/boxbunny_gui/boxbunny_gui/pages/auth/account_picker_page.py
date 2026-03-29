@@ -72,6 +72,7 @@ class _UserCard(QFrame):
         avatar.setFixedSize(44, 44)
         avatar.setAlignment(Qt.AlignCenter)
         avatar.setStyleSheet(f"""
+            background: transparent;
             background-color: {Color.PRIMARY_MUTED};
             color: {Color.PRIMARY};
             font-size: 20px; font-weight: 700;
@@ -92,7 +93,9 @@ class _UserCard(QFrame):
         # Level badge
         level_lbl = QLabel(user["level"])
         level_lbl.setAlignment(Qt.AlignCenter)
-        level_lbl.setStyleSheet(badge_style(Color.TEXT_SECONDARY))
+        level_lbl.setStyleSheet(
+            "background: transparent; " + badge_style(Color.TEXT_SECONDARY)
+        )
         lay.addWidget(level_lbl, alignment=Qt.AlignCenter)
 
     def mousePressEvent(self, event) -> None:

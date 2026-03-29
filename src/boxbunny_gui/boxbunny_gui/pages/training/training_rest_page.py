@@ -47,7 +47,7 @@ class TrainingRestPage(QWidget):
         title = QLabel("REST")
         title.setFont(font(42, bold=True))
         title.setStyleSheet(
-            f"color: {Color.TEXT_SECONDARY}; letter-spacing: 8px;"
+            f"background: transparent; color: {Color.TEXT_SECONDARY}; letter-spacing: 8px;"
         )
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(title)
@@ -55,7 +55,7 @@ class TrainingRestPage(QWidget):
         # Next round subtitle
         self._next_round_lbl = QLabel("Next round coming up...")
         self._next_round_lbl.setStyleSheet(
-            f"color: {Color.TEXT_DISABLED}; font-size: 14px;"
+            f"background: transparent; color: {Color.TEXT_DISABLED}; font-size: 14px;"
         )
         self._next_round_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(self._next_round_lbl)

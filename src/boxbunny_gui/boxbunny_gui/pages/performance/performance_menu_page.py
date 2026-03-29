@@ -93,13 +93,15 @@ class PerformanceMenuPage(QWidget):
 
             name_lbl = QLabel(test["name"])
             name_lbl.setStyleSheet(
-                f"color: {Color.TEXT}; font-size: 18px; font-weight: 700;"
+                "background: transparent;"
+                f" color: {Color.TEXT}; font-size: 18px; font-weight: 700;"
             )
             card_layout.addWidget(name_lbl)
 
             desc_lbl = QLabel(test["desc"])
             desc_lbl.setStyleSheet(
-                f"color: {Color.TEXT_SECONDARY}; font-size: 14px;"
+                "background: transparent;"
+                f" color: {Color.TEXT_SECONDARY}; font-size: 14px;"
             )
             desc_lbl.setWordWrap(True)
             card_layout.addWidget(desc_lbl)

@@ -25,30 +25,20 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class _StatusDot(QWidget):
-    """Rounded status indicator with subtle glow ring."""
+class _StatusDot(QLabel):
+    """Simple colored circle status indicator."""
 
     def __init__(
         self, connected: bool = False, parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setFixedSize(28, 28)
-        self._dot = QLabel(self)
-        self._dot.setFixedSize(12, 12)
-        self._dot.move(8, 8)
-        self._ring = QLabel(self)
-        self._ring.setFixedSize(22, 22)
-        self._ring.move(3, 3)
+        self.setFixedSize(16, 16)
         self.set_connected(connected)
 
     def set_connected(self, connected: bool) -> None:
         color = Color.PRIMARY if connected else Color.DANGER
-        self._dot.setStyleSheet(
-            f"background-color: {color}; border-radius: 6px;"
-        )
-        self._ring.setStyleSheet(
-            f"background-color: {color}20; border-radius: 11px;"
-            f" border: 1px solid {color}40;"
+        self.setStyleSheet(
+            f"background-color: {color}; border-radius: 8px; border: none;"
         )
 
 
@@ -63,25 +53,28 @@ class _Section(QFrame):
         )
         self._root = QVBoxLayout(self)
         self._root.setContentsMargins(20, 14, 20, 14)
-        self._root.setSpacing(12)
+        self._root.setSpacing(10)
 
         header = QLabel(title.upper())
         header.setStyleSheet(
-            f"color: {Color.PRIMARY}; font-size: 12px; font-weight: 700;"
+            "background: transparent;"
+            f" color: {Color.PRIMARY}; font-size: 12px; font-weight: 700;"
             " letter-spacing: 1px;"
         )
         self._root.addWidget(header)
 
-        # Thin divider line
         divider = QFrame()
         divider.setFixedHeight(1)
-        divider.setStyleSheet(f"background-color: {Color.BORDER};")
+        divider.setStyleSheet(
+            f"background-color: {Color.BORDER}; border: none;"
+        )
         self._root.addWidget(divider)
 
         self._content = QWidget()
+        self._content.setStyleSheet("background: transparent;")
         self._content_lay = QVBoxLayout(self._content)
         self._content_lay.setContentsMargins(0, 2, 0, 2)
-        self._content_lay.setSpacing(10)
+        self._content_lay.setSpacing(8)
         self._root.addWidget(self._content)
 
     @property
@@ -92,9 +85,11 @@ class _Section(QFrame):
 def _setting_row(label_text: str) -> tuple:
     """Create a standard settings row with label and return (layout, label)."""
     row = QHBoxLayout()
-    row.setContentsMargins(0, 4, 0, 4)
+    row.setContentsMargins(0, 2, 0, 2)
     lbl = QLabel(label_text)
-    lbl.setStyleSheet(f"font-size: 14px; color: {Color.TEXT};")
+    lbl.setStyleSheet(
+        f"background: transparent; font-size: 14px; color: {Color.TEXT};"
+    )
     row.addWidget(lbl)
     row.addStretch()
     return row, lbl
@@ -114,10 +109,8 @@ class SettingsPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(
-            Size.SPACING_LG, Size.SPACING, Size.SPACING_LG, Size.SPACING_SM
-        )
-        root.setSpacing(Size.SPACING)
+        root.setContentsMargins(24, 16, 24, 12)
+        root.setSpacing(14)
 
         # Top bar
         top = QHBoxLayout()
@@ -135,9 +128,10 @@ class SettingsPage(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         container = QWidget()
+        container.setStyleSheet("background: transparent;")
         sections = QVBoxLayout(container)
-        sections.setSpacing(14)
-        sections.setContentsMargins(2, 4, 2, 4)
+        sections.setSpacing(12)
+        sections.setContentsMargins(2, 2, 2, 2)
 
         # Hardware
         hw = _Section("Hardware")
@@ -151,23 +145,11 @@ class SettingsPage(QWidget):
         # Sound
         snd = _Section("Sound")
         vol_row, _ = _setting_row("Master Volume")
-        self._vol_label = QLabel("80%")
-        self._vol_label.setStyleSheet(
-            f"font-size: 13px; font-weight: 600; color: {Color.PRIMARY};"
-            f" background-color: {Color.PRIMARY_MUTED}; border-radius: 8px;"
-            " padding: 2px 10px;"
-        )
-        self._vol_label.setFixedWidth(48)
-        self._vol_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        vol_row.addWidget(self._vol_label)
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(0, 100)
         slider.setValue(80)
         slider.setMinimumHeight(44)
-        slider.setMinimumWidth(180)
-        slider.valueChanged.connect(
-            lambda v: self._vol_label.setText(f"{v}%")
-        )
+        slider.setMinimumWidth(200)
         vol_row.addWidget(slider)
         snd.content_layout.addLayout(vol_row)
         for toggle_name in ["Punch Sounds", "Timer Beeps", "Coach Voice"]:
@@ -206,43 +188,26 @@ class SettingsPage(QWidget):
         net_row.addWidget(self._wifi_dot)
         net.content_layout.addLayout(net_row)
 
-        url_row = QHBoxLayout()
-        url_row.setContentsMargins(0, 0, 0, 0)
-        url_icon = QLabel("\U0001F310")
-        url_icon.setStyleSheet("font-size: 13px;")
-        url_row.addWidget(url_icon)
-        url_lbl = QLabel("boxbunny.local")
-        url_lbl.setStyleSheet(
-            f"color: {Color.TEXT_SECONDARY}; font-size: 13px;"
-            f" background-color: {Color.SURFACE_LIGHT}; border-radius: 8px;"
-            " padding: 4px 12px;"
+        url_row, _ = _setting_row("Dashboard")
+        url_val = QLabel("boxbunny.local")
+        url_val.setStyleSheet(
+            f"background: transparent; color: {Color.TEXT_SECONDARY};"
+            " font-size: 13px;"
         )
-        url_row.addWidget(url_lbl)
-        url_row.addStretch()
+        url_row.addWidget(url_val)
         net.content_layout.addLayout(url_row)
         sections.addWidget(net)
 
         # System
         sys_sec = _Section("System")
-
-        info_row = QHBoxLayout()
-        info_row.setSpacing(12)
-        ver = QLabel("BoxBunny v1.0.0")
-        ver.setStyleSheet(
-            f"font-size: 13px; font-weight: 600; color: {Color.TEXT_SECONDARY};"
-            f" background-color: {Color.SURFACE_LIGHT}; border-radius: 8px;"
-            " padding: 5px 14px;"
+        ver_row, _ = _setting_row("Version")
+        ver_val = QLabel("v1.0.0")
+        ver_val.setStyleSheet(
+            f"background: transparent; color: {Color.TEXT_SECONDARY};"
+            " font-size: 13px;"
         )
-        info_row.addWidget(ver)
-        db_lbl = QLabel("DB: sessions.db")
-        db_lbl.setStyleSheet(
-            f"font-size: 13px; color: {Color.TEXT_DISABLED};"
-            f" background-color: {Color.SURFACE_LIGHT}; border-radius: 8px;"
-            " padding: 5px 14px;"
-        )
-        info_row.addWidget(db_lbl)
-        info_row.addStretch()
-        sys_sec.content_layout.addLayout(info_row)
+        ver_row.addWidget(ver_val)
+        sys_sec.content_layout.addLayout(ver_row)
 
         btn_maint = BigButton("Database Maintenance", stylesheet=SURFACE_BTN)
         btn_maint.setFixedHeight(44)

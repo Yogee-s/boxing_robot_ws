@@ -45,7 +45,7 @@ class BigButton(QPushButton):
         parent=None,
     ) -> None:
         super().__init__(text, parent)
-        self.setMinimumSize(Size.MIN_TOUCH, Size.MIN_TOUCH)
+        self.setMinimumSize(Size.MIN_TOUCH, 36)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setStyleSheet(stylesheet)
 

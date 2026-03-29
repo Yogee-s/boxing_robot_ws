@@ -57,13 +57,14 @@ class _DistBar(QFrame):
 
         dot = QLabel("\u25CF")
         dot.setFixedWidth(14)
-        dot.setStyleSheet(f"color: {color}; font-size: 12px;")
+        dot.setStyleSheet(f"background: transparent; color: {color}; font-size: 12px;")
         lay.addWidget(dot)
 
         lbl = QLabel(name)
         lbl.setFixedWidth(80)
         lbl.setStyleSheet(
-            f"color: {Color.TEXT}; font-size: 13px; font-weight: 600;"
+            "background: transparent;"
+            f" color: {Color.TEXT}; font-size: 13px; font-weight: 600;"
         )
         lay.addWidget(lbl)
 
@@ -77,7 +78,8 @@ class _DistBar(QFrame):
 
         cnt = QLabel(str(value))
         cnt.setStyleSheet(
-            f"color: {Color.TEXT_SECONDARY}; font-size: 13px; font-weight: 700;"
+            "background: transparent;"
+            f" color: {Color.TEXT_SECONDARY}; font-size: 13px; font-weight: 700;"
         )
         lay.addWidget(cnt)
         lay.addStretch()
@@ -165,13 +167,15 @@ class SparringResultsPage(QWidget):
         ai_inner.setSpacing(4)
         ai_title = QLabel("AI Coach Analysis")
         ai_title.setStyleSheet(
-            f"color: {Color.INFO}; font-size: 12px; font-weight: 700;"
+            "background: transparent;"
+            f" color: {Color.INFO}; font-size: 12px; font-weight: 700;"
             " letter-spacing: 0.8px;"
         )
         ai_inner.addWidget(ai_title)
         self._ai_lbl = QLabel("AI analysis loading...")
         self._ai_lbl.setStyleSheet(
-            f"color: {Color.TEXT_SECONDARY}; font-size: 14px;"
+            "background: transparent;"
+            f" color: {Color.TEXT_SECONDARY}; font-size: 14px;"
             " line-height: 1.4;"
         )
         self._ai_lbl.setWordWrap(True)
@@ -184,17 +188,17 @@ class SparringResultsPage(QWidget):
         bottom = QHBoxLayout()
         bottom.setSpacing(Size.SPACING)
 
-        btn_home = BigButton("\u2190  Home", stylesheet=back_link_style())
-        btn_home.setFixedWidth(110)
+        btn_home = BigButton("Home", stylesheet=GHOST_BTN)
+        btn_home.setFixedHeight(42)
         btn_home.clicked.connect(
             lambda: self._router.navigate("home")
         )
-        bottom.addWidget(btn_home)
+        bottom.addWidget(btn_home, stretch=1)
 
         bottom.addStretch()
 
-        btn_again = BigButton("Spar Again  \u25B6", stylesheet=PRIMARY_BTN)
-        btn_again.setFixedWidth(180)
+        btn_again = BigButton("Spar Again", stylesheet=PRIMARY_BTN)
+        btn_again.setFixedHeight(42)
         btn_again.clicked.connect(
             lambda: self._router.navigate("sparring_select")
         )

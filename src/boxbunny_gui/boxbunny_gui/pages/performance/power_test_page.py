@@ -83,18 +83,14 @@ class PowerTestPage(QWidget):
         self._imu_warn = QLabel("IMU Required \u2014 connect pads to proceed")
         self._imu_warn.setFont(font(16, bold=True))
         self._imu_warn.setStyleSheet(
-            f"color: {Color.WARNING}; background-color: {Color.WARNING}18;"
+            "background: transparent;"
+            f" color: {Color.WARNING}; background-color: {Color.WARNING}18;"
             f" border-radius: 8px; padding: 10px 16px;"
         )
         self._imu_warn.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._imu_warn.setWordWrap(True)
         self._imu_warn.setVisible(False)
         instr_lay.addWidget(self._imu_warn)
-
-        instr_icon = QLabel("\xF0\x9F\xA5\x8A".encode().decode("utf-8"))
-        instr_icon.setStyleSheet("font-size: 40px;")
-        instr_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        instr_lay.addWidget(instr_icon)
 
         instr_text = QLabel(
             "Throw 10 punches as hard as you can.\n"
@@ -103,7 +99,7 @@ class PowerTestPage(QWidget):
         instr_text.setFont(font(17))
         instr_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
         instr_text.setWordWrap(True)
-        instr_text.setStyleSheet(f"color: {Color.TEXT_SECONDARY};")
+        instr_text.setStyleSheet(f"background: transparent; color: {Color.TEXT_SECONDARY};")
         instr_lay.addWidget(instr_text)
 
         self._btn_begin = BigButton("Begin Test", stylesheet=PRIMARY_BTN)
@@ -132,7 +128,9 @@ class PowerTestPage(QWidget):
 
         self._count_lbl = QLabel("0 / 10")
         self._count_lbl.setFont(font(28, bold=True))
-        self._count_lbl.setStyleSheet(badge_style(Color.PRIMARY))
+        self._count_lbl.setStyleSheet(
+            "background: transparent; " + badge_style(Color.PRIMARY)
+        )
         self._count_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._count_lbl.setFixedHeight(44)
         count_wrap = QHBoxLayout()
@@ -171,7 +169,7 @@ class PowerTestPage(QWidget):
 
         res_title = QLabel("Results")
         res_title.setFont(font(20, bold=True))
-        res_title.setStyleSheet(f"color: {Color.PRIMARY};")
+        res_title.setStyleSheet(f"background: transparent; color: {Color.PRIMARY};")
         res_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         res_lay.addWidget(res_title)
 

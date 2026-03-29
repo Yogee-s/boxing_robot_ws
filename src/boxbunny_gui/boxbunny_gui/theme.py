@@ -65,9 +65,9 @@ class Size:
     TEXT_BODY = 16
     TEXT_HEADER = 28
     TEXT_SUBHEADER = 22
-    TEXT_TIMER = 96
-    TEXT_TIMER_SM = 72
-    TEXT_TIMER_XL = 120
+    TEXT_TIMER = 80
+    TEXT_TIMER_SM = 60
+    TEXT_TIMER_XL = 96
     TEXT_LABEL = 14
     SCREEN_W = 1024
     SCREEN_H = 600
@@ -93,8 +93,8 @@ def button_style(
     hover: str,
     pressed: str,
     text: str = Color.TEXT,
-    font_size: int = 18,
-    min_h: int = 60,
+    font_size: int = 16,
+    min_h: int = 44,
     radius: int = 12,
 ) -> str:
     """Generate a QPushButton stylesheet."""

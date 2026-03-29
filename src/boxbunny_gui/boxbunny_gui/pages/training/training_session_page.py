@@ -73,7 +73,7 @@ class TrainingSessionPage(QWidget):
         root.addLayout(top_row)
 
         # Center: timer -- dominant element
-        self._timer = TimerDisplay(font_size=Size.TEXT_TIMER_XL, show_ring=True)
+        self._timer = TimerDisplay(font_size=Size.TEXT_TIMER, show_ring=True)
         self._timer.finished.connect(self._on_timer_done)
         root.addWidget(self._timer, stretch=1)
 

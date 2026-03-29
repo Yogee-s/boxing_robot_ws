@@ -45,8 +45,8 @@ class TrainingResultsPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(28, 20, 28, 20)
-        root.setSpacing(14)
+        root.setContentsMargins(24, 12, 24, 12)
+        root.setSpacing(10)
 
         # Title row with checkmark accent
         title = QLabel("\u2713  Session Complete")
@@ -81,14 +81,16 @@ class TrainingResultsPage(QWidget):
         chart_lay.setContentsMargins(16, 8, 16, 8)
         chart_title = QLabel("PUNCH DISTRIBUTION")
         chart_title.setStyleSheet(
-            f"color: {Color.TEXT_DISABLED}; font-size: 10px;"
+            "background: transparent;"
+            f" color: {Color.TEXT_DISABLED}; font-size: 10px;"
             " font-weight: 700; letter-spacing: 0.8px;"
         )
         chart_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         chart_lay.addWidget(chart_title)
         chart_bar = QLabel("\u2588 \u2588 \u2588 \u2588 \u2588 \u2588")
         chart_bar.setStyleSheet(
-            f"color: {Color.TEXT_DISABLED}; font-size: 16px; letter-spacing: 4px;"
+            "background: transparent;"
+            f" color: {Color.TEXT_DISABLED}; font-size: 16px; letter-spacing: 4px;"
         )
         chart_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         chart_lay.addWidget(chart_bar)
@@ -121,28 +123,26 @@ class TrainingResultsPage(QWidget):
 
         root.addStretch()
 
-        # Action buttons row -- clean spacing
+        # Action buttons row — no fixed widths, let them share space
         bottom = QHBoxLayout()
-        bottom.setSpacing(12)
+        bottom.setSpacing(8)
 
-        self._btn_home = BigButton("\u2190  Home", stylesheet=GHOST_BTN)
-        self._btn_home.setFixedSize(130, 50)
+        self._btn_home = BigButton("Home", stylesheet=GHOST_BTN)
+        self._btn_home.setFixedHeight(42)
         self._btn_home.clicked.connect(
             lambda: self._router.navigate("home")
         )
-        bottom.addWidget(self._btn_home)
+        bottom.addWidget(self._btn_home, stretch=1)
 
-        bottom.addStretch()
-
-        self._btn_save = BigButton("Save Preset", stylesheet=SURFACE_BTN)
-        self._btn_save.setFixedSize(160, 50)
+        self._btn_save = BigButton("Save", stylesheet=SURFACE_BTN)
+        self._btn_save.setFixedHeight(42)
         self._btn_save.clicked.connect(self._on_save_preset)
-        bottom.addWidget(self._btn_save)
+        bottom.addWidget(self._btn_save, stretch=1)
 
-        self._btn_again = BigButton("Train Again  \u2192", stylesheet=PRIMARY_BTN)
-        self._btn_again.setFixedSize(170, 50)
+        self._btn_again = BigButton("Train Again", stylesheet=PRIMARY_BTN)
+        self._btn_again.setFixedHeight(42)
         self._btn_again.clicked.connect(self._on_train_again)
-        bottom.addWidget(self._btn_again)
+        bottom.addWidget(self._btn_again, stretch=1)
         root.addLayout(bottom)
 
     def _on_save_preset(self) -> None:

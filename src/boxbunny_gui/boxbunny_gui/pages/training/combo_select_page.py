@@ -77,7 +77,8 @@ class _ComboCard(QPushButton):
         left_col.setSpacing(4)
         name_lbl = QLabel(combo["name"])
         name_lbl.setStyleSheet(
-            f"color: {Color.TEXT}; font-size: 16px; font-weight: 600;"
+            f"background: transparent; color: {Color.TEXT};"
+            " font-size: 16px; font-weight: 600;"
         )
         left_col.addWidget(name_lbl)
 
@@ -88,7 +89,8 @@ class _ComboCard(QPushButton):
             "advanced": Color.DANGER,
         }.get(combo["diff"], Color.TEXT_SECONDARY)
         diff_lbl.setStyleSheet(
-            f"color: {diff_color}; font-size: 12px; font-weight: 600;"
+            f"background: transparent; color: {diff_color};"
+            " font-size: 12px; font-weight: 600;"
         )
         left_col.addWidget(diff_lbl)
         lay.addLayout(left_col)
@@ -101,7 +103,8 @@ class _ComboCard(QPushButton):
         for punch_id in combo["seq"]:
             dot = QLabel("\u25CF")
             dot.setStyleSheet(
-                f"color: {_PUNCH_COLORS.get(punch_id, Color.TEXT_DISABLED)};"
+                f"background: transparent;"
+                f" color: {_PUNCH_COLORS.get(punch_id, Color.TEXT_DISABLED)};"
                 " font-size: 18px;"
             )
             dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -117,7 +120,8 @@ class _ComboCard(QPushButton):
         )
         pct_lbl = QLabel(f"{pct}%")
         pct_lbl.setStyleSheet(
-            f"color: {pct_color}; font-size: 20px; font-weight: 700;"
+            f"background: transparent; color: {pct_color};"
+            " font-size: 20px; font-weight: 700;"
         )
         pct_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         pct_lbl.setFixedWidth(56)

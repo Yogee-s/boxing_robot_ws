@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 
 from PySide6.QtCore import QRect, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from boxbunny_gui.theme import Color, Size
@@ -49,8 +49,10 @@ class TimerDisplay(QWidget):
         self._timer.timeout.connect(self._on_tick)
 
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setMinimumSize(180, 180)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setMinimumSize(160, 160)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
 
     # -- public API -----------------------------------------------------------
     def start(self, total_seconds: int) -> None:
@@ -62,18 +64,15 @@ class TimerDisplay(QWidget):
         self.update()
 
     def pause(self) -> None:
-        """Pause the countdown."""
         self._running = False
         self._timer.stop()
 
     def resume(self) -> None:
-        """Resume after a pause."""
         if self._remaining > 0:
             self._running = True
             self._timer.start()
 
     def reset(self) -> None:
-        """Stop and zero the timer."""
         self._timer.stop()
         self._running = False
         self._remaining = 0
@@ -81,7 +80,6 @@ class TimerDisplay(QWidget):
         self.update()
 
     def set_time(self, seconds: int) -> None:
-        """Set the display to an arbitrary value without starting."""
         self._remaining = max(0, seconds)
         self._total = max(self._total, self._remaining)
         self.update()
@@ -115,20 +113,25 @@ class TimerDisplay(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        side = min(self.width(), self.height())
         color_hex = self._current_color()
         color = QColor(color_hex)
 
-        # -- progress ring ----------------------------------------------------
+        # Use the full available square for the ring
+        side = min(self.width(), self.height())
+
+        # Scale font to fit inside the ring with good clearance
+        # Ring takes full available height; text should be ~40% of ring diameter
+        scaled_font_size = max(20, int(side * 0.22))
+        time_font = QFont("Inter", scaled_font_size, QFont.Weight.Bold)
+
+        # -- progress ring (fills available space) ----------------------------
         if self._show_ring and self._total > 0:
-            pen_w = 6
-            margin = pen_w + 4
-            ring_rect = QRect(
-                (self.width() - side) // 2 + margin,
-                (self.height() - side) // 2 + margin,
-                side - 2 * margin,
-                side - 2 * margin,
-            )
+            pen_w = 3
+            margin = pen_w + 6
+            cx = self.width() // 2
+            cy = self.height() // 2
+            half = side // 2 - margin
+            ring_rect = QRect(cx - half, cy - half, half * 2, half * 2)
 
             # background track
             track_pen = QPen(QColor(Color.SURFACE_LIGHT), pen_w)
@@ -136,7 +139,7 @@ class TimerDisplay(QWidget):
             painter.setPen(track_pen)
             painter.drawArc(ring_rect, 0, 360 * 16)
 
-            # foreground arc (shrinks as time elapses)
+            # foreground arc
             fraction = self._remaining / self._total if self._total else 0
             span = int(fraction * 360 * 16)
             arc_pen = QPen(color, pen_w)
@@ -144,8 +147,11 @@ class TimerDisplay(QWidget):
             painter.setPen(arc_pen)
             painter.drawArc(ring_rect, 90 * 16, span)
 
-        # -- time text --------------------------------------------------------
+        # -- time text (centered, scaled to fit) ------------------------------
         painter.setPen(QColor(color_hex))
-        painter.setFont(QFont("Inter", self._font_size, QFont.Weight.Bold))
-        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._format_time(self._remaining))
+        painter.setFont(time_font)
+        painter.drawText(
+            self.rect(), Qt.AlignmentFlag.AlignCenter,
+            self._format_time(self._remaining),
+        )
         painter.end()

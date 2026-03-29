@@ -1,6 +1,6 @@
 """Home page for logged-in users.
 
-Colorful 2x3 grid layout with large mode cards. Premium dark theme.
+Colorful grid layout with mode cards. Premium dark theme.
 """
 from __future__ import annotations
 
@@ -10,11 +10,11 @@ from typing import Any
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QGridLayout, QHBoxLayout, QLabel, QPushButton,
-    QSizePolicy, QVBoxLayout, QWidget,
+    QVBoxLayout, QWidget,
 )
 
 from boxbunny_gui.theme import (
-    Color, close_btn_style, mode_card_style, top_bar_btn_style,
+    Color, close_btn_style, top_bar_btn_style,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,34 +53,53 @@ _MODES = [
 ]
 
 
-def _mode_card(mode: dict) -> QPushButton:
-    """Large mode card that expands to fill available space."""
+def _mode_card(mode: dict, height: int = 100) -> QPushButton:
+    """Fixed-height mode card with centered content."""
+    accent = mode["accent"]
     btn = QPushButton()
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
-    btn.setStyleSheet(mode_card_style(mode["accent"]))
-    btn.setSizePolicy(
-        QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
-    )
+    btn.setFixedHeight(height)
+    btn.setStyleSheet(f"""
+        QPushButton {{
+            background-color: {Color.SURFACE};
+            color: {Color.TEXT};
+            border: 1px solid {Color.BORDER};
+            border-left: 4px solid {accent};
+            border-radius: 14px;
+            padding: 0px;
+        }}
+        QPushButton:hover {{
+            background-color: {Color.SURFACE_HOVER};
+            border-color: {accent}50;
+            border-left: 4px solid {accent};
+        }}
+        QPushButton:pressed {{
+            background-color: {Color.SURFACE_LIGHT};
+        }}
+    """)
 
     lay = QVBoxLayout(btn)
-    lay.setContentsMargins(24, 16, 24, 16)
+    lay.setContentsMargins(0, 0, 0, 0)
     lay.setSpacing(4)
+    lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
     title = QLabel(mode["name"])
+    title.setAlignment(Qt.AlignmentFlag.AlignCenter)
     title.setStyleSheet(
-        f"font-size: 18px; font-weight: 700; color: {Color.TEXT};"
+        "background: transparent;"
+        f" font-size: 20px; font-weight: 700; color: {Color.TEXT};"
     )
     title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
     lay.addWidget(title)
 
     desc = QLabel(mode["desc"])
+    desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
     desc.setStyleSheet(
-        f"font-size: 13px; color: {Color.TEXT_SECONDARY};"
+        f"background: transparent; font-size: 13px;"
+        f" color: {Color.TEXT_SECONDARY};"
     )
     desc.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
     lay.addWidget(desc)
-
-    lay.addStretch()
 
     return btn
 
@@ -93,7 +112,7 @@ class HomeIndividualPage(QWidget):
         self._router = router
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 16, 32, 16)
+        root.setContentsMargins(40, 20, 40, 20)
         root.setSpacing(10)
 
         # ── Top bar ──────────────────────────────────────────────────────
@@ -120,12 +139,15 @@ class HomeIndividualPage(QWidget):
         top.addWidget(close_btn)
         root.addLayout(top)
 
-        # ── Mode grid: top row 2, middle row 2, bottom row 1 centered ───
+        root.addStretch()
+
+        # ── Mode grid: 2x2 + 1 bottom ───────────────────────────────────
         grid = QGridLayout()
         grid.setSpacing(10)
 
         for i, mode in enumerate(_MODES):
-            btn = _mode_card(mode)
+            is_last = i == len(_MODES) - 1
+            btn = _mode_card(mode, height=55 if is_last else 100)
             btn.clicked.connect(
                 lambda _c=False, r=mode["route"]: self._nav(r)
             )
@@ -134,7 +156,9 @@ class HomeIndividualPage(QWidget):
             else:
                 grid.addWidget(btn, 2, 0, 1, 2)
 
-        root.addLayout(grid, stretch=1)
+        root.addLayout(grid)
+
+        root.addStretch()
 
         # ── Bottom ───────────────────────────────────────────────────────
         bottom = QHBoxLayout()
@@ -142,7 +166,7 @@ class HomeIndividualPage(QWidget):
 
         logout = QPushButton("Log Out")
         logout.setCursor(Qt.CursorShape.PointingHandCursor)
-        logout.setFixedSize(110, 34)
+        logout.setFixedSize(110, 32)
         logout.setStyleSheet(f"""
             QPushButton {{
                 font-size: 13px; font-weight: 600;

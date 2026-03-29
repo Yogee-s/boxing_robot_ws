@@ -1,6 +1,6 @@
 """Guest home page — shown after skill assessment.
 
-Colorful mode cards filling the screen. Premium, aesthetic design.
+Colorful mode cards with centered text. Premium, aesthetic design.
 """
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from typing import Any
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QGridLayout, QHBoxLayout, QLabel, QPushButton,
-    QSizePolicy, QVBoxLayout, QWidget,
+    QVBoxLayout, QWidget,
 )
 
-from boxbunny_gui.theme import Color, badge_style, close_btn_style, mode_card_style
+from boxbunny_gui.theme import Color, badge_style, close_btn_style
 
 logger = logging.getLogger(__name__)
 
@@ -46,33 +46,52 @@ _MODES = [
 
 
 def _mode_card(mode: dict) -> QPushButton:
-    """Large mode card that expands to fill available space."""
+    """Fixed-height mode card with centered content."""
+    accent = mode["accent"]
     btn = QPushButton()
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
-    btn.setStyleSheet(mode_card_style(mode["accent"]))
-    btn.setSizePolicy(
-        QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
-    )
+    btn.setFixedHeight(120)
+    btn.setStyleSheet(f"""
+        QPushButton {{
+            background-color: {Color.SURFACE};
+            color: {Color.TEXT};
+            border: 1px solid {Color.BORDER};
+            border-left: 4px solid {accent};
+            border-radius: 14px;
+            padding: 0px;
+        }}
+        QPushButton:hover {{
+            background-color: {Color.SURFACE_HOVER};
+            border-color: {accent}50;
+            border-left: 4px solid {accent};
+        }}
+        QPushButton:pressed {{
+            background-color: {Color.SURFACE_LIGHT};
+        }}
+    """)
 
     lay = QVBoxLayout(btn)
-    lay.setContentsMargins(24, 20, 24, 20)
-    lay.setSpacing(6)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(4)
+    lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
     title = QLabel(mode["name"])
+    title.setAlignment(Qt.AlignmentFlag.AlignCenter)
     title.setStyleSheet(
-        f"font-size: 20px; font-weight: 700; color: {Color.TEXT};"
+        "background: transparent;"
+        f" font-size: 22px; font-weight: 700; color: {Color.TEXT};"
     )
     title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
     lay.addWidget(title)
 
     desc = QLabel(mode["desc"])
+    desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
     desc.setStyleSheet(
-        f"font-size: 14px; color: {Color.TEXT_SECONDARY};"
+        f"background: transparent; font-size: 13px;"
+        f" color: {Color.TEXT_SECONDARY};"
     )
     desc.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
     lay.addWidget(desc)
-
-    lay.addStretch()
 
     return btn
 
@@ -85,12 +104,12 @@ class HomeGuestPage(QWidget):
         self._router = router
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 16, 32, 16)
+        root.setContentsMargins(40, 20, 40, 20)
         root.setSpacing(12)
 
         # ── Top bar ──────────────────────────────────────────────────────
         top = QHBoxLayout()
-        top.setSpacing(12)
+        top.setSpacing(10)
         title = QLabel("Guest Mode")
         title.setStyleSheet(
             f"font-size: 22px; font-weight: 700; color: {Color.TEXT};"
@@ -109,7 +128,9 @@ class HomeGuestPage(QWidget):
         top.addWidget(close_btn)
         root.addLayout(top)
 
-        # ── 2x2 Mode grid — fills all available space ───────────────────
+        root.addStretch()
+
+        # ── 2x2 Mode grid — centered with fixed card heights ────────────
         grid = QGridLayout()
         grid.setSpacing(12)
         for i, mode in enumerate(_MODES):
@@ -119,7 +140,9 @@ class HomeGuestPage(QWidget):
             )
             grid.addWidget(btn, i // 2, i % 2)
 
-        root.addLayout(grid, stretch=1)
+        root.addLayout(grid)
+
+        root.addStretch()
 
         # ── Bottom ───────────────────────────────────────────────────────
         bottom = QHBoxLayout()
@@ -127,7 +150,7 @@ class HomeGuestPage(QWidget):
 
         back = QPushButton("\u2190  Back to Start")
         back.setCursor(Qt.CursorShape.PointingHandCursor)
-        back.setFixedSize(160, 36)
+        back.setFixedSize(160, 34)
         back.setStyleSheet(f"""
             QPushButton {{
                 font-size: 13px; font-weight: 600;

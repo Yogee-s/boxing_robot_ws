@@ -55,7 +55,8 @@ def _stat_pill(label: str, value: str) -> QLabel:
     """Tiny stat pill with muted label + bright value."""
     pill = QLabel(f"{label} {value}")
     pill.setStyleSheet(
-        f"font-size: 12px; font-weight: 600; color: {Color.TEXT_SECONDARY};"
+        "background: transparent;"
+        f" font-size: 12px; font-weight: 600; color: {Color.TEXT_SECONDARY};"
         f" background-color: {Color.SURFACE_LIGHT}; border-radius: 8px;"
         " padding: 3px 10px;"
     )
@@ -98,12 +99,14 @@ class _SessionCard(QFrame):
         icon = _MODE_ICONS.get(session["mode"], "")
         mode_lbl = QLabel(f"{icon}  {session['mode']}")
         mode_lbl.setStyleSheet(
-            f"font-size: 15px; font-weight: 700; color: {Color.TEXT};"
+            "background: transparent;"
+            f" font-size: 15px; font-weight: 700; color: {Color.TEXT};"
         )
         left.addWidget(mode_lbl)
         date_lbl = QLabel(session["date"])
         date_lbl.setStyleSheet(
-            f"font-size: 12px; color: {Color.TEXT_DISABLED};"
+            "background: transparent;"
+            f" font-size: 12px; color: {Color.TEXT_DISABLED};"
         )
         left.addWidget(date_lbl)
         row.addLayout(left)
@@ -118,7 +121,8 @@ class _SessionCard(QFrame):
 
         score_lbl = QLabel(session["score"])
         score_lbl.setStyleSheet(
-            f"font-size: 13px; font-weight: 700; color: {accent};"
+            "background: transparent;"
+            f" font-size: 13px; font-weight: 700; color: {accent};"
             f" background-color: {accent}18; border-radius: 8px;"
             " padding: 3px 12px;"
         )

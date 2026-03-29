@@ -53,8 +53,8 @@ class StatCard(QFrame):
         self.setMaximumHeight(110)
         self.setStyleSheet(
             f"QFrame {{ background-color: {Color.SURFACE};"
-            f" border-radius: {Size.RADIUS}px;"
-            f" border-top: 2px solid {accent_color}; }}"
+            f" border: 1px solid {Color.BORDER};"
+            f" border-radius: {Size.RADIUS}px; }}"
         )
 
         layout = QVBoxLayout(self)

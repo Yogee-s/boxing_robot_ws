@@ -64,7 +64,8 @@ class _ParamTile(QPushButton):
 
         self._label_lbl = QLabel(label.upper())
         self._label_lbl.setStyleSheet(
-            f"color: {Color.TEXT_DISABLED}; font-size: 11px;"
+            "background: transparent;"
+            f" color: {Color.TEXT_DISABLED}; font-size: 11px;"
             " font-weight: 700; letter-spacing: 0.8px;"
         )
         self._label_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -72,14 +73,16 @@ class _ParamTile(QPushButton):
 
         self._value_lbl = QLabel(self._options[0])
         self._value_lbl.setStyleSheet(
-            f"color: {Color.TEXT}; font-size: 28px; font-weight: 700;"
+            "background: transparent;"
+            f" color: {Color.TEXT}; font-size: 28px; font-weight: 700;"
         )
         self._value_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(self._value_lbl, stretch=1)
 
         self._hint_lbl = QLabel("tap to change")
         self._hint_lbl.setStyleSheet(
-            f"color: {Color.TEXT_DISABLED}; font-size: 10px;"
+            "background: transparent;"
+            f" color: {Color.TEXT_DISABLED}; font-size: 10px;"
         )
         self._hint_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(self._hint_lbl)

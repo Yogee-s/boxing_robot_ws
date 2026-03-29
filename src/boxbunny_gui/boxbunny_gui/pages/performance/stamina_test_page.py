@@ -47,13 +47,13 @@ def _stat_col(label: str, value: str, color: str) -> tuple:
     col.setSpacing(4)
     h = QLabel(label)
     h.setStyleSheet(
-        f"color: {Color.TEXT_DISABLED}; font-size: 11px;"
+        f"background: transparent; color: {Color.TEXT_DISABLED}; font-size: 11px;"
         " font-weight: 700; letter-spacing: 0.8px;"
     )
     h.setAlignment(Qt.AlignmentFlag.AlignCenter)
     v = QLabel(value)
     v.setFont(font(28, bold=True))
-    v.setStyleSheet(f"color: {color};")
+    v.setStyleSheet(f"background: transparent; color: {color};")
     v.setAlignment(Qt.AlignmentFlag.AlignCenter)
     col.addWidget(h)
     col.addWidget(v)

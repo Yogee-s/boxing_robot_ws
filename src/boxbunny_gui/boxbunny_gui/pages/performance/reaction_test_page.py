@@ -165,7 +165,7 @@ class ReactionTestPage(QWidget):
         self._set_stimulus_bg(Color.SURFACE)
         self._stimulus_lbl.setText("Wait for green...")
         self._stimulus_lbl.setStyleSheet(
-            f"color: {Color.TEXT_DISABLED}; font-size: 32px; font-weight: 700;"
+            f"background: transparent; color: {Color.TEXT_DISABLED}; font-size: 32px; font-weight: 700;"
             " letter-spacing: 1px;"
         )
         delay = random.randint(_MIN_DELAY_MS, _MAX_DELAY_MS)
@@ -177,7 +177,7 @@ class ReactionTestPage(QWidget):
         self._set_stimulus_bg(Color.PRIMARY)
         self._stimulus_lbl.setText("PUNCH NOW!")
         self._stimulus_lbl.setStyleSheet(
-            f"color: {Color.BG}; font-size: 44px; font-weight: 800;"
+            f"background: transparent; color: {Color.BG}; font-size: 44px; font-weight: 800;"
             " letter-spacing: 2px;"
         )
 
@@ -190,7 +190,7 @@ class ReactionTestPage(QWidget):
         self._set_stimulus_bg(Color.SURFACE)
         self._stimulus_lbl.setText(f"{reaction_ms:.0f} ms")
         self._stimulus_lbl.setStyleSheet(
-            f"color: {Color.PRIMARY}; font-size: 44px; font-weight: 800;"
+            f"background: transparent; color: {Color.PRIMARY}; font-size: 44px; font-weight: 800;"
         )
 
         if self._trial >= _TOTAL_TRIALS:
@@ -211,7 +211,7 @@ class ReactionTestPage(QWidget):
         self._results_widget.setVisible(True)
         self._stimulus_lbl.setText("Test Complete")
         self._stimulus_lbl.setStyleSheet(
-            f"color: {Color.PRIMARY}; font-size: 28px; font-weight: 700;"
+            f"background: transparent; color: {Color.PRIMARY}; font-size: 28px; font-weight: 700;"
         )
 
     def _abort(self) -> None:
@@ -230,7 +230,7 @@ class ReactionTestPage(QWidget):
         self._set_stimulus_bg(Color.SURFACE)
         self._stimulus_lbl.setText("Tap Start to begin")
         self._stimulus_lbl.setStyleSheet(
-            f"color: {Color.TEXT_SECONDARY}; font-size: 28px; font-weight: 700;"
+            f"background: transparent; color: {Color.TEXT_SECONDARY}; font-size: 28px; font-weight: 700;"
         )
         logger.debug("ReactionTestPage entered")
 
