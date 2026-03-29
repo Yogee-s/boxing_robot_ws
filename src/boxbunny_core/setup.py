@@ -36,6 +36,7 @@ setup(
             'sparring_engine = boxbunny_core.sparring_engine:main',
             'analytics_node = boxbunny_core.analytics_node:main',
             'llm_node = boxbunny_core.llm_node:main',
+            'gesture_node = boxbunny_core.gesture_node:main',
         ],
     },
 )

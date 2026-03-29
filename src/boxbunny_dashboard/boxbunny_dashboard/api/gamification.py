@@ -257,3 +257,75 @@ async def get_leaderboard(
 
     entries.sort(key=lambda e: e.score, reverse=True)
     return entries
+
+
+# ---- Benchmarks / Percentile Comparison ----
+
+@router.get("/benchmarks")
+async def get_benchmarks(
+    request: Request,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Get percentile rankings against population norms for the current user.
+
+    Compares the user's best performance metrics against age/gender norms
+    from sports science research.
+    """
+    db: DatabaseManager = request.app.state.db
+    username = user["username"]
+
+    # Gather user's best stats from session history
+    sessions = db.get_session_history(username, limit=50)
+    if not sessions:
+        return {"benchmarks": {}, "message": "No sessions yet — train first!"}
+
+    # Aggregate best metrics across all sessions
+    import json as _json
+    best_stats: dict = {}
+    for session in sessions:
+        summary = session.get("summary_json", "{}")
+        if isinstance(summary, str):
+            try:
+                summary = _json.loads(summary)
+            except _json.JSONDecodeError:
+                summary = {}
+        if summary.get("total_punches", 0) > best_stats.get("total_punches", 0):
+            best_stats["total_punches"] = summary["total_punches"]
+
+    # Get performance test bests
+    reaction_tests = db.get_session_history(username, mode="reaction")
+    for rt in reaction_tests:
+        s = rt.get("summary_json", "{}")
+        if isinstance(s, str):
+            try:
+                s = _json.loads(s)
+            except _json.JSONDecodeError:
+                s = {}
+        avg = s.get("avg_reaction_ms", 9999)
+        if avg < best_stats.get("avg_reaction_ms", 9999):
+            best_stats["avg_reaction_ms"] = avg
+
+    # Compute percentiles using the benchmark engine
+    try:
+        from boxbunny_dashboard.benchmarks import BenchmarkEngine
+        engine = BenchmarkEngine()
+        results = engine.get_all_percentiles(
+            best_stats,
+            age=user.get("age"),
+            gender=user.get("gender"),
+            level=user.get("level"),
+        )
+    except Exception as e:
+        logger.error("Benchmark computation failed: %s", e)
+        results = {}
+
+    return {
+        "benchmarks": results,
+        "user_stats": best_stats,
+        "demographics": {
+            "age": user.get("age"),
+            "gender": user.get("gender"),
+            "height_cm": user.get("height_cm"),
+            "weight_kg": user.get("weight_kg"),
+        },
+    }

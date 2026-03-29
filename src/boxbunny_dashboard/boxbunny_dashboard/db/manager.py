@@ -78,6 +78,12 @@ class DatabaseManager:
         display_name: str,
         user_type: str = "individual",
         level: str = "beginner",
+        age: Optional[int] = None,
+        gender: Optional[str] = None,
+        height_cm: Optional[float] = None,
+        weight_kg: Optional[float] = None,
+        reach_cm: Optional[float] = None,
+        stance: str = "orthodox",
     ) -> Optional[int]:
         """Create a new user account. Returns user ID or None on failure."""
         password_hash = bcrypt.hashpw(
@@ -87,8 +93,10 @@ class DatabaseManager:
             with self._get_main_conn() as conn:
                 cursor = conn.execute(
                     """INSERT INTO users (username, password_hash, display_name,
-                       user_type, level) VALUES (?, ?, ?, ?, ?)""",
-                    (username, password_hash, display_name, user_type, level),
+                       user_type, level, age, gender, height_cm, weight_kg,
+                       reach_cm, stance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (username, password_hash, display_name, user_type, level,
+                     age, gender, height_cm, weight_kg, reach_cm, stance),
                 )
                 user_id = cursor.lastrowid
             self._init_user_db(username)
@@ -137,6 +145,48 @@ class DatabaseManager:
             self._update_last_login(row["username"])
             return True
         return False
+
+    def update_profile(self, user_id: int, **kwargs) -> bool:
+        """Update user profile fields (age, gender, height_cm, weight_kg, etc.)."""
+        allowed = {
+            "display_name", "level", "age", "gender", "height_cm",
+            "weight_kg", "reach_cm", "stance", "settings_json",
+            "proficiency_answers_json",
+        }
+        updates = {k: v for k, v in kwargs.items() if k in allowed}
+        if not updates:
+            return False
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        values = list(updates.values()) + [user_id]
+        with self._get_main_conn() as conn:
+            conn.execute(f"UPDATE users SET {set_clause} WHERE id = ?", values)
+        return True
+
+    def get_demographic_peers(self, user_id: int) -> List[Dict]:
+        """Get users with similar demographics for percentile comparisons.
+
+        Matches on gender and age within ±5 years. Returns list of user dicts
+        (without passwords).
+        """
+        user = self.get_user(user_id)
+        if user is None:
+            return []
+        with self._get_main_conn() as conn:
+            conditions = ["id != ?", "user_type = 'individual'"]
+            params: list = [user_id]
+            if user.get("gender"):
+                conditions.append("gender = ?")
+                params.append(user["gender"])
+            if user.get("age"):
+                conditions.append("age BETWEEN ? AND ?")
+                params.extend([user["age"] - 5, user["age"] + 5])
+            where = " AND ".join(conditions)
+            rows = conn.execute(
+                f"""SELECT id, username, display_name, level, age, gender,
+                    height_cm, weight_kg FROM users WHERE {where}""",
+                params,
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     def _update_last_login(self, username: str) -> None:
         """Update last login timestamp."""

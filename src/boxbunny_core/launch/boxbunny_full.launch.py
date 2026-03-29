@@ -99,6 +99,23 @@ def generate_launch_description() -> LaunchDescription:
                 "fallback_tips_path": str(config_dir / "fallback_tips.json"),
             }],
         ),
+        # --- Gesture Navigation ---
+        # Uncomment to enable gesture control
+        # Node(
+        #     package="boxbunny_core",
+        #     executable="gesture_node",
+        #     name="gesture_node",
+        #     output="screen",
+        #     parameters=[{
+        #         "enabled": True,
+        #         "hold_duration_s": 0.7,
+        #         "cooldown_s": 1.5,
+        #         "min_confidence": 0.7,
+        #         "swipe_threshold_px": 100.0,
+        #         "process_interval": 3,
+        #     }],
+        # ),
+
         # --- GUI ---
         Node(
             package="boxbunny_gui",

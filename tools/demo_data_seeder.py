@@ -159,8 +159,10 @@ def gen_sessions(db, user, dates, modes, diff, level, work=180, rest=60):
 # ── User Seeders ─────────────────────────────────────────────────────────────
 
 def seed_alex(db):
-    print("  Creating Alex (beginner)...")
-    uid = db.create_user("alex", "boxing123", "Alex Chen", "individual", "beginner")
+    print("  Creating Alex (beginner) — M, 22, 175cm, 72kg...")
+    uid = db.create_user("alex", "boxing123", "Alex Chen", "individual", "beginner",
+                         age=22, gender="male", height_cm=175.0, weight_kg=72.0,
+                         reach_cm=178.0, stance="orthodox")
     if not uid: print("    Exists, skip."); return
     db.set_pattern(uid, [0, 1, 2, 5, 8])
     set_proficiency(db, "alex", {"boxing_experience": "no", "goal": "fitness", "intensity": "light"})
@@ -182,8 +184,10 @@ def seed_alex(db):
     print("    8 sessions, 2 tests, 3 achievements, 2 presets.")
 
 def seed_maria(db):
-    print("  Creating Maria (intermediate)...")
-    uid = db.create_user("maria", "boxing123", "Maria Santos", "individual", "intermediate")
+    print("  Creating Maria (intermediate) — F, 28, 165cm, 58kg...")
+    uid = db.create_user("maria", "boxing123", "Maria Santos", "individual", "intermediate",
+                         age=28, gender="female", height_cm=165.0, weight_kg=58.0,
+                         reach_cm=163.0, stance="orthodox")
     if not uid: print("    Exists, skip."); return
     db.set_pattern(uid, [0, 3, 6, 7, 8, 5, 2])
     set_proficiency(db, "maria", {"boxing_experience": "some", "goal": "skill", "intensity": "moderate"})
@@ -214,8 +218,10 @@ def seed_maria(db):
     print("    35 sessions, 5 tests, 8 achievements, 5 presets.")
 
 def seed_jake(db):
-    print("  Creating Jake (advanced)...")
-    uid = db.create_user("jake", "boxing123", "Jake Thompson", "individual", "advanced")
+    print("  Creating Jake (advanced) — M, 31, 183cm, 82kg...")
+    uid = db.create_user("jake", "boxing123", "Jake Thompson", "individual", "advanced",
+                         age=31, gender="male", height_cm=183.0, weight_kg=82.0,
+                         reach_cm=188.0, stance="orthodox")
     if not uid: print("    Exists, skip."); return
     db.set_pattern(uid, [0, 4, 8, 6, 2, 1, 3, 5, 7])
     set_proficiency(db, "jake", {"boxing_experience": "yes", "goal": "competition", "intensity": "hard"})
@@ -253,8 +259,10 @@ def seed_jake(db):
     print("    120 sessions, 15 tests, 15 achievements, 8 presets.")
 
 def seed_sarah(db):
-    print("  Creating Coach Sarah...")
-    uid = db.create_user("sarah", "coaching123", "Coach Sarah", "coach", "advanced")
+    print("  Creating Coach Sarah — F, 35, 170cm, 65kg...")
+    uid = db.create_user("sarah", "coaching123", "Coach Sarah", "coach", "advanced",
+                         age=35, gender="female", height_cm=170.0, weight_kg=65.0,
+                         reach_cm=168.0, stance="orthodox")
     if not uid: print("    Exists, skip."); return
     db.set_pattern(uid, [0, 1, 2, 5, 4, 3, 6, 7, 8])
     c = {"difficulty": "intermediate", "rounds": 4, "work_sec": 180, "rest_sec": 60}

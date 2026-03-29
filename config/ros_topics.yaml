@@ -1,0 +1,72 @@
+# =============================================================================
+# BoxBunny ROS Topics & Services Configuration
+# =============================================================================
+# This is the SINGLE place to modify any ROS topic or service name.
+# All nodes load these names at startup via constants.py.
+# Change a name here → restart system → all nodes use the new name.
+# =============================================================================
+
+# --- IMU Topics (from Teensy hardware / simulator) ---
+imu:
+  pad_impact: "/boxbunny/imu/pad/impact"        # Raw pad impact from Teensy (PadImpact)
+  arm_strike: "/boxbunny/imu/arm/strike"         # Raw arm contact from Teensy (ArmStrike)
+  status: "/boxbunny/imu/status"                 # IMU connection status (IMUStatus)
+  # Processed by imu_node:
+  punch_event: "/boxbunny/imu/punch_event"       # Classified pad punch (PunchEvent)
+  nav_event: "/boxbunny/imu/nav_event"           # Navigation command (NavCommand)
+  arm_event: "/boxbunny/imu/arm_event"           # Processed arm strike (ArmStrikeEvent)
+
+# --- Computer Vision Topics (from cv_node) ---
+cv:
+  detection: "/boxbunny/cv/detection"            # Per-frame punch detection (PunchDetection)
+  pose: "/boxbunny/cv/pose"                      # Skeleton keypoints (PoseEstimate)
+  user_tracking: "/boxbunny/cv/user_tracking"    # Bbox, depth, displacement (UserTracking)
+  status: "/boxbunny/cv/status"                  # CV pipeline status (String)
+
+# --- Fused/Confirmed Topics (from punch_processor) ---
+punch:
+  confirmed: "/boxbunny/punch/confirmed"         # CV+IMU fused punch (ConfirmedPunch)
+  defense: "/boxbunny/punch/defense"             # Defense event (DefenseEvent)
+  session_summary: "/boxbunny/punch/session_summary"  # End-of-session stats (SessionPunchSummary)
+
+# --- Robot Arm Topics ---
+robot:
+  command: "/boxbunny/robot/command"              # Punch command to robot (RobotCommand)
+  height: "/boxbunny/robot/height"               # Height motor command (HeightCommand)
+  round_control: "/boxbunny/robot/round_control"  # Round start/stop (RoundControl)
+  status: "/boxbunny/robot/status"               # Robot connection status (String)
+
+# --- Session Control Topics ---
+session:
+  state: "/boxbunny/session/state"               # Session lifecycle state (SessionState)
+  config: "/boxbunny/session/config"             # Session configuration (SessionConfig)
+
+# --- Drill Topics (from drill_manager) ---
+drill:
+  definition: "/boxbunny/drill/definition"       # Active drill config (DrillDefinition)
+  event: "/boxbunny/drill/event"                 # Combo events (DrillEvent)
+  progress: "/boxbunny/drill/progress"           # Real-time progress (DrillProgress)
+
+# --- AI Coach Topics ---
+coach:
+  tip: "/boxbunny/coach/tip"                     # Real-time coaching tip (CoachTip)
+
+# --- Gesture Control Topics ---
+gesture:
+  status: "/boxbunny/gesture/status"             # Gesture control status (String)
+
+# --- Camera Feed Topics (RealSense) ---
+camera:
+  color: "/camera/color/image_raw"               # RGB stream
+  depth: "/camera/aligned_depth_to_color/image_raw"  # Depth stream aligned to color
+
+# =============================================================================
+# Services
+# =============================================================================
+services:
+  start_session: "/boxbunny/session/start"       # StartSession.srv
+  end_session: "/boxbunny/session/end"           # EndSession.srv
+  start_drill: "/boxbunny/drill/start"           # StartDrill.srv
+  set_imu_mode: "/boxbunny/imu/set_mode"         # SetImuMode.srv
+  calibrate_imu: "/boxbunny/imu/calibrate"       # CalibrateImuPunch.srv
+  generate_llm: "/boxbunny/llm/generate"         # GenerateLlm.srv

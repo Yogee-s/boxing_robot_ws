@@ -13,10 +13,14 @@ setup(
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         # package manifest
         ("share/" + package_name, ["package.xml"]),
-        # static assets (SPA build output)
-        ("share/" + package_name + "/static/dist", glob("static/dist/*")),
+        # static assets (SPA build output) — include root files + assets subdir
+        ("share/" + package_name + "/static/dist",
+         [f for f in glob("static/dist/*") if not f.endswith("/assets") and "." in f.split("/")[-1]]),
+        ("share/" + package_name + "/static/dist/assets",
+         glob("static/dist/assets/*")),
         # SQL data files
-        ("share/" + package_name + "/data", glob("data/*")),
+        ("share/" + package_name + "/data",
+         [f for f in glob("data/*") if "." in f.split("/")[-1]]),
     ],
     install_requires=[
         "setuptools",
