@@ -1,0 +1,16 @@
+# Available LLM models for BoxBunny AI Coach
+# The chat GUI can switch between these models
+
+models:
+  - name: "Qwen2.5-3B (Default)"
+    path: "models/llm/qwen2.5-3b-instruct-q4_k_m.gguf"
+    description: "Qwen 2.5 3B Instruct — fast, good for coaching tips"
+    n_ctx: 2048
+    n_gpu_layers: -1
+
+# Add more models here as needed:
+#  - name: "Phi-3 Mini"
+#    path: "models/llm/phi-3-mini-q4.gguf"
+#    description: "Microsoft Phi-3 Mini — compact and efficient"
+#    n_ctx: 4096
+#    n_gpu_layers: -1

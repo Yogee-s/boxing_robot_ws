@@ -1,72 +1,407 @@
 # =============================================================================
-# BoxBunny ROS Topics & Services Configuration
+# BoxBunny — ROS Topics & Services Configuration
 # =============================================================================
-# This is the SINGLE place to modify any ROS topic or service name.
-# All nodes load these names at startup via constants.py.
-# Change a name here → restart system → all nodes use the new name.
+#
+# This is the SINGLE place to configure ALL ROS topic and service names.
+# constants.py loads this file at startup. Change a name here, restart the
+# system, and every node automatically uses the new name.
+#
+# HOW TO READ THIS FILE:
+#   topic_key: "/topic/name"
+#     # Message type: boxbunny_msgs/msg/TypeName
+#     # Publisher:    which node publishes to this topic
+#     # Subscriber:   which nodes subscribe to this topic
+#     # Fields:       what data the message contains
+#     # Notes:        any important behavior details
+#
 # =============================================================================
 
-# --- IMU Topics (from Teensy hardware / simulator) ---
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IMU Topics
+# Published by the Teensy microcontroller (or IMU Simulator for dev)
+# Processed by imu_node into higher-level events
+# ─────────────────────────────────────────────────────────────────────────────
 imu:
-  pad_impact: "/boxbunny/imu/pad/impact"        # Raw pad impact from Teensy (PadImpact)
-  arm_strike: "/boxbunny/imu/arm/strike"         # Raw arm contact from Teensy (ArmStrike)
-  status: "/boxbunny/imu/status"                 # IMU connection status (IMUStatus)
-  # Processed by imu_node:
-  punch_event: "/boxbunny/imu/punch_event"       # Classified pad punch (PunchEvent)
-  nav_event: "/boxbunny/imu/nav_event"           # Navigation command (NavCommand)
-  arm_event: "/boxbunny/imu/arm_event"           # Processed arm strike (ArmStrikeEvent)
 
-# --- Computer Vision Topics (from cv_node) ---
+  pad_impact: "/boxbunny/imu/pad/impact"
+    # Message type: boxbunny_msgs/msg/PadImpact
+    # Publisher:    Teensy (via micro-ROS / serial bridge) OR tools/imu_simulator.py
+    # Subscriber:   imu_node
+    # Fields:
+    #   - timestamp (float64): when the impact occurred
+    #   - pad (string): which pad was hit — "left", "centre", "right", "head"
+    #   - level (string): impact force classified by Teensy — "light", "medium", "hard"
+    # Notes: Raw hardware event. Teensy does on-board classification of force level.
+    #        In dev mode, the IMU simulator publishes identical messages on this topic.
+
+  arm_strike: "/boxbunny/imu/arm/strike"
+    # Message type: boxbunny_msgs/msg/ArmStrike
+    # Publisher:    Teensy
+    # Subscriber:   imu_node
+    # Fields:
+    #   - timestamp (float64)
+    #   - arm (string): "left" or "right" robot arm
+    #   - contact (bool): true = robot arm struck the user, false = missed
+    # Notes: Binary detection. Used for defense tracking in ALL training modes.
+
+  status: "/boxbunny/imu/status"
+    # Message type: boxbunny_msgs/msg/IMUStatus
+    # Publisher:    Teensy OR imu_node (1 Hz heartbeat)
+    # Subscriber:   GUI settings page, system health monitor
+    # Fields:
+    #   - left_pad_connected, centre_pad_connected, right_pad_connected, head_pad_connected (bool)
+    #   - left_arm_connected, right_arm_connected (bool)
+    #   - is_simulator (bool): true if data comes from the dev simulator
+    # Notes: Shows per-sensor connection status on the Settings page.
+
+  # --- Processed by imu_node (Jetson-side) ---
+
+  punch_event: "/boxbunny/imu/punch_event"
+    # Message type: boxbunny_msgs/msg/PunchEvent
+    # Publisher:    imu_node (only during TRAINING mode)
+    # Subscriber:   punch_processor, gui_bridge
+    # Fields:
+    #   - timestamp (float64)
+    #   - pad (string): "left", "centre", "right", "head"
+    #   - level (string): "light", "medium", "hard"
+    #   - force_normalized (float32): 0.33 (light), 0.66 (medium), 1.0 (hard)
+    # Notes: Only published when imu_node is in TRAINING mode. During NAVIGATION
+    #        mode, pad impacts become nav_events instead.
+
+  nav_event: "/boxbunny/imu/nav_event"
+    # Message type: boxbunny_msgs/msg/NavCommand
+    # Publisher:    imu_node (only during NAVIGATION mode), gesture_node
+    # Subscriber:   gui_bridge → ImuNavHandler
+    # Fields:
+    #   - timestamp (float64)
+    #   - command (string): "prev" (left pad), "next" (right pad),
+    #                       "enter" (centre pad), "back" (head pad)
+    # Notes: GUI navigation via pad taps. Debounced (300ms per-pad, 200ms global).
+    #        Gesture node also publishes here so both input methods work identically.
+
+  arm_event: "/boxbunny/imu/arm_event"
+    # Message type: boxbunny_msgs/msg/ArmStrikeEvent
+    # Publisher:    imu_node (always, regardless of mode)
+    # Subscriber:   punch_processor
+    # Fields:
+    #   - timestamp (float64)
+    #   - arm (string): "left" or "right"
+    #   - contact (bool): true = struck, false = missed
+    # Notes: Published in ALL modes. Arm data is always relevant for defense tracking.
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Computer Vision Topics
+# Published by cv_node which wraps the action prediction model
+# ─────────────────────────────────────────────────────────────────────────────
 cv:
-  detection: "/boxbunny/cv/detection"            # Per-frame punch detection (PunchDetection)
-  pose: "/boxbunny/cv/pose"                      # Skeleton keypoints (PoseEstimate)
-  user_tracking: "/boxbunny/cv/user_tracking"    # Bbox, depth, displacement (UserTracking)
-  status: "/boxbunny/cv/status"                  # CV pipeline status (String)
 
-# --- Fused/Confirmed Topics (from punch_processor) ---
+  detection: "/boxbunny/cv/detection"
+    # Message type: boxbunny_msgs/msg/PunchDetection
+    # Publisher:    cv_node (at camera frame rate, ~30fps)
+    # Subscriber:   punch_processor
+    # Fields:
+    #   - timestamp (float64)
+    #   - punch_type (string): one of "jab", "cross", "left_hook", "right_hook",
+    #                          "left_uppercut", "right_uppercut", "block", "idle"
+    #   - confidence (float32): 0.0-1.0 model confidence
+    #   - raw_class (string): raw model output before post-processing
+    # Notes: Per-frame output after temporal smoothing, EMA, hysteresis,
+    #        state machine filtering, and block consecutive filter.
+
+  pose: "/boxbunny/cv/pose"
+    # Message type: boxbunny_msgs/msg/PoseEstimate
+    # Publisher:    cv_node
+    # Subscriber:   reaction_test (for reaction time measurement)
+    # Fields:
+    #   - timestamp (float64)
+    #   - keypoints (float32[]): flattened [x1,y1,conf1, x2,y2,conf2, ...] COCO-17
+    #   - movement_delta (float32): magnitude of pose change from previous frame
+    # Notes: Used by reaction time test to detect when the user starts moving.
+
+  user_tracking: "/boxbunny/cv/user_tracking"
+    # Message type: boxbunny_msgs/msg/UserTracking
+    # Publisher:    cv_node
+    # Subscriber:   punch_processor, session_manager
+    # Fields:
+    #   - timestamp (float64)
+    #   - bbox_centre_x, bbox_centre_y (float32): bounding box centre in pixels
+    #   - bbox_top_y (float32): top of bbox — used for height auto-adjustment
+    #   - bbox_width, bbox_height (float32): bbox dimensions in pixels
+    #   - depth (float32): distance from camera to user in meters (D435i depth)
+    #   - lateral_displacement (float32): bbox_centre_x shift from baseline (pixels)
+    #   - depth_displacement (float32): depth change from baseline (meters)
+    #   - user_detected (bool): false if no person in frame
+    # Notes: lateral_displacement and depth_displacement are used for slip detection.
+    #        bbox_top_y drives the height auto-adjustment motor.
+
+  status: "/boxbunny/cv/status"
+    # Message type: std_msgs/msg/String
+    # Publisher:    cv_node
+    # Subscriber:   GUI settings page
+    # Fields:
+    #   - data (string): "active", "idle", "loading", "error", "unavailable"
+    # Notes: Shown as a status indicator on the Settings page.
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fused / Confirmed Topics
+# Published by punch_processor after CV+IMU fusion
+# ─────────────────────────────────────────────────────────────────────────────
 punch:
-  confirmed: "/boxbunny/punch/confirmed"         # CV+IMU fused punch (ConfirmedPunch)
-  defense: "/boxbunny/punch/defense"             # Defense event (DefenseEvent)
-  session_summary: "/boxbunny/punch/session_summary"  # End-of-session stats (SessionPunchSummary)
 
-# --- Robot Arm Topics ---
+  confirmed: "/boxbunny/punch/confirmed"
+    # Message type: boxbunny_msgs/msg/ConfirmedPunch
+    # Publisher:    punch_processor
+    # Subscriber:   session_manager, GUI (live punch counter), dev_overlay, analytics_node
+    # Fields:
+    #   - timestamp (float64)
+    #   - punch_type (string): classified type (jab, cross, etc.) or "unclassified"
+    #   - pad (string): which pad was hit (from IMU) — empty if IMU unavailable
+    #   - level (string): force level — "light"/"medium"/"hard" or empty
+    #   - force_normalized (float32): 0.33/0.66/1.0 or 0.0 if no IMU
+    #   - cv_confidence (float32): CV model confidence (0.0-1.0)
+    #   - imu_confirmed (bool): true if a pad IMU impact matched within ±200ms
+    #   - cv_confirmed (bool): true if a CV detection matched
+    # Notes: The primary punch data stream. Pad-location constraints filter
+    #        CV misclassifications (e.g., no hooks on centre pad).
+
+  defense: "/boxbunny/punch/defense"
+    # Message type: boxbunny_msgs/msg/DefenseEvent
+    # Publisher:    punch_processor
+    # Subscriber:   session_manager, GUI, analytics_node
+    # Fields:
+    #   - timestamp (float64)
+    #   - arm (string): which robot arm threw the punch
+    #   - robot_punch_code (string): "1"-"6" punch code
+    #   - struck (bool): true = robot hit user, false = user defended
+    #   - defense_type (string): "block", "slip", "dodge", "hit", "unknown"
+    # Notes: Generated in ALL training modes when the robot throws a punch.
+    #        Slip detection uses: arm IMU miss + no CV block + bbox displacement.
+
+  session_summary: "/boxbunny/punch/session_summary"
+    # Message type: boxbunny_msgs/msg/SessionPunchSummary
+    # Publisher:    punch_processor (at session end)
+    # Subscriber:   session_manager, analytics_node, llm_node
+    # Fields:
+    #   - total_punches, punch/force/pad distribution (JSON strings)
+    #   - average_confidence, peak_force_level, imu_confirmation_rate
+    #   - robot_punches_thrown/landed, defense_rate, defense_type_breakdown
+    #   - avg_depth, depth_range, lateral_movement, session_duration_sec
+    #   - rounds_completed
+    # Notes: Comprehensive session statistics. Triggers LLM post-session analysis.
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Robot Arm Topics
+# Commands sent to the Teensy controlling the robot arm and height motor
+# ─────────────────────────────────────────────────────────────────────────────
 robot:
-  command: "/boxbunny/robot/command"              # Punch command to robot (RobotCommand)
-  height: "/boxbunny/robot/height"               # Height motor command (HeightCommand)
-  round_control: "/boxbunny/robot/round_control"  # Round start/stop (RoundControl)
-  status: "/boxbunny/robot/status"               # Robot connection status (String)
 
-# --- Session Control Topics ---
+  command: "/boxbunny/robot/command"
+    # Message type: boxbunny_msgs/msg/RobotCommand
+    # Publisher:    sparring_engine, drill_manager
+    # Subscriber:   robot_node, punch_processor (to open defense detection window)
+    # Fields:
+    #   - command_type (string): "punch" or "set_speed"
+    #   - punch_code (string): "1" (jab) through "6" (right uppercut)
+    #   - speed (string): "slow", "medium", "fast"
+    # Notes: When punch_processor sees this, it opens a 500ms defense window
+    #        to match arm IMU data with CV block detection.
+
+  height: "/boxbunny/robot/height"
+    # Message type: boxbunny_msgs/msg/HeightCommand
+    # Publisher:    session_manager (during countdown)
+    # Subscriber:   robot_node
+    # Fields:
+    #   - target_height_px, current_height_px (float32): in camera frame pixels
+    #   - action (string): "adjust", "calibrate", "manual_up", "manual_down", "stop"
+    # Notes: Auto-adjust uses YOLO pose bbox_top_y. Manual override from GUI settings.
+
+  round_control: "/boxbunny/robot/round_control"
+    # Message type: boxbunny_msgs/msg/RoundControl
+    # Publisher:    session_manager
+    # Subscriber:   robot_node
+    # Fields:
+    #   - action (string): "start" or "stop"
+    # Notes: Enables/disables the robot arm motor during rounds.
+
+  status: "/boxbunny/robot/status"
+    # Message type: std_msgs/msg/String
+    # Publisher:    robot_node (every 2 seconds)
+    # Subscriber:   GUI settings page
+    # Fields: JSON string with: status, port, round_active, speed, sequences_loaded
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Session Control Topics
+# Manages the training session lifecycle
+# ─────────────────────────────────────────────────────────────────────────────
 session:
-  state: "/boxbunny/session/state"               # Session lifecycle state (SessionState)
-  config: "/boxbunny/session/config"             # Session configuration (SessionConfig)
 
-# --- Drill Topics (from drill_manager) ---
+  state: "/boxbunny/session/state"
+    # Message type: boxbunny_msgs/msg/SessionState
+    # Publisher:    session_manager
+    # Subscriber:   imu_node (mode switching), cv_node, GUI, drill_manager,
+    #               sparring_engine, gesture_node
+    # Fields:
+    #   - state (string): "idle", "countdown", "active", "rest", "complete"
+    #   - mode (string): "training", "sparring", "free", "power", "stamina", "reaction"
+    #   - username (string): current user or "guest"
+    # Notes: THE key signal for the entire system. When state changes:
+    #        - idle → countdown: IMU switches to TRAINING mode (200ms grace period)
+    #        - active → rest: punches stop counting, rest timer starts
+    #        - complete → idle: IMU switches back to NAVIGATION mode
+    #        Gesture control also suspends during non-idle states.
+
+  config: "/boxbunny/session/config"
+    # Message type: boxbunny_msgs/msg/SessionConfig
+    # Publisher:    GUI (when user starts a session)
+    # Subscriber:   session_manager
+    # Fields:
+    #   - mode, difficulty, combo_sequence (JSON), rounds, work_time_sec,
+    #     rest_time_sec, speed, style
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Drill Topics
+# Manages combo drill progression and validation
+# ─────────────────────────────────────────────────────────────────────────────
 drill:
-  definition: "/boxbunny/drill/definition"       # Active drill config (DrillDefinition)
-  event: "/boxbunny/drill/event"                 # Combo events (DrillEvent)
-  progress: "/boxbunny/drill/progress"           # Real-time progress (DrillProgress)
 
-# --- AI Coach Topics ---
+  definition: "/boxbunny/drill/definition"
+    # Message type: boxbunny_msgs/msg/DrillDefinition
+    # Publisher:    drill_manager (when a drill starts)
+    # Subscriber:   GUI (displays the combo sequence), session_manager
+    # Fields:
+    #   - drill_name (string): e.g., "jab-cross-hook"
+    #   - difficulty (string): "beginner", "intermediate", "advanced"
+    #   - combo_sequence (string[]): ordered punch codes ["1", "2", "3"]
+    #   - total_combos (int32): how many times the combo repeats
+    #   - target_speed (float32): expected execution tempo
+
+  event: "/boxbunny/drill/event"
+    # Message type: boxbunny_msgs/msg/DrillEvent
+    # Publisher:    drill_manager
+    # Subscriber:   session_manager, GUI, llm_node (for coaching tips)
+    # Fields:
+    #   - timestamp (float64)
+    #   - event_type (string): "combo_started", "combo_completed", "combo_missed", "combo_partial"
+    #   - combo_index (int32): which repetition (1-based)
+    #   - accuracy (float32): 0.0-1.0 for this attempt
+    #   - timing_score (float32): 0.0-1.0 closeness to target tempo
+    #   - detected_punches, expected_punches (string[]): for comparison
+
+  progress: "/boxbunny/drill/progress"
+    # Message type: boxbunny_msgs/msg/DrillProgress
+    # Publisher:    drill_manager (updated after each combo attempt)
+    # Subscriber:   GUI (live progress display)
+    # Fields:
+    #   - timestamp, combos_completed, combos_remaining
+    #   - overall_accuracy (float32): running accuracy across all combos
+    #   - current_streak (float32): consecutive correct combos
+    #   - best_streak (int32): best streak this session
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AI Coach Topics
+# ─────────────────────────────────────────────────────────────────────────────
 coach:
-  tip: "/boxbunny/coach/tip"                     # Real-time coaching tip (CoachTip)
 
-# --- Gesture Control Topics ---
+  tip: "/boxbunny/coach/tip"
+    # Message type: boxbunny_msgs/msg/CoachTip
+    # Publisher:    llm_node (every ~18 seconds during active sessions)
+    # Subscriber:   GUI (coach_tip_bar widget)
+    # Fields:
+    #   - timestamp (float64)
+    #   - tip_text (string): the coaching tip to display
+    #   - tip_type (string): "technique", "encouragement", "correction", "suggestion"
+    #   - trigger (string): what caused this tip — "low_accuracy", "fatigue",
+    #                        "idle", "periodic", "pr_close", "session_end"
+    #   - priority (int32): 0=low, 1=normal, 2=high (high = display immediately)
+    # Notes: If LLM is unavailable, tips come from config/fallback_tips.json instead.
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Gesture Control Topics
+# ─────────────────────────────────────────────────────────────────────────────
 gesture:
-  status: "/boxbunny/gesture/status"             # Gesture control status (String)
 
-# --- Camera Feed Topics (RealSense) ---
+  status: "/boxbunny/gesture/status"
+    # Message type: std_msgs/msg/String
+    # Publisher:    gesture_node
+    # Subscriber:   GUI settings page
+    # Fields: "active", "inactive", "disabled"
+    # Notes: gesture_node is disabled by default. Enable from GUI Settings.
+    #        When active, it publishes NavCommands on imu/nav_event (same topic).
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Camera Feed Topics (Intel RealSense D435i)
+# ─────────────────────────────────────────────────────────────────────────────
 camera:
-  color: "/camera/color/image_raw"               # RGB stream
-  depth: "/camera/aligned_depth_to_color/image_raw"  # Depth stream aligned to color
+
+  color: "/camera/color/image_raw"
+    # Message type: sensor_msgs/msg/Image
+    # Publisher:    RealSense ROS driver (realsense2_camera)
+    # Subscriber:   cv_node, gesture_node
+    # Format: BGR8, 960x540 @ 30fps
+
+  depth: "/camera/aligned_depth_to_color/image_raw"
+    # Message type: sensor_msgs/msg/Image
+    # Publisher:    RealSense ROS driver
+    # Subscriber:   cv_node
+    # Format: 16UC1 (millimeters), 848x480 @ 30fps, aligned to color frame
+
 
 # =============================================================================
-# Services
+# Services (request/response, not pub/sub)
 # =============================================================================
 services:
-  start_session: "/boxbunny/session/start"       # StartSession.srv
-  end_session: "/boxbunny/session/end"           # EndSession.srv
-  start_drill: "/boxbunny/drill/start"           # StartDrill.srv
-  set_imu_mode: "/boxbunny/imu/set_mode"         # SetImuMode.srv
-  calibrate_imu: "/boxbunny/imu/calibrate"       # CalibrateImuPunch.srv
-  generate_llm: "/boxbunny/llm/generate"         # GenerateLlm.srv
+
+  start_session: "/boxbunny/session/start"
+    # Service type: boxbunny_msgs/srv/StartSession
+    # Server:       session_manager
+    # Clients:      GUI, dashboard API
+    # Request:  mode, difficulty, config_json, username
+    # Response: success (bool), session_id (string), message (string)
+
+  end_session: "/boxbunny/session/end"
+    # Service type: boxbunny_msgs/srv/EndSession
+    # Server:       session_manager
+    # Clients:      GUI, dashboard API
+    # Request:  session_id
+    # Response: success (bool), summary_json (string), message (string)
+
+  start_drill: "/boxbunny/drill/start"
+    # Service type: boxbunny_msgs/srv/StartDrill
+    # Server:       drill_manager
+    # Clients:      session_manager
+    # Request:  drill_name, difficulty, rounds, work_time_sec, rest_time_sec, speed
+    # Response: success (bool), drill_id (string), message (string)
+
+  set_imu_mode: "/boxbunny/imu/set_mode"
+    # Service type: boxbunny_msgs/srv/SetImuMode
+    # Server:       imu_node
+    # Clients:      session_manager (automatic), debug tools
+    # Request:  mode — "navigation" or "training"
+    # Response: success (bool), current_mode (string)
+    # Notes: Usually automatic via SessionState topic. Service is for manual override.
+
+  calibrate_imu: "/boxbunny/imu/calibrate"
+    # Service type: boxbunny_msgs/srv/CalibrateImuPunch
+    # Server:       imu_node
+    # Clients:      GUI calibration page
+    # Request:  pad — "left", "centre", "right", "head", or "all"
+    # Response: success (bool), message (string)
+
+  generate_llm: "/boxbunny/llm/generate"
+    # Service type: boxbunny_msgs/srv/GenerateLlm
+    # Server:       llm_node
+    # Clients:      GUI (post-session analysis), dashboard API (chat)
+    # Request:  prompt, context_json, system_prompt_key
+    # Response: success (bool), response (string), generation_time_sec (float32)
+    # Notes: system_prompt_key selects the prompt style:
+    #        "drill_feedback", "session_analysis", "technique_tips",
+    #        "drill_suggestions", "general"

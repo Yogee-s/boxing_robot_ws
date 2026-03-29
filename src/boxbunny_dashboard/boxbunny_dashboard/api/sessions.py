@@ -1,11 +1,12 @@
 """Training session data endpoints for BoxBunny Dashboard.
 
 Provides access to current live session data, detailed session summaries,
-and paginated session history. All data is per-user.
+paginated session history, and trend analytics. All data is per-user.
 """
 
 import json
 import logging
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -129,6 +130,180 @@ async def get_session_history(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/trends")
+async def get_session_trends(
+    request: Request,
+    user: dict = Depends(get_current_user),
+    db: DatabaseManager = Depends(_get_db),
+    range: str = Query(default="30d", regex="^(7d|30d|90d|all)$"),
+) -> Dict[str, Any]:
+    """Return time-series trend data for analytics dashboards.
+
+    Aggregates punch volume, reaction time, defense rate, personal bests,
+    weekly summaries, and period-over-period comparisons.
+    """
+    username = user["username"]
+
+    # Determine cutoff date from range
+    range_days = {"7d": 7, "30d": 30, "90d": 90, "all": 3650}
+    days = range_days.get(range, 30)
+
+    all_sessions = db.get_session_history(username, limit=1000)
+    if not all_sessions:
+        return {
+            "punch_volume": [],
+            "reaction_time": [],
+            "defense_rate": [],
+            "power": [],
+            "stamina": [],
+            "personal_bests": {},
+            "weekly_summary": {"sessions": 0, "total_punches": 0, "avg_score": 0},
+            "period_comparison": {"vs_last_week": "0%", "vs_last_month": "0%"},
+        }
+
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+
+    # Filter sessions within range
+    sessions_in_range = []
+    for s in all_sessions:
+        started = s.get("started_at", "")
+        if started >= cutoff or range == "all":
+            sessions_in_range.append(s)
+
+    # Build trend arrays
+    punch_volume = []
+    reaction_time = []
+    defense_rate = []
+    power_data = []
+    stamina_data = []
+    total_punches_all = 0
+    scores = []
+
+    # Track personal bests
+    best_reaction = 9999
+    best_punches = 0
+    best_defense = 0.0
+    best_power = 0
+    best_stamina = 0
+
+    for s in reversed(sessions_in_range):
+        date_str = s.get("started_at", "")[:10]
+        summary = _parse_json_field(s.get("summary_json"))
+
+        # Punch volume
+        punches = summary.get("total_punches", (s.get("rounds_completed", 0) * 20))
+        punch_volume.append({"date": date_str, "value": punches})
+        total_punches_all += punches
+
+        if punches > best_punches:
+            best_punches = punches
+
+        # Reaction time
+        react_ms = summary.get("avg_reaction_ms")
+        if react_ms:
+            reaction_time.append({"date": date_str, "value": react_ms})
+            if react_ms < best_reaction:
+                best_reaction = react_ms
+
+        # Defense rate
+        defense = summary.get("defense_rate")
+        if defense is not None:
+            defense_rate.append({"date": date_str, "value": round(defense, 3)})
+            if defense > best_defense:
+                best_defense = defense
+
+        # Power
+        pw = summary.get("max_power", 0)
+        if pw:
+            power_data.append({"date": date_str, "value": pw})
+            if pw > best_power:
+                best_power = pw
+
+        # Stamina (punches per minute)
+        ppm = summary.get("punches_per_minute", 0)
+        if ppm:
+            stamina_data.append({"date": date_str, "value": round(ppm, 1)})
+            if ppm > best_stamina:
+                best_stamina = ppm
+
+        # Score tracking
+        accuracy = summary.get("accuracy", 0.5)
+        scores.append(int(accuracy * 100))
+
+    # Weekly summary (last 7 days)
+    week_cutoff = (datetime.utcnow() - timedelta(days=7)).isoformat()
+    week_sessions = [s for s in all_sessions if s.get("started_at", "") >= week_cutoff]
+    week_punches = 0
+    for s in week_sessions:
+        sm = _parse_json_field(s.get("summary_json"))
+        week_punches += sm.get("total_punches", (s.get("rounds_completed", 0) * 20))
+
+    avg_score = round(sum(scores) / len(scores)) if scores else 0
+
+    # Period comparison
+    prev_week_cutoff = (datetime.utcnow() - timedelta(days=14)).isoformat()
+    prev_week_sessions = [
+        s for s in all_sessions
+        if prev_week_cutoff <= s.get("started_at", "") < week_cutoff
+    ]
+    prev_month_cutoff = (datetime.utcnow() - timedelta(days=60)).isoformat()
+    month_cutoff = (datetime.utcnow() - timedelta(days=30)).isoformat()
+    prev_month_sessions = [
+        s for s in all_sessions
+        if prev_month_cutoff <= s.get("started_at", "") < month_cutoff
+    ]
+
+    def _pct_change(current: int, previous: int) -> str:
+        if previous == 0:
+            return "+100%" if current > 0 else "0%"
+        change = round(((current - previous) / previous) * 100)
+        return f"+{change}%" if change >= 0 else f"{change}%"
+
+    vs_last_week = _pct_change(len(week_sessions), len(prev_week_sessions))
+    month_sessions = [
+        s for s in all_sessions if s.get("started_at", "") >= month_cutoff
+    ]
+    vs_last_month = _pct_change(len(month_sessions), len(prev_month_sessions))
+
+    # Training days for heat map (current week, Mon=0 to Sun=6)
+    today = datetime.utcnow().date()
+    week_start = today - timedelta(days=today.weekday())
+    training_days = set()
+    for s in week_sessions:
+        try:
+            d = datetime.fromisoformat(s["started_at"].replace("Z", "+00:00")).date()
+            day_idx = (d - week_start).days
+            if 0 <= day_idx <= 6:
+                training_days.add(day_idx)
+        except (ValueError, KeyError):
+            pass
+
+    return {
+        "punch_volume": punch_volume,
+        "reaction_time": reaction_time,
+        "defense_rate": defense_rate,
+        "power": power_data,
+        "stamina": stamina_data,
+        "personal_bests": {
+            "fastest_reaction_ms": best_reaction if best_reaction < 9999 else None,
+            "most_punches": best_punches if best_punches > 0 else None,
+            "best_defense_rate": round(best_defense, 3) if best_defense > 0 else None,
+            "max_power": best_power if best_power > 0 else None,
+            "best_stamina_ppm": best_stamina if best_stamina > 0 else None,
+        },
+        "weekly_summary": {
+            "sessions": len(week_sessions),
+            "total_punches": week_punches,
+            "avg_score": avg_score,
+        },
+        "period_comparison": {
+            "vs_last_week": vs_last_week,
+            "vs_last_month": vs_last_month,
+        },
+        "training_days": sorted(training_days),
+    }
 
 
 @router.get("/{session_id}", response_model=SessionDetail)

@@ -140,6 +140,20 @@ export async function getLeaderboard(coachingSessionId) {
   return request('GET', `/gamification/leaderboard/${coachingSessionId}`)
 }
 
+export async function getBenchmarks() {
+  return request('GET', '/gamification/benchmarks')
+}
+
+// ---- Trends / Analytics ----
+
+export async function getSessionTrends(range = '30d') {
+  return request('GET', `/sessions/trends?range=${range}`)
+}
+
+export async function getUserProfile() {
+  return request('GET', '/auth/session')
+}
+
 // ---- Presets ----
 
 export async function getPresets() {
