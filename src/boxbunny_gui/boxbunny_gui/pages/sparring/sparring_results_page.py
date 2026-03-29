@@ -1,6 +1,8 @@
 """Post-sparring results page.
 
-Offense and defense stat cards, AI summary, QR code, and action buttons.
+Offense section with punch distribution bars, defense section with
+defense rate / blocks / slips / dodges / hits taken, AI summary,
+QR code area, and action buttons.
 """
 from __future__ import annotations
 
@@ -9,9 +11,11 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -24,6 +28,36 @@ if TYPE_CHECKING:
     from boxbunny_gui.nav.router import PageRouter
 
 logger = logging.getLogger(__name__)
+
+_PUNCH_COLORS: Dict[str, str] = {
+    "Jab": "#2196F3", "Cross": "#F44336",
+    "Hook": "#FF9800", "Uppercut": "#9C27B0",
+}
+
+
+class _DistBar(QFrame):
+    """Horizontal coloured bar with label and count."""
+
+    def __init__(self, name: str, value: int, max_val: int, color: str,
+                 parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setFixedHeight(28)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(Size.SPACING_SM)
+        lbl = QLabel(name)
+        lbl.setFixedWidth(70)
+        lbl.setStyleSheet(f"color: {Color.TEXT_SECONDARY}; font-size: 13px;")
+        lay.addWidget(lbl)
+        bar = QFrame()
+        width = max(4, int(200 * value / max_val)) if max_val else 4
+        bar.setFixedSize(width, 16)
+        bar.setStyleSheet(f"background-color: {color}; border-radius: 4px;")
+        lay.addWidget(bar)
+        cnt = QLabel(str(value))
+        cnt.setStyleSheet(f"color: {Color.TEXT}; font-size: 13px; font-weight: bold;")
+        lay.addWidget(cnt)
+        lay.addStretch()
 
 
 class SparringResultsPage(QWidget):
@@ -42,7 +76,10 @@ class SparringResultsPage(QWidget):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        wrapper = QWidget()
+        root = QVBoxLayout(wrapper)
         root.setContentsMargins(Size.SPACING, Size.SPACING_SM, Size.SPACING, Size.SPACING_SM)
         root.setSpacing(Size.SPACING_SM)
 
@@ -60,10 +97,13 @@ class SparringResultsPage(QWidget):
         off_grid = QHBoxLayout()
         off_grid.setSpacing(Size.SPACING_SM)
         self._off_punches = StatCard("Total Punches", "--")
-        self._off_distribution = StatCard("Punch Mix", "--")
         off_grid.addWidget(self._off_punches)
-        off_grid.addWidget(self._off_distribution)
         root.addLayout(off_grid)
+
+        # Punch distribution bars
+        self._dist_layout = QVBoxLayout()
+        self._dist_layout.setSpacing(2)
+        root.addLayout(self._dist_layout)
 
         # Defense section
         def_lbl = QLabel("Defense")
@@ -110,6 +150,22 @@ class SparringResultsPage(QWidget):
         bottom.addWidget(btn_home)
         root.addLayout(bottom)
 
+        scroll.setWidget(wrapper)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
+
+    def _populate_bars(self, dist: Dict[str, int]) -> None:
+        """Rebuild punch distribution bars."""
+        while self._dist_layout.count():
+            item = self._dist_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        max_val = max(dist.values(), default=1)
+        for name, count in dist.items():
+            color = _PUNCH_COLORS.get(name, Color.TEXT_SECONDARY)
+            self._dist_layout.addWidget(_DistBar(name, count, max_val, color, self))
+
     def _request_llm(self) -> None:
         if self._bridge is None:
             self._ai_lbl.setText("AI Coach unavailable in offline mode.")
@@ -124,10 +180,10 @@ class SparringResultsPage(QWidget):
     def _on_llm(self, success: bool, response: str, _time: float) -> None:
         self._ai_lbl.setText(response if success else "AI Coach analysis unavailable.")
 
-    # ── Lifecycle ──────────────────────────────────────────────────────
+    # -- Lifecycle ----------------------------------------------------------
     def on_enter(self, **kwargs: Any) -> None:
         self._config = kwargs.get("config", {})
-        # TODO: populate from actual session data
+        self._populate_bars({"Jab": 0, "Cross": 0, "Hook": 0, "Uppercut": 0})
         self._request_llm()
         logger.debug("SparringResultsPage entered")
 

@@ -1,7 +1,4 @@
-"""Combined sparring style selection and parameter configuration.
-
-Five style cards, parameter tiles, difficulty selector, and start button.
-"""
+"""Sparring style selection and parameter configuration."""
 from __future__ import annotations
 
 import logging
@@ -194,7 +191,6 @@ class SparringConfigPage(QWidget):
         logger.info("Starting sparring: %s", config)
         self._router.navigate("sparring_session", config=config)
 
-    # ── Lifecycle ──────────────────────────────────────────────────────
     def on_enter(self, **kwargs: Any) -> None:
         logger.debug("SparringConfigPage entered")
 

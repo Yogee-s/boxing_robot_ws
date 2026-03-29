@@ -1,0 +1,118 @@
+{
+  "documents": [
+    {
+      "path": "techniques/jab.md",
+      "title": "The Jab",
+      "category": "techniques",
+      "tags": ["jab", "punch", "beginner", "lead hand", "straight punch"]
+    },
+    {
+      "path": "techniques/cross.md",
+      "title": "The Cross",
+      "category": "techniques",
+      "tags": ["cross", "straight right", "punch", "power punch", "beginner"]
+    },
+    {
+      "path": "techniques/hooks.md",
+      "title": "Hooks: Left Hook and Right Hook",
+      "category": "techniques",
+      "tags": ["hook", "left hook", "right hook", "punch", "intermediate"]
+    },
+    {
+      "path": "techniques/uppercuts.md",
+      "title": "Uppercuts: Left and Right",
+      "category": "techniques",
+      "tags": ["uppercut", "left uppercut", "right uppercut", "punch", "intermediate"]
+    },
+    {
+      "path": "techniques/stance_and_guard.md",
+      "title": "Stance and Guard",
+      "category": "techniques",
+      "tags": ["stance", "guard", "orthodox", "southpaw", "beginner", "fundamentals"]
+    },
+    {
+      "path": "defense/blocking.md",
+      "title": "Blocking Techniques",
+      "category": "defense",
+      "tags": ["block", "defense", "parry", "guard", "beginner"]
+    },
+    {
+      "path": "defense/slipping.md",
+      "title": "Slipping",
+      "category": "defense",
+      "tags": ["slip", "defense", "head movement", "counter", "intermediate"]
+    },
+    {
+      "path": "defense/footwork.md",
+      "title": "Boxing Footwork",
+      "category": "defense",
+      "tags": ["footwork", "movement", "pivot", "angles", "beginner"]
+    },
+    {
+      "path": "combos/beginner_combos.md",
+      "title": "Beginner Combinations",
+      "category": "combos",
+      "tags": ["combinations", "combos", "beginner", "1-2", "jab-cross"]
+    },
+    {
+      "path": "combos/intermediate_combos.md",
+      "title": "Intermediate Combinations",
+      "category": "combos",
+      "tags": ["combinations", "combos", "intermediate", "uppercut", "level change"]
+    },
+    {
+      "path": "combos/advanced_combos.md",
+      "title": "Advanced Combinations",
+      "category": "combos",
+      "tags": ["combinations", "combos", "advanced", "feint", "pivot", "counter"]
+    },
+    {
+      "path": "training_plans/beginner_plan.md",
+      "title": "8-Week Beginner Training Plan",
+      "category": "training_plans",
+      "tags": ["training plan", "beginner", "program", "8 week", "schedule"]
+    },
+    {
+      "path": "training_plans/intermediate_plan.md",
+      "title": "8-Week Intermediate Training Plan",
+      "category": "training_plans",
+      "tags": ["training plan", "intermediate", "program", "8 week", "schedule"]
+    },
+    {
+      "path": "conditioning/boxing_fitness.md",
+      "title": "Boxing-Specific Conditioning",
+      "category": "conditioning",
+      "tags": ["conditioning", "fitness", "jump rope", "shadow boxing", "core", "circuit"]
+    },
+    {
+      "path": "common_mistakes/beginner_mistakes.md",
+      "title": "Top 10 Beginner Mistakes",
+      "category": "common_mistakes",
+      "tags": ["mistakes", "beginner", "form", "correction", "tips"]
+    },
+    {
+      "path": "coaching/circuit_training.md",
+      "title": "Boxing Circuit Training Guide",
+      "category": "coaching",
+      "tags": ["coaching", "circuit", "class", "group", "stations"]
+    },
+    {
+      "path": "faq/general_faq.md",
+      "title": "Boxing Training FAQ",
+      "category": "faq",
+      "tags": ["faq", "questions", "beginner", "equipment", "technique", "safety"]
+    }
+  ],
+  "version": "1.0",
+  "total_documents": 17,
+  "categories": [
+    "techniques",
+    "defense",
+    "combos",
+    "training_plans",
+    "conditioning",
+    "common_mistakes",
+    "coaching",
+    "faq"
+  ]
+}
