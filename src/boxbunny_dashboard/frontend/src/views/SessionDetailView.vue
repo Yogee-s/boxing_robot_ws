@@ -65,7 +65,7 @@
         </div>
         <div class="progress-bar h-3">
           <div
-            class="progress-fill bg-bb-green"
+            class="progress-fill bg-bb-primary"
             :style="{ width: `${roundProgress}%` }"
           />
         </div>
@@ -112,7 +112,7 @@
               <div class="progress-bar h-1.5">
                 <div
                   class="progress-fill"
-                  :class="round.intensity > 0.7 ? 'bg-bb-green' : round.intensity > 0.4 ? 'bg-bb-warning' : 'bg-bb-danger'"
+                  :class="round.intensity > 0.7 ? 'bg-bb-primary' : round.intensity > 0.4 ? 'bg-bb-warning' : 'bg-bb-danger'"
                   :style="{ width: `${round.intensity * 100}%` }"
                 />
               </div>
@@ -192,8 +192,8 @@
       <!-- AI Coach Analysis -->
       <div v-if="coachAnalysis" class="card mb-4 animate-slide-up" style="animation-delay: 220ms">
         <div class="flex items-center gap-2 mb-2">
-          <div class="w-7 h-7 rounded-lg bg-bb-green-dim flex items-center justify-center">
-            <span class="text-bb-green text-[10px] font-bold">AI</span>
+          <div class="w-7 h-7 rounded-lg bg-bb-primary-dim flex items-center justify-center">
+            <span class="text-bb-primary text-[10px] font-bold">AI</span>
           </div>
           <h3 class="section-title mb-0">AI Coach Analysis</h3>
         </div>
@@ -205,10 +205,10 @@
         <div class="flex items-center justify-between">
           <div>
             <h3 class="section-title mb-1">XP Earned</h3>
-            <span class="text-2xl font-bold text-bb-green">+{{ xpEarned }}</span>
+            <span class="text-2xl font-bold text-bb-primary">+{{ xpEarned }}</span>
           </div>
-          <div class="w-12 h-12 rounded-xl bg-bb-green-dim flex items-center justify-center shadow-sm shadow-bb-green/10">
-            <span class="text-bb-green font-bold">XP</span>
+          <div class="w-12 h-12 rounded-xl bg-bb-primary-dim flex items-center justify-center shadow-sm shadow-bb-primary/10">
+            <span class="text-bb-primary font-bold">XP</span>
           </div>
         </div>
       </div>
@@ -247,7 +247,7 @@
         <div v-if="showShareCard" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-6" @click.self="showShareCard = false">
           <div class="w-full max-w-sm bg-bb-surface rounded-2xl p-5 border border-bb-border/30 animate-scale-in">
             <div class="text-center mb-4">
-              <p class="text-xs text-bb-green font-semibold uppercase tracking-wide">BoxBunny Session</p>
+              <p class="text-xs text-bb-primary font-semibold uppercase tracking-wide">BoxBunny Session</p>
               <p class="text-lg font-bold text-bb-text mt-1">{{ formattedDate }}</p>
             </div>
             <div class="grid grid-cols-2 gap-3 mb-4">
@@ -262,7 +262,7 @@
             </div>
             <div class="flex items-center justify-between py-2 border-t border-bb-border/20">
               <span class="text-[10px] text-bb-text-muted">{{ modeLabel }} | {{ session.difficulty }} | {{ duration }}</span>
-              <span class="text-[10px] text-bb-green font-bold">+{{ xpEarned }} XP</span>
+              <span class="text-[10px] text-bb-primary font-bold">+{{ xpEarned }} XP</span>
             </div>
             <button @click="copyShareCard" class="btn-primary w-full mt-3 text-sm">
               Copy Summary
@@ -525,7 +525,7 @@ const defenseItems = computed(() => {
     items.push({
       label: 'Overall',
       value: `${Math.round(s.defense_rate * 100)}%`,
-      iconBg: 'bg-bb-green-dim',
+      iconBg: 'bg-bb-primary-dim',
       iconStroke: '#00E676',
       iconPath: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
     })
@@ -546,7 +546,7 @@ const comparisonItems = computed(() => {
       label: 'Punches',
       thisSession: s.total_punches.toLocaleString(),
       change: diff >= 0 ? `+${diff}%` : `${diff}%`,
-      changeClass: diff >= 0 ? 'bg-bb-green-dim text-bb-green' : 'bg-bb-danger-dim text-bb-danger',
+      changeClass: diff >= 0 ? 'bg-bb-primary-dim text-bb-primary' : 'bg-bb-danger-dim text-bb-danger',
     })
   }
   if (s?.avg_reaction_ms != null) {
@@ -557,7 +557,7 @@ const comparisonItems = computed(() => {
       label: 'Reaction Time',
       thisSession: `${s.avg_reaction_ms}ms`,
       change: diff >= 0 ? `+${diff}%` : `${diff}%`,
-      changeClass: diff >= 0 ? 'bg-bb-green-dim text-bb-green' : 'bg-bb-danger-dim text-bb-danger',
+      changeClass: diff >= 0 ? 'bg-bb-primary-dim text-bb-primary' : 'bg-bb-danger-dim text-bb-danger',
     })
   }
   if (s?.defense_rate != null) {
@@ -567,7 +567,7 @@ const comparisonItems = computed(() => {
       label: 'Defense Rate',
       thisSession: `${(s.defense_rate * 100).toFixed(0)}%`,
       change: diff >= 0 ? `+${diff}%` : `${diff}%`,
-      changeClass: diff >= 0 ? 'bg-bb-green-dim text-bb-green' : 'bg-bb-danger-dim text-bb-danger',
+      changeClass: diff >= 0 ? 'bg-bb-primary-dim text-bb-primary' : 'bg-bb-danger-dim text-bb-danger',
     })
   }
 

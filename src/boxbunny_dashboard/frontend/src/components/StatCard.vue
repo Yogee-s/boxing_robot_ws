@@ -24,7 +24,7 @@
     <div v-if="change !== null" class="flex items-center gap-1 mt-1.5">
       <span
         class="text-xs font-semibold"
-        :class="change >= 0 ? 'text-bb-green' : 'text-bb-danger'"
+        :class="change >= 0 ? 'text-bb-primary' : 'text-bb-danger'"
       >
         {{ change >= 0 ? '+' : '' }}{{ change }}%
       </span>
@@ -56,7 +56,7 @@ const displayValue = computed(() => {
 
 const iconBgClass = computed(() => {
   const map = {
-    green: 'bg-bb-green-dim text-bb-green',
+    green: 'bg-bb-primary-dim text-bb-primary',
     warning: 'bg-bb-warning-dim text-bb-warning',
     danger: 'bg-bb-danger-dim text-bb-danger',
     neutral: 'bg-bb-surface-lighter text-bb-text-secondary',

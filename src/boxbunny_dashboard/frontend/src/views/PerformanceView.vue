@@ -11,7 +11,7 @@
         @click="changeRange(range.value)"
         class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200"
         :class="activeRange === range.value
-          ? 'bg-bb-green text-bb-bg shadow-sm shadow-bb-green/20'
+          ? 'bg-bb-primary text-bb-bg shadow-sm shadow-bb-primary/20'
           : 'bg-bb-surface text-bb-text-secondary active:bg-bb-surface-light'"
       >
         {{ range.label }}
@@ -281,7 +281,7 @@ const periodChangeMonth = computed(() => trends.value?.period_comparison?.vs_las
 
 function periodChangeColor(val) {
   if (!val) return 'text-bb-text-muted'
-  return val.startsWith('+') ? 'text-bb-green' : val.startsWith('-') ? 'text-bb-danger' : 'text-bb-text-muted'
+  return val.startsWith('+') ? 'text-bb-primary' : val.startsWith('-') ? 'text-bb-danger' : 'text-bb-text-muted'
 }
 
 // Personal bests
@@ -295,8 +295,8 @@ const personalBests = computed(() => {
       label: 'Fastest Reaction',
       value: `${pb.fastest_reaction_ms}ms`,
       icon: 'R',
-      iconClass: 'bg-bb-green-dim text-bb-green',
-      valueColor: 'text-bb-green',
+      iconClass: 'bg-bb-primary-dim text-bb-primary',
+      valueColor: 'text-bb-primary',
       category: 'Speed',
     })
   }
@@ -354,7 +354,7 @@ const populationBars = computed(() => {
       const p = Math.min(99, Math.max(1, val.percentile))
       let color = 'text-bb-text-secondary'
       let barColor = 'bg-bb-text-muted'
-      if (p >= 90) { color = 'text-bb-green'; barColor = 'bg-bb-green' }
+      if (p >= 90) { color = 'text-bb-primary'; barColor = 'bg-bb-primary' }
       else if (p >= 75) { color = 'text-blue-400'; barColor = 'bg-blue-400' }
       else if (p >= 50) { color = 'text-bb-text-secondary'; barColor = 'bg-bb-text-secondary' }
       else if (p >= 25) { color = 'text-bb-warning'; barColor = 'bg-bb-warning' }

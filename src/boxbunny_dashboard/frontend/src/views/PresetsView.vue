@@ -103,7 +103,7 @@
                       @click="newPreset.preset_type = t"
                       class="py-2 rounded-xl text-xs font-semibold border transition-all"
                       :class="newPreset.preset_type === t
-                        ? 'border-bb-green bg-bb-green-dim text-bb-green'
+                        ? 'border-bb-primary bg-bb-primary-dim text-bb-primary'
                         : 'border-bb-border/50 bg-bb-surface-light text-bb-text-secondary'"
                     >
                       {{ t }}

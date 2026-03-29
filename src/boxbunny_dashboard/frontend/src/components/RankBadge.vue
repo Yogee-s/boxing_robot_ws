@@ -38,7 +38,7 @@ const rankIcons = {
 const rankColors = {
   'Novice': 'bg-gray-600/30 text-gray-400',
   'Contender': 'bg-blue-600/30 text-blue-400',
-  'Fighter': 'bg-bb-green-dim text-bb-green',
+  'Fighter': 'bg-bb-primary-dim text-bb-primary',
   'Warrior': 'bg-purple-600/30 text-purple-400',
   'Champion': 'bg-bb-warning-dim text-bb-warning',
   'Elite': 'bg-bb-danger-dim text-bb-danger',

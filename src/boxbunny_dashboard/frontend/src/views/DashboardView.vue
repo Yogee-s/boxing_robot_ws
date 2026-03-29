@@ -26,8 +26,8 @@
     <!-- User Profile Card -->
     <div v-if="profile" class="card mb-4 animate-slide-up" style="animation-delay: 30ms">
       <div class="flex items-center gap-3 mb-3">
-        <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-bb-green/30 to-bb-green/5 flex items-center justify-center border border-bb-green/20">
-          <span class="text-bb-green font-bold text-lg">{{ profileInitial }}</span>
+        <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-bb-primary/30 to-bb-primary/5 flex items-center justify-center border border-bb-primary/20">
+          <span class="text-bb-primary font-bold text-lg">{{ profileInitial }}</span>
         </div>
         <div class="flex-1 min-w-0">
           <p class="text-sm font-semibold text-bb-text truncate">{{ profile.display_name || auth.displayName }}</p>
@@ -58,7 +58,7 @@
       </div>
       <div class="progress-bar">
         <div
-          class="progress-fill bg-bb-green"
+          class="progress-fill bg-bb-primary"
           :style="{ width: `${xpProgress}%` }"
         />
       </div>
@@ -82,7 +82,7 @@
         <div class="progress-bar">
           <div
             class="progress-fill"
-            :class="weeklyGoalMet ? 'bg-bb-green' : 'bg-bb-warning'"
+            :class="weeklyGoalMet ? 'bg-bb-primary' : 'bg-bb-warning'"
             :style="{ width: `${weeklyProgress}%` }"
           />
         </div>
@@ -109,14 +109,14 @@
           <div
             class="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-semibold transition-all duration-300"
             :class="trainedOnDay(idx)
-              ? 'bg-bb-green text-bb-bg shadow-sm shadow-bb-green/30'
+              ? 'bg-bb-primary text-bb-bg shadow-sm shadow-bb-primary/30'
               : isToday(idx)
                 ? 'bg-bb-surface-lighter text-bb-text-secondary ring-1 ring-bb-border/50'
                 : 'bg-bb-surface-light text-bb-text-muted'"
           >
             {{ trainedOnDay(idx) ? '\u2713' : '' }}
           </div>
-          <span class="text-[9px] font-medium" :class="isToday(idx) ? 'text-bb-green' : 'text-bb-text-muted'">
+          <span class="text-[9px] font-medium" :class="isToday(idx) ? 'text-bb-primary' : 'text-bb-text-muted'">
             {{ day }}
           </span>
         </div>
@@ -204,7 +204,7 @@
     <div class="mb-4 animate-slide-up" style="animation-delay: 300ms">
       <div class="flex items-center justify-between mb-3">
         <h2 class="section-title mb-0">Recent Session</h2>
-        <router-link to="/history" class="text-xs text-bb-green font-medium">
+        <router-link to="/history" class="text-xs text-bb-primary font-medium">
           View All
         </router-link>
       </div>
@@ -221,15 +221,15 @@
     <!-- AI Coach Says -->
     <div class="card mb-4 animate-slide-up" style="animation-delay: 350ms">
       <div class="flex items-center gap-2 mb-2">
-        <div class="w-7 h-7 rounded-lg bg-bb-green-dim flex items-center justify-center">
-          <span class="text-bb-green text-[10px] font-bold">AI</span>
+        <div class="w-7 h-7 rounded-lg bg-bb-primary-dim flex items-center justify-center">
+          <span class="text-bb-primary text-[10px] font-bold">AI</span>
         </div>
         <h3 class="section-title mb-0">AI Coach Says</h3>
       </div>
       <p class="text-sm text-bb-text-secondary leading-relaxed">{{ coachTip }}</p>
       <router-link
         to="/chat"
-        class="inline-flex items-center gap-1 mt-2 text-xs text-bb-green font-medium"
+        class="inline-flex items-center gap-1 mt-2 text-xs text-bb-primary font-medium"
       >
         Chat with Coach
         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
@@ -241,8 +241,8 @@
       <h2 class="section-title">Quick Actions</h2>
       <div class="grid grid-cols-3 gap-3">
         <router-link to="/achievements" class="card-interactive text-center py-4">
-          <div class="w-8 h-8 mx-auto mb-1.5 rounded-lg bg-bb-green-dim flex items-center justify-center">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00E676" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>
+          <div class="w-8 h-8 mx-auto mb-1.5 rounded-lg bg-bb-primary-dim flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FF6B35" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>
           </div>
           <span class="text-xs text-bb-text-secondary">Achievements</span>
         </router-link>
@@ -458,7 +458,7 @@ const peerBars = computed(() => {
       percentile: p,
       tier: tierLabel(p),
       tierColor: tierColor(p),
-      barColor: 'bg-bb-green',
+      barColor: 'bg-bb-primary',
       group,
     })
   }
@@ -506,7 +506,7 @@ const peerBars = computed(() => {
           percentile: p,
           tier: tierLabel(p),
           tierColor: tierColor(p),
-          barColor: 'bg-bb-green',
+          barColor: 'bg-bb-primary',
           group,
         })
       }
@@ -525,7 +525,7 @@ function tierLabel(percentile) {
 }
 
 function tierColor(percentile) {
-  if (percentile >= 90) return 'text-bb-green'
+  if (percentile >= 90) return 'text-bb-primary'
   if (percentile >= 75) return 'text-blue-400'
   if (percentile >= 50) return 'text-bb-text-secondary'
   if (percentile >= 25) return 'text-bb-warning'

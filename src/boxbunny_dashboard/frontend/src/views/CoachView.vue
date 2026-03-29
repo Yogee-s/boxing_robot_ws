@@ -8,7 +8,7 @@
         <div class="flex items-center gap-3">
           <div
             class="w-3 h-3 rounded-full"
-            :class="wsStore.connected ? 'bg-bb-green animate-pulse' : 'bg-bb-danger'"
+            :class="wsStore.connected ? 'bg-bb-primary animate-pulse' : 'bg-bb-danger'"
           />
           <span class="text-sm text-bb-text">
             {{ wsStore.connected ? 'Connected' : 'Disconnected' }}
@@ -88,7 +88,7 @@
           <div class="flex items-center gap-3">
             <div
               class="w-2 h-2 rounded-full"
-              :class="p.connected ? 'bg-bb-green' : 'bg-bb-text-muted'"
+              :class="p.connected ? 'bg-bb-primary' : 'bg-bb-text-muted'"
             />
             <div>
               <p class="text-sm font-medium text-bb-text">{{ p.display_name }}</p>
@@ -134,7 +134,7 @@
         v-if="statusMessage"
         class="fixed bottom-20 left-4 right-4 max-w-lg mx-auto z-50"
       >
-        <div class="rounded-xl px-4 py-3 text-sm font-medium text-center bg-bb-green text-bb-bg">
+        <div class="rounded-xl px-4 py-3 text-sm font-medium text-center bg-bb-primary text-bb-bg">
           {{ statusMessage }}
         </div>
       </div>

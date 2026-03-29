@@ -11,7 +11,7 @@
         @click="activeTab = tab.value"
         class="flex-shrink-0 px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-200"
         :class="activeTab === tab.value
-          ? 'bg-bb-green text-bb-bg'
+          ? 'bg-bb-primary text-bb-bg'
           : 'bg-bb-surface text-bb-text-secondary border border-bb-border/30'"
       >
         {{ tab.label }}

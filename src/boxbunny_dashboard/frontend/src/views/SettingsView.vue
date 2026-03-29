@@ -6,8 +6,8 @@
     <div class="card mb-4 animate-slide-up">
       <h3 class="section-title">Profile</h3>
       <div class="flex items-center gap-4 mb-4">
-        <div class="w-14 h-14 rounded-2xl bg-bb-green-dim flex items-center justify-center">
-          <span class="text-xl font-bold text-bb-green">
+        <div class="w-14 h-14 rounded-2xl bg-bb-primary-dim flex items-center justify-center">
+          <span class="text-xl font-bold text-bb-primary">
             {{ initials }}
           </span>
         </div>
@@ -177,7 +177,7 @@
       >
         <div
           class="rounded-xl px-4 py-3 text-sm font-medium text-center"
-          :class="statusType === 'error' ? 'bg-bb-danger text-white' : 'bg-bb-green text-bb-bg'"
+          :class="statusType === 'error' ? 'bg-bb-danger text-white' : 'bg-bb-primary text-bb-bg'"
         >
           {{ statusMessage }}
         </div>

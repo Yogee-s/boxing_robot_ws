@@ -8,14 +8,14 @@
           <polyline points="15 18 9 12 15 6" />
         </svg>
       </button>
-      <div class="w-8 h-8 rounded-full bg-gradient-to-br from-bb-green/40 to-bb-green/10 flex items-center justify-center ring-2 ring-bb-green/20">
-        <span class="text-bb-green text-xs font-bold">AI</span>
+      <div class="w-8 h-8 rounded-full bg-gradient-to-br from-bb-primary/40 to-bb-primary/10 flex items-center justify-center ring-2 ring-bb-primary/20">
+        <span class="text-bb-primary text-xs font-bold">AI</span>
       </div>
       <div class="flex-1">
         <p class="text-sm font-semibold text-bb-text">BoxBunny Coach</p>
         <div class="flex items-center gap-1.5">
-          <span class="w-1.5 h-1.5 rounded-full bg-bb-green animate-pulse" />
-          <p class="text-[10px] text-bb-green">Online</p>
+          <span class="w-1.5 h-1.5 rounded-full bg-bb-primary animate-pulse" />
+          <p class="text-[10px] text-bb-primary">Online</p>
         </div>
       </div>
       <button
@@ -34,7 +34,7 @@
       <div v-if="showContext" class="px-4 py-2.5 bg-bb-surface-light border-b border-bb-border/20">
         <div class="flex items-center gap-2">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-               stroke="#00E676" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+               stroke="#FF6B35" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
           </svg>
           <p class="text-[11px] text-bb-text-secondary leading-snug">
@@ -67,8 +67,8 @@
     >
       <!-- Welcome message -->
       <div v-if="chatStore.messages.length === 0 && chatStore.loaded" class="text-center py-8">
-        <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-bb-green/30 to-bb-green/5 flex items-center justify-center ring-1 ring-bb-green/20">
-          <span class="text-2xl font-bold text-bb-green">AI</span>
+        <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-bb-primary/30 to-bb-primary/5 flex items-center justify-center ring-1 ring-bb-primary/20">
+          <span class="text-2xl font-bold text-bb-primary">AI</span>
         </div>
         <p class="text-bb-text font-semibold mb-1">BoxBunny AI Coach</p>
         <p class="text-bb-text-muted text-sm max-w-xs mx-auto leading-relaxed">
@@ -87,8 +87,8 @@
           <!-- Avatar for assistant -->
           <div v-if="msg.role === 'assistant' && (idx === 0 || chatStore.messages[idx-1]?.role !== 'assistant')"
                class="flex items-center gap-1.5 mb-1">
-            <div class="w-5 h-5 rounded-full bg-bb-green-dim flex items-center justify-center">
-              <span class="text-bb-green text-[8px] font-bold">AI</span>
+            <div class="w-5 h-5 rounded-full bg-bb-primary-dim flex items-center justify-center">
+              <span class="text-bb-primary text-[8px] font-bold">AI</span>
             </div>
             <span class="text-[10px] text-bb-text-muted font-medium">Coach</span>
           </div>
@@ -97,7 +97,7 @@
           <div
             class="rounded-2xl px-4 py-2.5 text-sm leading-relaxed"
             :class="msg.role === 'user'
-              ? 'bg-bb-green text-bb-bg rounded-br-md'
+              ? 'bg-bb-primary text-bb-bg rounded-br-md'
               : 'bg-bb-surface border border-bb-border/30 text-bb-text rounded-bl-md'"
           >
             <span class="whitespace-pre-wrap">{{ msg.content }}</span>
@@ -128,8 +128,8 @@
       <div v-if="chatStore.sending" class="flex justify-start animate-fade-in">
         <div class="max-w-[82%] flex flex-col items-start">
           <div class="flex items-center gap-1.5 mb-1">
-            <div class="w-5 h-5 rounded-full bg-bb-green-dim flex items-center justify-center">
-              <span class="text-bb-green text-[8px] font-bold">AI</span>
+            <div class="w-5 h-5 rounded-full bg-bb-primary-dim flex items-center justify-center">
+              <span class="text-bb-primary text-[8px] font-bold">AI</span>
             </div>
             <span class="text-[10px] text-bb-text-muted font-medium">Coach is typing</span>
           </div>
@@ -167,7 +167,7 @@
           class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0
                  transition-all duration-200 active:scale-90
                  disabled:opacity-30 disabled:pointer-events-none"
-          :class="input.trim() ? 'bg-bb-green text-bb-bg shadow-sm shadow-bb-green/30' : 'bg-bb-surface-light text-bb-text-muted'"
+          :class="input.trim() ? 'bg-bb-primary text-bb-bg shadow-sm shadow-bb-primary/30' : 'bg-bb-surface-light text-bb-text-muted'"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

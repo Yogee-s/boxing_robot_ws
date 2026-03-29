@@ -9,18 +9,18 @@
           class="nav-item group"
           :class="{ active: isActive(item.to) }"
         >
-          <div class="nav-icon" :class="{ 'text-bb-green': isActive(item.to) }">
+          <div class="nav-icon" :class="{ 'text-bb-primary': isActive(item.to) }">
             <component :is="item.icon" />
           </div>
           <span
             class="text-[10px] font-medium mt-0.5 transition-colors"
-            :class="isActive(item.to) ? 'text-bb-green' : 'text-bb-text-muted'"
+            :class="isActive(item.to) ? 'text-bb-primary' : 'text-bb-text-muted'"
           >
             {{ item.label }}
           </span>
           <div
             v-if="isActive(item.to)"
-            class="absolute -top-0.5 left-1/2 -translate-x-1/2 w-5 h-0.5 bg-bb-green rounded-full"
+            class="absolute -top-0.5 left-1/2 -translate-x-1/2 w-5 h-0.5 bg-bb-primary rounded-full"
           />
         </router-link>
       </div>
@@ -80,7 +80,7 @@ function isActive(path) {
          text-bb-text-muted transition-colors duration-200 no-underline;
 }
 .nav-item.active {
-  @apply text-bb-green;
+  @apply text-bb-primary;
 }
 .nav-icon {
   @apply transition-all duration-200;

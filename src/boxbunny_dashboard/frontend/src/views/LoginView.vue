@@ -2,11 +2,11 @@
   <div class="min-h-screen min-h-[100dvh] flex flex-col items-center justify-center px-6 py-12 bg-bb-bg">
     <!-- Logo -->
     <div class="mb-10 text-center animate-fade-in">
-      <div class="w-20 h-20 mx-auto mb-4 rounded-2xl bg-bb-green-dim flex items-center justify-center glow-green-sm">
-        <span class="text-3xl font-black text-bb-green">B</span>
+      <div class="w-20 h-20 mx-auto mb-4 rounded-2xl bg-bb-primary-dim flex items-center justify-center glow-primary-sm">
+        <span class="text-3xl font-black text-bb-primary">B</span>
       </div>
       <h1 class="text-3xl font-extrabold tracking-tight">
-        Box<span class="text-bb-green">Bunny</span>
+        Box<span class="text-bb-primary">Bunny</span>
       </h1>
       <p class="text-bb-text-secondary text-sm mt-1">AI Boxing Trainer</p>
     </div>
@@ -94,7 +94,7 @@
               @click="level = lvl.value"
               class="py-2 px-3 rounded-xl text-xs font-semibold border transition-all duration-200"
               :class="level === lvl.value
-                ? 'border-bb-green bg-bb-green-dim text-bb-green'
+                ? 'border-bb-primary bg-bb-primary-dim text-bb-primary'
                 : 'border-bb-border/50 bg-bb-surface text-bb-text-secondary'"
             >
               {{ lvl.label }}

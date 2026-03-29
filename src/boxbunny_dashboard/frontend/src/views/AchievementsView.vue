@@ -18,7 +18,7 @@
           <span>{{ gamification.next_rank }}</span>
         </div>
         <div class="progress-bar h-2.5">
-          <div class="progress-fill bg-bb-green" :style="{ width: `${xpProgress}%` }" />
+          <div class="progress-fill bg-bb-primary" :style="{ width: `${xpProgress}%` }" />
         </div>
         <p class="text-xs text-bb-text-secondary mt-2 text-center">
           {{ gamification.xp_to_next_rank.toLocaleString() }} XP to {{ gamification.next_rank }}
@@ -71,7 +71,7 @@
       </div>
       <div class="progress-bar mt-2">
         <div
-          class="progress-fill bg-bb-green"
+          class="progress-fill bg-bb-primary"
           :style="{ width: `${(unlockedCount / allAchievements.length) * 100}%` }"
         />
       </div>
