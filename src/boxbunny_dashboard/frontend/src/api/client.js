@@ -106,6 +106,12 @@ export async function signup(username, password, displayName, level = 'beginner'
   return data
 }
 
+export async function patternLogin(username, pattern) {
+  const data = await request('POST', '/auth/pattern-login', { username, pattern })
+  setToken(data.token)
+  return data
+}
+
 export async function getSession() {
   return request('GET', '/auth/session')
 }
@@ -116,6 +122,14 @@ export async function logout() {
   } finally {
     clearToken()
   }
+}
+
+export async function updateProfile(updates) {
+  return request('PUT', '/auth/profile', updates)
+}
+
+export async function setPattern(userId, pattern) {
+  return request('POST', '/auth/set-pattern', { user_id: userId, pattern })
 }
 
 // ---- Sessions ----

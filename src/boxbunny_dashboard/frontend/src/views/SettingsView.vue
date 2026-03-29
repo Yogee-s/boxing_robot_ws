@@ -157,35 +157,13 @@
         <p class="text-xs text-bb-text-secondary leading-relaxed">
           Draw a pattern to use as a quick login method. Connect at least 4 dots.
         </p>
-        <!-- Pattern Grid -->
         <div class="flex justify-center py-2">
-          <div class="grid grid-cols-3 gap-6">
-            <button
-              v-for="dot in 9"
-              :key="dot"
-              @click="togglePatternDot(dot)"
-              class="w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90"
-              :class="patternDots.includes(dot)
-                ? 'bg-bb-primary shadow-sm shadow-bb-primary/40'
-                : 'bg-bb-surface-lighter border border-bb-border/50'"
-            >
-              <span
-                class="w-3 h-3 rounded-full transition-all duration-200"
-                :class="patternDots.includes(dot) ? 'bg-white' : 'bg-bb-text-muted'"
-              />
-            </button>
-          </div>
-        </div>
-        <div class="flex items-center justify-between">
-          <span class="text-[11px] text-bb-text-muted">
-            {{ patternDots.length }} / 4+ dots selected
-          </span>
-          <button
-            @click="patternDots = []"
-            class="text-xs text-bb-text-secondary active:opacity-70"
-          >
-            Reset
-          </button>
+          <PatternLock
+            ref="settingsPatternRef"
+            :size="220"
+            @update:pattern="patternDots = $event"
+            @complete="patternDots = $event"
+          />
         </div>
         <button
           @click="savePattern"
@@ -310,6 +288,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useWebSocketStore } from '@/stores/websocket'
 import * as api from '@/api/client'
+import PatternLock from '@/components/PatternLock.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -325,6 +304,7 @@ const statusMessage = ref('')
 const statusType = ref('success')
 const securityTab = ref('password')
 const patternDots = ref([])
+const settingsPatternRef = ref(null)
 const showAvatarPicker = ref(false)
 const selectedAvatar = ref(localStorage.getItem('bb_avatar') || null)
 
@@ -359,15 +339,6 @@ function selectAvatar(avatarId) {
   showStatus('Avatar updated')
 }
 
-function togglePatternDot(dot) {
-  const idx = patternDots.value.indexOf(dot)
-  if (idx >= 0) {
-    patternDots.value.splice(idx, 1)
-  } else {
-    patternDots.value.push(dot)
-  }
-}
-
 function showStatus(msg, type = 'success') {
   statusMessage.value = msg
   statusType.value = type
@@ -386,8 +357,10 @@ async function changePassword() {
 
 async function savePattern() {
   try {
+    await api.setPattern(auth.user?.user_id, patternDots.value)
     showStatus('Pattern saved successfully')
     patternDots.value = []
+    if (settingsPatternRef.value) settingsPatternRef.value.reset()
   } catch {
     showStatus('Failed to save pattern', 'error')
   }

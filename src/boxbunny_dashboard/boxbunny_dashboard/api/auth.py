@@ -37,6 +37,11 @@ class PatternVerifyRequest(BaseModel):
     pattern: List[int] = Field(..., min_length=4)
 
 
+class PatternLoginRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=64)
+    pattern: List[int] = Field(..., min_length=4)
+
+
 class GuestClaimRequest(BaseModel):
     guest_token: str
     username: str
@@ -52,12 +57,30 @@ class TokenResponse(BaseModel):
     user_type: Optional[str] = None
 
 
+class ProfileUpdateRequest(BaseModel):
+    display_name: Optional[str] = None
+    level: Optional[str] = None
+    proficiency_answers_json: Optional[str] = None
+    age: Optional[int] = None
+    gender: Optional[str] = None
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    reach_cm: Optional[float] = None
+    stance: Optional[str] = None
+
+
 class UserInfoResponse(BaseModel):
     user_id: int
     username: str
     display_name: str
     user_type: str
     level: str
+    age: Optional[int] = None
+    gender: Optional[str] = None
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    reach_cm: Optional[float] = None
+    stance: Optional[str] = None
 
 
 # ---- Dependencies ----
@@ -99,6 +122,33 @@ async def login(body: LoginRequest, db: DatabaseManager = Depends(get_db)) -> To
         )
     token = db.create_auth_session(user["id"], body.device_type)
     logger.info("User logged in: %s", body.username)
+    return TokenResponse(
+        token=token,
+        user_id=user["id"],
+        username=user["username"],
+        display_name=user["display_name"],
+        user_type=user["user_type"],
+    )
+
+
+@router.post("/pattern-login", response_model=TokenResponse)
+async def pattern_login(
+    body: PatternLoginRequest, db: DatabaseManager = Depends(get_db),
+) -> TokenResponse:
+    """Authenticate with username and pattern lock."""
+    user = db.get_user_by_username(body.username)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or pattern",
+        )
+    if not db.verify_pattern(user["id"], body.pattern):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or pattern",
+        )
+    token = db.create_auth_session(user["id"], "phone")
+    logger.info("Pattern login: %s", body.username)
     return TokenResponse(
         token=token,
         user_id=user["id"],
@@ -195,7 +245,48 @@ async def get_session(user: dict = Depends(get_current_user)) -> UserInfoRespons
         display_name=user["display_name"],
         user_type=user["user_type"],
         level=user.get("level", "beginner"),
+        age=user.get("age"),
+        gender=user.get("gender"),
+        height_cm=user.get("height_cm"),
+        weight_kg=user.get("weight_kg"),
+        reach_cm=user.get("reach_cm"),
+        stance=user.get("stance"),
     )
+
+
+@router.put("/profile")
+async def update_profile(
+    body: ProfileUpdateRequest,
+    user: dict = Depends(get_current_user),
+    db: DatabaseManager = Depends(get_db),
+) -> dict:
+    """Update the current user's profile fields."""
+    updates = body.dict(exclude_none=True)
+    if not updates:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No fields to update",
+        )
+    db.update_profile(user["user_id"], **updates)
+    logger.info("Profile updated for user_id=%d", user["user_id"])
+    return {"status": "ok"}
+
+
+@router.post("/set-pattern")
+async def set_pattern(
+    body: PatternVerifyRequest,
+    user: dict = Depends(get_current_user),
+    db: DatabaseManager = Depends(get_db),
+) -> dict:
+    """Set or update the user's pattern lock."""
+    if len(body.pattern) < 4:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Pattern must have at least 4 dots",
+        )
+    db.set_pattern(body.user_id or user["user_id"], body.pattern)
+    logger.info("Pattern set for user_id=%d", user["user_id"])
+    return {"status": "ok"}
 
 
 @router.delete("/logout", status_code=status.HTTP_204_NO_CONTENT)

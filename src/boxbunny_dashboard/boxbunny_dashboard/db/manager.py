@@ -246,7 +246,9 @@ class DatabaseManager:
         """Validate a session token. Returns user dict or None."""
         with self._get_main_conn() as conn:
             row = conn.execute(
-                """SELECT a.*, u.username, u.display_name, u.user_type, u.level
+                """SELECT a.*, u.username, u.display_name, u.user_type,
+                   u.level, u.age, u.gender, u.height_cm, u.weight_kg,
+                   u.reach_cm, u.stance
                    FROM auth_sessions a
                    LEFT JOIN users u ON a.user_id = u.id
                    WHERE a.session_token = ? AND a.is_active = 1
