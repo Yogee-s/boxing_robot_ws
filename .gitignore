@@ -6,3 +6,4 @@ install/
 *.tmp
 .DS_Store
 /notebooks/assets/
+/GUI
