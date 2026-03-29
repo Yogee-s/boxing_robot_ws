@@ -1,0 +1,8 @@
+string mode
+string difficulty
+string config_json
+string username
+---
+bool success
+string session_id
+string message

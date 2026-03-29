@@ -1,6 +1,10 @@
-string drill_type            # "reaction_time", "shadow_sparring", "defence"
-string drill_name            # Specific drill name (e.g., "1-1-2 Combo")
-int32 repetitions            # Number of reps
+string drill_name
+string difficulty
+int32 rounds
+int32 work_time_sec
+int32 rest_time_sec
+string speed
 ---
 bool success
+string drill_id
 string message

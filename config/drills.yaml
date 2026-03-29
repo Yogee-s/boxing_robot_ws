@@ -1,0 +1,388 @@
+# =============================================================================
+# BoxBunny Drill Definitions
+# =============================================================================
+# Punch codes: 1=jab, 2=cross, 3=left_hook, 4=right_hook,
+#              5=left_uppercut, 6=right_uppercut
+#
+# Each drill has:
+#   name          - Display name
+#   combo         - List of punch codes
+#   timing_ms     - Target time between punches (milliseconds)
+#   total_time_ms - Target total combo completion time (milliseconds)
+#   reps          - Recommended repetitions per set
+#   description   - Short coaching note
+# =============================================================================
+
+# -- Difficulty Parameters -----------------------------------------------------
+difficulty:
+  beginner:
+    timing_tolerance_ms: 400      # Allowed deviation from target timing
+    combo_max_length: 3           # Maximum punches in a combo
+    rest_between_combos_ms: 3000  # Rest between combo prompts
+    speed_multiplier: 1.0         # Robot speed multiplier
+  intermediate:
+    timing_tolerance_ms: 250
+    combo_max_length: 5
+    rest_between_combos_ms: 2000
+    speed_multiplier: 1.3
+  advanced:
+    timing_tolerance_ms: 150
+    combo_max_length: 8
+    rest_between_combos_ms: 1200
+    speed_multiplier: 1.6
+
+# -- Beginner Drills -----------------------------------------------------------
+beginner:
+  - name: "Single Jab"
+    combo: [1]
+    timing_ms: 0
+    total_time_ms: 500
+    reps: 20
+    description: "Focus on extending fully and snapping back."
+
+  - name: "Single Cross"
+    combo: [2]
+    timing_ms: 0
+    total_time_ms: 600
+    reps: 20
+    description: "Rotate hips and shoulders fully for power."
+
+  - name: "Double Jab"
+    combo: [1, 1]
+    timing_ms: 250
+    total_time_ms: 700
+    reps: 15
+    description: "Keep the second jab just as sharp as the first."
+
+  - name: "Jab-Cross"
+    combo: [1, 2]
+    timing_ms: 300
+    total_time_ms: 800
+    reps: 15
+    description: "The bread and butter. Snap the jab, rotate the cross."
+
+  - name: "Cross-Jab"
+    combo: [2, 1]
+    timing_ms: 300
+    total_time_ms: 800
+    reps: 12
+    description: "Lead with power, follow with speed."
+
+  - name: "Jab-Jab-Cross"
+    combo: [1, 1, 2]
+    timing_ms: 250
+    total_time_ms: 1000
+    reps: 12
+    description: "Classic 1-1-2. Set up with jabs, finish with the cross."
+
+  - name: "Single Left Hook"
+    combo: [3]
+    timing_ms: 0
+    total_time_ms: 600
+    reps: 15
+    description: "Turn your whole body. Fist stays at chin height."
+
+  - name: "Single Right Hook"
+    combo: [4]
+    timing_ms: 0
+    total_time_ms: 600
+    reps: 15
+    description: "Short arc, drive with the hips."
+
+  - name: "Jab-Left Hook"
+    combo: [1, 3]
+    timing_ms: 350
+    total_time_ms: 900
+    reps: 12
+    description: "Jab sets the range, hook finds the opening."
+
+  - name: "Jab-Cross-Left Hook"
+    combo: [1, 2, 3]
+    timing_ms: 280
+    total_time_ms: 1100
+    reps: 10
+    description: "The classic 1-2-3. Flow through each punch."
+
+  - name: "Cross-Left Hook"
+    combo: [2, 3]
+    timing_ms: 300
+    total_time_ms: 850
+    reps: 12
+    description: "Power followed by angles."
+
+  - name: "Single Left Uppercut"
+    combo: [5]
+    timing_ms: 0
+    total_time_ms: 650
+    reps: 15
+    description: "Drive upward from the legs. Keep elbow tight."
+
+  - name: "Single Right Uppercut"
+    combo: [6]
+    timing_ms: 0
+    total_time_ms: 650
+    reps: 15
+    description: "Dip slightly then explode upward."
+
+  - name: "Jab-Right Uppercut"
+    combo: [1, 6]
+    timing_ms: 350
+    total_time_ms: 950
+    reps: 10
+    description: "Jab high, uppercut low. Change levels."
+
+  - name: "Double Cross"
+    combo: [2, 2]
+    timing_ms: 300
+    total_time_ms: 850
+    reps: 12
+    description: "Reset stance between crosses. Stay balanced."
+
+# -- Intermediate Drills -------------------------------------------------------
+intermediate:
+  - name: "1-2-3-2"
+    combo: [1, 2, 3, 2]
+    timing_ms: 250
+    total_time_ms: 1200
+    reps: 10
+    description: "Jab-cross-hook-cross. Keep hands up between punches."
+
+  - name: "1-2-5-2"
+    combo: [1, 2, 5, 2]
+    timing_ms: 260
+    total_time_ms: 1250
+    reps: 10
+    description: "Change levels with the uppercut. Sell the setup."
+
+  - name: "1-1-2-3"
+    combo: [1, 1, 2, 3]
+    timing_ms: 240
+    total_time_ms: 1150
+    reps: 10
+    description: "Double jab feints the range, cross-hook finishes."
+
+  - name: "2-3-2"
+    combo: [2, 3, 2]
+    timing_ms: 250
+    total_time_ms: 1000
+    reps: 12
+    description: "Power triple. Stay compact and rotate fully."
+
+  - name: "3-2-3"
+    combo: [3, 2, 3]
+    timing_ms: 260
+    total_time_ms: 1050
+    reps: 10
+    description: "Hook-cross-hook. Work the angles."
+
+  - name: "1-6-3-2"
+    combo: [1, 6, 3, 2]
+    timing_ms: 270
+    total_time_ms: 1300
+    reps: 8
+    description: "Level change combo. Uppercut opens the guard."
+
+  - name: "5-2-3"
+    combo: [5, 2, 3]
+    timing_ms: 280
+    total_time_ms: 1100
+    reps: 10
+    description: "Lead uppercut surprises. Follow with power."
+
+  - name: "1-2-3-4"
+    combo: [1, 2, 3, 4]
+    timing_ms: 250
+    total_time_ms: 1200
+    reps: 8
+    description: "Four-punch combination. Both hooks in sequence."
+
+  - name: "1-2-5-6"
+    combo: [1, 2, 5, 6]
+    timing_ms: 260
+    total_time_ms: 1250
+    reps: 8
+    description: "High-low. Straight punches to uppercuts."
+
+  - name: "6-3-2-1"
+    combo: [6, 3, 2, 1]
+    timing_ms: 250
+    total_time_ms: 1200
+    reps: 8
+    description: "Reverse sequence. Finish with the jab for reset."
+
+  - name: "1-2-1-2"
+    combo: [1, 2, 1, 2]
+    timing_ms: 220
+    total_time_ms: 1100
+    reps: 12
+    description: "Rapid straight punches. Speed and rhythm."
+
+  - name: "3-6-2"
+    combo: [3, 6, 2]
+    timing_ms: 280
+    total_time_ms: 1050
+    reps: 10
+    description: "Hook-uppercut-cross. Attack from three angles."
+
+  - name: "1-3-2-3"
+    combo: [1, 3, 2, 3]
+    timing_ms: 250
+    total_time_ms: 1200
+    reps: 8
+    description: "Jab opens, hooks bracket the cross."
+
+  - name: "2-5-2-3"
+    combo: [2, 5, 2, 3]
+    timing_ms: 260
+    total_time_ms: 1300
+    reps: 8
+    description: "Dip the uppercut between crosses."
+
+  - name: "1-1-6-3-2"
+    combo: [1, 1, 6, 3, 2]
+    timing_ms: 240
+    total_time_ms: 1450
+    reps: 8
+    description: "Five-punch combo. Double jab to body-head finish."
+
+  - name: "4-5-2"
+    combo: [4, 5, 2]
+    timing_ms: 270
+    total_time_ms: 1050
+    reps: 10
+    description: "Right hook to left uppercut to cross. Angle changes."
+
+  - name: "1-2-3-6-2"
+    combo: [1, 2, 3, 6, 2]
+    timing_ms: 240
+    total_time_ms: 1400
+    reps: 8
+    description: "Five-punch flow. Hook and uppercut in the middle."
+
+  - name: "5-6-1-2"
+    combo: [5, 6, 1, 2]
+    timing_ms: 250
+    total_time_ms: 1250
+    reps: 8
+    description: "Double uppercut opener to straight combo."
+
+  - name: "1-2-3-2-1"
+    combo: [1, 2, 3, 2, 1]
+    timing_ms: 230
+    total_time_ms: 1350
+    reps: 8
+    description: "Palindrome combo. Flow in and back out."
+
+  - name: "4-2-3-2"
+    combo: [4, 2, 3, 2]
+    timing_ms: 250
+    total_time_ms: 1200
+    reps: 8
+    description: "Lead right hook catches them off guard."
+
+# -- Advanced Drills -----------------------------------------------------------
+advanced:
+  - name: "1-2-3-2-5-2"
+    combo: [1, 2, 3, 2, 5, 2]
+    timing_ms: 200
+    total_time_ms: 1500
+    reps: 8
+    description: "Six-punch combo. Mix levels relentlessly."
+
+  - name: "1-1-2-3-6-2"
+    combo: [1, 1, 2, 3, 6, 2]
+    timing_ms: 200
+    total_time_ms: 1500
+    reps: 8
+    description: "Double jab setup into body-head power."
+
+  - name: "5-2-3-6-2-3"
+    combo: [5, 2, 3, 6, 2, 3]
+    timing_ms: 210
+    total_time_ms: 1600
+    reps: 6
+    description: "Continuous uppercut-hook cycles. Stay low."
+
+  - name: "1-2-5-3-2-4"
+    combo: [1, 2, 5, 3, 2, 4]
+    timing_ms: 210
+    total_time_ms: 1600
+    reps: 6
+    description: "All six punch types in one combo."
+
+  - name: "3-2-3-6-2-1"
+    combo: [3, 2, 3, 6, 2, 1]
+    timing_ms: 210
+    total_time_ms: 1600
+    reps: 6
+    description: "Hook-heavy combo. Work the angles aggressively."
+
+  - name: "1-2-1-6-3-2-3"
+    combo: [1, 2, 1, 6, 3, 2, 3]
+    timing_ms: 200
+    total_time_ms: 1800
+    reps: 6
+    description: "Seven punches. Speed and precision required."
+
+  - name: "2-3-2-5-6-2"
+    combo: [2, 3, 2, 5, 6, 2]
+    timing_ms: 210
+    total_time_ms: 1600
+    reps: 6
+    description: "Power sequence. Cross anchors everything."
+
+  - name: "1-1-2-3-2-5-2"
+    combo: [1, 1, 2, 3, 2, 5, 2]
+    timing_ms: 190
+    total_time_ms: 1850
+    reps: 6
+    description: "Seven-punch flow. Double jab feint into sustained attack."
+
+  - name: "4-3-2-5-6-1-2"
+    combo: [4, 3, 2, 5, 6, 1, 2]
+    timing_ms: 200
+    total_time_ms: 1900
+    reps: 5
+    description: "Chaotic angles. Hooks, uppercuts, then straight."
+
+  - name: "1-2-3-4-5-6"
+    combo: [1, 2, 3, 4, 5, 6]
+    timing_ms: 220
+    total_time_ms: 1700
+    reps: 6
+    description: "Full arsenal. Every punch type in sequence."
+
+  - name: "6-5-2-3-2-1-2"
+    combo: [6, 5, 2, 3, 2, 1, 2]
+    timing_ms: 200
+    total_time_ms: 1850
+    reps: 5
+    description: "Start low, work high. Seven punches nonstop."
+
+  - name: "1-2-3-2-3-6-2"
+    combo: [1, 2, 3, 2, 3, 6, 2]
+    timing_ms: 190
+    total_time_ms: 1850
+    reps: 5
+    description: "Hook-heavy with a sneaky uppercut."
+
+  - name: "3-2-5-2-3-2"
+    combo: [3, 2, 5, 2, 3, 2]
+    timing_ms: 200
+    total_time_ms: 1500
+    reps: 6
+    description: "Cross is the reset punch. Hook-uppercut around it."
+
+  - name: "1-6-2-3-5-2-3-2"
+    combo: [1, 6, 2, 3, 5, 2, 3, 2]
+    timing_ms: 190
+    total_time_ms: 2100
+    reps: 5
+    description: "Eight punches. Championship-level combination."
+
+  - name: "2-3-6-3-2-5-2"
+    combo: [2, 3, 6, 3, 2, 5, 2]
+    timing_ms: 200
+    total_time_ms: 1900
+    reps: 5
+    description: "Body shots woven between hooks. Sustained pressure."

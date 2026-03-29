@@ -1,5 +1,0 @@
-bool start
-int32 num_trials
----
-bool accepted
-string message

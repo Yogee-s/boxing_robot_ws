@@ -5,5 +5,15 @@ install/
 *.log
 *.tmp
 .DS_Store
-/notebooks/assets/
-/GUI
+_archive/
+__pycache__/
+*.pyc
+*.egg-info/
+.eggs/
+dist/
+*.onnx
+*.trt
+node_modules/
+src/boxbunny_dashboard/static/dist/
+data/users/
+data/boxbunny_main.db

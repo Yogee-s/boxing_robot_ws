@@ -1,0 +1,7 @@
+bool left_pad_connected
+bool centre_pad_connected
+bool right_pad_connected
+bool head_pad_connected
+bool left_arm_connected
+bool right_arm_connected
+bool is_simulator

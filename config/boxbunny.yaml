@@ -1,0 +1,149 @@
+# =============================================================================
+# BoxBunny Master Configuration
+# =============================================================================
+# All default values match the dataclass defaults in boxbunny_core/config_loader.py.
+# Uncomment and modify values to override defaults.
+# =============================================================================
+
+# -- Computer Vision Pipeline -------------------------------------------------
+cv:
+  # Path to action recognition model checkpoint
+  checkpoint_path: ""
+  # Path to YOLO model for person detection
+  yolo_model_path: ""
+  # Inference device (cuda:0, cuda:1, cpu)
+  device: "cuda:0"
+  # Run inference every N frames (1 = every frame)
+  inference_interval: 1
+  # Temporal sliding window size for action recognition
+  window_size: 12
+  # Minimum confidence to accept a classification
+  min_confidence: 0.4
+  # Exponential moving average smoothing factor (0 = no smoothing, 1 = no memory)
+  ema_alpha: 0.35
+  # Hysteresis margin to prevent rapid class switching
+  hysteresis_margin: 0.12
+  # Minimum frames a class must be top-ranked before switching
+  min_hold_frames: 3
+  # Consecutive "block" frames needed to confirm a block
+  block_consecutive_needed: 4
+  # Consecutive frames needed to enter a new action state
+  state_enter_consecutive: 2
+  # Consecutive frames of absence needed to exit an action state
+  state_exit_consecutive: 2
+  # Minimum frames to hold a state once entered
+  state_min_hold_steps: 2
+  # Confidence threshold to sustain a state
+  state_sustain_confidence: 0.78
+  # Maximum allowed drop from peak confidence before state exits
+  state_peak_drop_threshold: 0.02
+
+# -- CV + IMU Fusion -----------------------------------------------------------
+fusion:
+  # Time window (ms) to match CV detections with IMU impacts
+  fusion_window_ms: 200
+  # Confidence penalty applied to CV-only (unconfirmed by IMU) detections
+  cv_unconfirmed_confidence_penalty: 0.3
+  # Minimum secondary class confidence to trigger reclassification
+  reclassify_min_secondary_confidence: 0.25
+  # IMU debounce time (ms) to suppress duplicate impacts
+  imu_debounce_ms: 150
+  # Time window (ms) after robot punch to detect defensive actions
+  defense_window_ms: 500
+  # Lateral pixel displacement threshold for slip detection
+  slip_lateral_threshold_px: 40.0
+  # Depth displacement threshold (metres) for slip detection
+  slip_depth_threshold_m: 0.15
+  # Lateral pixel displacement threshold for dodge detection
+  dodge_lateral_threshold_px: 20.0
+  # Depth displacement threshold (metres) for dodge detection
+  dodge_depth_threshold_m: 0.08
+  # Minimum CV confidence to confirm a block
+  block_cv_confidence_min: 0.3
+
+# -- IMU Node ------------------------------------------------------------------
+imu:
+  # Debounce time (ms) per-pad for navigation events
+  nav_debounce_ms: 300
+  # Global debounce time (ms) across all pads for navigation
+  nav_global_debounce_ms: 200
+  # Minimum time (ms) between mode transitions (punch <-> nav)
+  mode_transition_ms: 200
+  # Heartbeat publish interval (seconds) for IMU status
+  heartbeat_interval_s: 1.0
+
+# -- Robot Arm -----------------------------------------------------------------
+robot:
+  # Serial port for Teensy communication
+  serial_port: "/dev/ttyACM0"
+  # Baud rate for serial communication
+  baud_rate: 115200
+  # Heartbeat frequency (Hz) for robot status
+  heartbeat_hz: 10.0
+  # Directory containing punch sequence CSV files
+  punch_sequences_dir: "data/punch_sequences"
+
+# -- LLM AI Coach --------------------------------------------------------------
+llm:
+  # Path to quantized LLM model (GGUF format)
+  model_path: "models/llm/qwen2.5-3b-instruct-q4_k_m.gguf"
+  # GPU layers to offload (-1 = all)
+  n_gpu_layers: -1
+  # Context window size in tokens
+  n_ctx: 2048
+  # Maximum tokens to generate per response
+  max_tokens: 128
+  # Sampling temperature (0 = deterministic, 1 = creative)
+  temperature: 0.7
+  # Fallback tips file when LLM is unavailable
+  fallback_tips_path: "config/fallback_tips.json"
+
+# -- Height Auto-Adjustment ----------------------------------------------------
+height:
+  # Ideal vertical position of head top as fraction of frame height
+  ideal_top_fraction: 0.15
+  # Deadband in pixels -- no adjustment if error is within this
+  deadband_px: 15.0
+  # Maximum adjustment iterations per cycle
+  max_iterations: 3
+  # Time (ms) to wait for motors to settle between adjustments
+  settle_delay_ms: 500
+  # Minimum valid depth reading (metres)
+  min_depth_m: 0.5
+  # Maximum valid depth reading (metres)
+  max_depth_m: 3.0
+  # Timeout (seconds) before giving up if no person detected
+  no_person_timeout_s: 5.0
+
+# -- Training Defaults ---------------------------------------------------------
+training:
+  # Default number of rounds per session
+  default_rounds: 3
+  # Default work time per round (seconds)
+  default_work_time_s: 180
+  # Default rest time between rounds (seconds)
+  default_rest_time_s: 60
+  # Default robot speed (slow / medium / fast)
+  default_speed: "medium"
+  # Countdown duration before round starts (seconds)
+  countdown_seconds: 3
+
+# -- Network -------------------------------------------------------------------
+network:
+  # Wi-Fi access point SSID
+  wifi_ssid: "BoxBunny"
+  # Wi-Fi password
+  wifi_password: "boxbunny2026"
+  # Dashboard web server port
+  dashboard_port: 8080
+  # Dashboard bind address (0.0.0.0 = all interfaces)
+  dashboard_host: "0.0.0.0"
+
+# -- Database ------------------------------------------------------------------
+database:
+  # Path to main SQLite database
+  main_db_path: "data/boxbunny_main.db"
+  # Directory for per-user data files
+  user_data_dir: "data/users"
+  # Days to keep guest session data before cleanup
+  guest_session_ttl_days: 7

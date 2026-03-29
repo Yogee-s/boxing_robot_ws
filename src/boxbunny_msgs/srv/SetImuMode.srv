@@ -1,0 +1,4 @@
+string mode              # "navigation", "training"
+---
+bool success
+string current_mode

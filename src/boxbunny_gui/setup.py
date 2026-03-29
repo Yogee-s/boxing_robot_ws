@@ -1,29 +1,37 @@
-"""Setup configuration for boxbunny_gui package."""
-
-from setuptools import setup
 import os
 from glob import glob
+from setuptools import find_packages, setup
 
-PACKAGE_NAME = "boxbunny_gui"
+package_name = 'boxbunny_gui'
 
 setup(
-    name=PACKAGE_NAME,
-    version="1.0.0",
-    packages=[PACKAGE_NAME],
+    name=package_name,
+    version='1.0.0',
+    packages=find_packages(exclude=['test']),
     data_files=[
-        ("share/ament_index/resource_index/packages", [f"resource/{PACKAGE_NAME}"]),
-        (f"share/{PACKAGE_NAME}", ["package.xml"]),
-        (os.path.join("share", PACKAGE_NAME, "config"), glob("config/*.yaml")),
+        # ament index
+        ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
+        # package manifest
+        ('share/' + package_name, ['package.xml']),
+        # config files
+        ('share/' + package_name + '/config', glob('config/*')),
+        # assets — sounds
+        ('share/' + package_name + '/assets/sounds', glob('assets/sounds/*')),
+        # assets — icons
+        ('share/' + package_name + '/assets/icons', glob('assets/icons/*')),
+        # assets — fonts
+        ('share/' + package_name + '/assets/fonts', glob('assets/fonts/*')),
     ],
-    install_requires=["setuptools"],
+    install_requires=['setuptools'],
     zip_safe=True,
-    maintainer="BoxBunny Team",
-    maintainer_email="boxbunny@example.com",
-    description="PySide6-based graphical interface for boxing drills and real-time telemetry.",
-    license="MIT",
+    maintainer='boxbunny',
+    maintainer_email='boxbunny@todo.com',
+    description='PySide6 touchscreen GUI for the BoxBunny boxing training robot',
+    license='MIT',
+    tests_require=['pytest'],
     entry_points={
-        "console_scripts": [
-            "boxing_gui = boxbunny_gui.gui_main:main",
+        'console_scripts': [
+            'gui_main = boxbunny_gui.app:main',
         ],
     },
 )

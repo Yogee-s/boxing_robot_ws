@@ -1,0 +1,172 @@
+# =============================================================================
+# BoxBunny Sparring Configuration
+# =============================================================================
+# Defines boxing style transition matrices, weakness biases, and difficulty
+# scaling for the sparring engine.
+#
+# Punch codes: 1=jab, 2=cross, 3=left_hook, 4=right_hook,
+#              5=left_uppercut, 6=right_uppercut
+#
+# Transition matrices:
+#   Each style has a matrix where rows/columns correspond to punch codes 1-6.
+#   Value at [i][j] = probability of throwing punch j after punch i.
+#   Rows must sum to 1.0 (or close to it after rounding).
+# =============================================================================
+
+# -- Default Round Parameters --------------------------------------------------
+defaults:
+  rounds: 3
+  work_time_s: 180
+  rest_time_s: 60
+  countdown_s: 3
+  # Time (ms) between robot punches at baseline speed
+  base_interval_ms: 1800
+  # Probability robot throws a feint instead of a real punch
+  feint_probability: 0.1
+  # Probability robot pauses to let user attack
+  opening_probability: 0.15
+  # Duration (ms) of a defensive opening
+  opening_duration_ms: 2000
+
+# -- Difficulty Scaling --------------------------------------------------------
+difficulty:
+  easy:
+    speed_multiplier: 0.7        # Slower robot punches
+    interval_min_ms: 2200        # Minimum time between punches
+    interval_max_ms: 3500        # Maximum time between punches
+    combo_max_length: 2          # Max punches in a robot combo
+    defense_reaction_ms: 800     # Time window for user to defend
+    aggression: 0.3              # How often robot attacks vs waits
+    feint_probability: 0.05      # Fewer feints
+    counter_window_ms: 1500      # Time after robot combo for user to counter
+    opening_probability: 0.25    # More openings for user to attack
+    style_switch_probability: 0.0  # Never switches style mid-round
+
+  medium:
+    speed_multiplier: 1.0
+    interval_min_ms: 1400
+    interval_max_ms: 2500
+    combo_max_length: 3
+    defense_reaction_ms: 600
+    aggression: 0.5
+    feint_probability: 0.10
+    counter_window_ms: 1200
+    opening_probability: 0.15
+    style_switch_probability: 0.05  # Rare style switches
+
+  hard:
+    speed_multiplier: 1.4
+    interval_min_ms: 900
+    interval_max_ms: 1800
+    combo_max_length: 5
+    defense_reaction_ms: 400
+    aggression: 0.7
+    feint_probability: 0.20
+    counter_window_ms: 800
+    opening_probability: 0.08
+    style_switch_probability: 0.15  # Frequent style switches
+
+# -- Boxing Styles -------------------------------------------------------------
+# Each style defines personality through:
+#   transition_matrix  - punch-to-punch transition probabilities [6x6]
+#   opener_weights     - probability of starting a combo with each punch
+#   description        - for UI display
+#   preferred_range    - close / mid / long
+#   tempo              - slow / medium / fast (base tendency before difficulty)
+#
+# Matrix layout:
+#        jab   cross  l_hook r_hook l_upper r_upper
+# jab    [...]
+# cross  [...]
+# ...
+# =============================================================================
+
+styles:
+  boxer:
+    description: "Technical out-fighter. Uses jab and cross to control distance. Favours long range and clean combinations."
+    preferred_range: "long"
+    tempo: "medium"
+    opener_weights: [0.50, 0.20, 0.10, 0.05, 0.10, 0.05]
+    transition_matrix:
+      #         jab   cross  l_hk  r_hk  l_up  r_up
+      - [0.25, 0.35, 0.15, 0.10, 0.10, 0.05]   # after jab
+      - [0.30, 0.10, 0.25, 0.15, 0.10, 0.10]   # after cross
+      - [0.20, 0.30, 0.10, 0.15, 0.10, 0.15]   # after left_hook
+      - [0.25, 0.25, 0.15, 0.10, 0.15, 0.10]   # after right_hook
+      - [0.20, 0.30, 0.20, 0.10, 0.10, 0.10]   # after left_uppercut
+      - [0.25, 0.25, 0.15, 0.15, 0.10, 0.10]   # after right_uppercut
+
+  brawler:
+    description: "Aggressive power puncher. Favours hooks and uppercuts at close range. High volume, high risk."
+    preferred_range: "close"
+    tempo: "fast"
+    opener_weights: [0.15, 0.20, 0.25, 0.15, 0.15, 0.10]
+    transition_matrix:
+      #         jab   cross  l_hk  r_hk  l_up  r_up
+      - [0.10, 0.20, 0.25, 0.20, 0.15, 0.10]   # after jab
+      - [0.10, 0.10, 0.25, 0.20, 0.15, 0.20]   # after cross
+      - [0.10, 0.20, 0.10, 0.20, 0.15, 0.25]   # after left_hook
+      - [0.10, 0.15, 0.25, 0.10, 0.20, 0.20]   # after right_hook
+      - [0.10, 0.20, 0.20, 0.15, 0.10, 0.25]   # after left_uppercut
+      - [0.10, 0.15, 0.25, 0.20, 0.20, 0.10]   # after right_uppercut
+
+  counter_puncher:
+    description: "Defensive specialist. Waits for openings, then counters with precise combinations. Patient and calculated."
+    preferred_range: "mid"
+    tempo: "slow"
+    opener_weights: [0.35, 0.30, 0.15, 0.10, 0.05, 0.05]
+    transition_matrix:
+      #         jab   cross  l_hk  r_hk  l_up  r_up
+      - [0.15, 0.40, 0.20, 0.10, 0.10, 0.05]   # after jab
+      - [0.35, 0.10, 0.20, 0.15, 0.10, 0.10]   # after cross
+      - [0.20, 0.35, 0.05, 0.15, 0.10, 0.15]   # after left_hook
+      - [0.25, 0.30, 0.20, 0.05, 0.10, 0.10]   # after right_hook
+      - [0.25, 0.30, 0.15, 0.15, 0.05, 0.10]   # after left_uppercut
+      - [0.20, 0.35, 0.15, 0.15, 0.10, 0.05]   # after right_uppercut
+
+  pressure:
+    description: "Relentless pressure fighter. Constantly moves forward with high-volume combinations. Smothers opponents."
+    preferred_range: "close"
+    tempo: "fast"
+    opener_weights: [0.30, 0.25, 0.15, 0.10, 0.10, 0.10]
+    transition_matrix:
+      #         jab   cross  l_hk  r_hk  l_up  r_up
+      - [0.20, 0.25, 0.20, 0.15, 0.10, 0.10]   # after jab
+      - [0.20, 0.15, 0.20, 0.15, 0.15, 0.15]   # after cross
+      - [0.15, 0.25, 0.10, 0.15, 0.15, 0.20]   # after left_hook
+      - [0.15, 0.20, 0.20, 0.10, 0.20, 0.15]   # after right_hook
+      - [0.15, 0.25, 0.15, 0.15, 0.10, 0.20]   # after left_uppercut
+      - [0.15, 0.20, 0.20, 0.20, 0.15, 0.10]   # after right_uppercut
+
+  switch:
+    description: "Unpredictable switch-hitter. Alternates stances and punch selections. Hard to read and prepare for."
+    preferred_range: "mid"
+    tempo: "medium"
+    opener_weights: [0.20, 0.20, 0.15, 0.15, 0.15, 0.15]
+    transition_matrix:
+      #         jab   cross  l_hk  r_hk  l_up  r_up
+      - [0.10, 0.20, 0.20, 0.15, 0.20, 0.15]   # after jab
+      - [0.20, 0.10, 0.15, 0.20, 0.15, 0.20]   # after cross
+      - [0.15, 0.20, 0.10, 0.20, 0.15, 0.20]   # after left_hook
+      - [0.20, 0.15, 0.20, 0.10, 0.20, 0.15]   # after right_hook
+      - [0.15, 0.20, 0.20, 0.15, 0.10, 0.20]   # after left_uppercut
+      - [0.20, 0.15, 0.15, 0.20, 0.20, 0.10]   # after right_uppercut
+
+# -- Weakness Bias Parameters --------------------------------------------------
+# When the system detects a user weakness (e.g., poor block rate against hooks),
+# these parameters control how much the robot exploits that weakness.
+weakness_bias:
+  # Enable adaptive weakness targeting
+  enabled: true
+  # Minimum sample size before applying bias
+  min_samples: 10
+  # Maximum bias multiplier (2.0 = double the probability of targeting weakness)
+  max_bias_multiplier: 2.0
+  # Decay rate per round (bias reduces over time to encourage improvement)
+  decay_per_round: 0.1
+  # Categories tracked for weakness detection
+  tracked_categories:
+    - "block_rate_by_punch_type"
+    - "reaction_time_by_punch_type"
+    - "defense_success_by_side"
+    - "combo_completion_rate"

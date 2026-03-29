@@ -1,4 +1,3 @@
 float64 timestamp
 string pad              # "left", "centre", "right", "head"
 string level            # "light", "medium", "hard"
-float32 force_normalized  # 0.33 (light), 0.66 (medium), 1.0 (hard)

@@ -1,0 +1,5 @@
+string session_id
+---
+bool success
+string summary_json
+string message

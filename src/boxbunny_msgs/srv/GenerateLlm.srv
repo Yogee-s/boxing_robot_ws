@@ -1,0 +1,7 @@
+string prompt
+string context_json
+string system_prompt_key
+---
+bool success
+string response
+float32 generation_time_sec

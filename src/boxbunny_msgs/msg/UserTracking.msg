@@ -1,0 +1,10 @@
+float64 timestamp
+float32 bbox_centre_x
+float32 bbox_centre_y
+float32 bbox_top_y
+float32 bbox_width
+float32 bbox_height
+float32 depth
+float32 lateral_displacement
+float32 depth_displacement
+bool user_detected

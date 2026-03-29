@@ -1,0 +1,11 @@
+# Jetson-specific dependencies (install after requirements.txt)
+# These are pre-built for the Jetson platform
+
+# TensorRT (usually pre-installed on JetPack)
+# tensorrt
+
+# ONNX Runtime with CUDA/TensorRT provider
+onnxruntime-gpu>=1.16.0
+
+# PyCUDA (for custom CUDA operations)
+# pycuda>=2022.2
