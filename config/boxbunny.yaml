@@ -60,6 +60,18 @@ fusion:
   dodge_depth_threshold_m: 0.08
   # Minimum CV confidence to confirm a block
   block_cv_confidence_min: 0.3
+  # IMU strike threshold (m/s²) after gravity calibration
+  # Matches Boxing_Arm_Control/unified_GUI_V3 default of 5.0
+  # Bridge auto-calibrates gravity offset from first 500 samples (~2.5s)
+  imu_impact_threshold: 5.0
+  # IMU sensor index -> pad name mapping (must match physical wiring)
+  # Teensy V4: IMU0=Wire/0x68, IMU1=Wire/0x69, IMU2=Wire1/0x68, IMU3=Wire1/0x69
+  # Matches Boxing_Arm_Control/unified_GUI_V3: 0=Centre, 1=Left, 2=Right, 3=Reserved
+  imu_pad_map:
+    0: "centre"
+    1: "left"
+    2: "right"
+    3: "head"
 
 # -- IMU Node ------------------------------------------------------------------
 imu:
