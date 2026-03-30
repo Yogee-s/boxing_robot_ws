@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, font, GHOST_BTN, PRIMARY_BTN, SURFACE_BTN
+from boxbunny_gui.theme import Color, Size, font, GHOST_BTN
 from boxbunny_gui.widgets import BigButton
 
 if TYPE_CHECKING:
@@ -210,7 +210,7 @@ class PatternLockPage(QWidget):
         pw_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
         pw_lay.setSpacing(14)
 
-        pw_icon_lbl = QLabel("\U0001F512  Enter your password")
+        pw_icon_lbl = QLabel("Enter your password")
         pw_icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         pw_icon_lbl.setStyleSheet(
             f"font-size: 13px; font-weight: 600; color: {Color.TEXT_SECONDARY};"

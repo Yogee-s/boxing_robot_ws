@@ -1,8 +1,7 @@
-"""Post-sparring results page.
+"""Post-sparring results page — offense/defense breakdown.
 
 Offense section with punch distribution bars, defense section with
-defense rate / blocks / slips / dodges / hits taken, AI summary,
-and action buttons.
+colored stat cards, AI summary, and action buttons.
 """
 from __future__ import annotations
 
@@ -21,8 +20,8 @@ from PySide6.QtWidgets import (
 )
 
 from boxbunny_gui.theme import (
-    Color, Size, font, GHOST_BTN, PRIMARY_BTN,
-    section_title_style, back_link_style,
+    Color, Icon, Size, font, GHOST_BTN, PRIMARY_BTN,
+    section_title_style, back_link_style, accent_frame_style,
 )
 from boxbunny_gui.widgets import BigButton, StatCard
 
@@ -39,14 +38,14 @@ _PUNCH_COLORS: Dict[str, str] = {
 
 
 class _DistBar(QFrame):
-    """Horizontal coloured bar with label and count."""
+    """Horizontal coloured bar with label and count — enhanced styling."""
 
     def __init__(
         self, name: str, value: int, max_val: int, color: str,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setFixedHeight(32)
+        self.setFixedHeight(34)
         self.setStyleSheet(
             f"QFrame {{ background-color: {Color.SURFACE};"
             f" border-radius: {Size.RADIUS_SM}px; }}"
@@ -55,7 +54,7 @@ class _DistBar(QFrame):
         lay.setContentsMargins(12, 4, 12, 4)
         lay.setSpacing(Size.SPACING_SM)
 
-        dot = QLabel("\u25CF")
+        dot = QLabel("●")
         dot.setFixedWidth(14)
         dot.setStyleSheet(f"background: transparent; color: {color}; font-size: 12px;")
         lay.addWidget(dot)
@@ -70,9 +69,9 @@ class _DistBar(QFrame):
 
         bar = QFrame()
         width = max(6, int(180 * value / max_val)) if max_val else 6
-        bar.setFixedSize(width, 10)
+        bar.setFixedSize(width, 12)
         bar.setStyleSheet(
-            f"background-color: {color}; border-radius: 5px;"
+            f"background-color: {color}; border-radius: 6px;"
         )
         lay.addWidget(bar)
 
@@ -118,8 +117,8 @@ class SparringResultsPage(QWidget):
         root.addSpacing(4)
 
         # Offense section
-        off_lbl = QLabel("\u25CF  Offense")
-        off_lbl.setStyleSheet(section_title_style())
+        off_lbl = QLabel("OFFENSE")
+        off_lbl.setStyleSheet(section_title_style(Color.PRIMARY))
         root.addWidget(off_lbl)
 
         off_grid = QHBoxLayout()
@@ -134,10 +133,8 @@ class SparringResultsPage(QWidget):
         root.addLayout(self._dist_layout)
 
         # Defense section
-        def_lbl = QLabel("\u25CF  Defense")
-        def_lbl.setStyleSheet(
-            f"color: {Color.WARNING}; font-size: 15px; font-weight: 600;"
-        )
+        def_lbl = QLabel("DEFENSE")
+        def_lbl.setStyleSheet(section_title_style(Color.WARNING))
         root.addWidget(def_lbl)
 
         def_grid = QGridLayout()
@@ -154,28 +151,23 @@ class SparringResultsPage(QWidget):
         def_grid.addWidget(self._def_hits, 1, 1)
         root.addLayout(def_grid)
 
-        # AI summary
+        # AI summary — enhanced with info accent
         ai_frame = QFrame()
-        ai_frame.setStyleSheet(
-            f"QFrame {{ background-color: {Color.SURFACE};"
-            f" border: 1px solid {Color.BORDER};"
-            f" border-radius: 12px; }}"
-        )
+        ai_frame.setStyleSheet(accent_frame_style(Color.INFO))
         ai_inner = QVBoxLayout(ai_frame)
         ai_inner.setContentsMargins(16, 12, 16, 12)
         ai_inner.setSpacing(4)
-        ai_title = QLabel("AI Coach Analysis")
+        ai_title = QLabel("AI COACH ANALYSIS")
         ai_title.setStyleSheet(
             "background: transparent;"
-            f" color: {Color.INFO}; font-size: 12px; font-weight: 700;"
-            " letter-spacing: 0.8px;"
+            f" color: {Color.INFO}; font-size: 11px; font-weight: 700;"
+            " letter-spacing: 1px;"
         )
         ai_inner.addWidget(ai_title)
         self._ai_lbl = QLabel("AI analysis loading...")
         self._ai_lbl.setStyleSheet(
             "background: transparent;"
             f" color: {Color.TEXT_SECONDARY}; font-size: 14px;"
-            " line-height: 1.4;"
         )
         self._ai_lbl.setWordWrap(True)
         self._ai_lbl.setMinimumHeight(36)
@@ -196,7 +188,7 @@ class SparringResultsPage(QWidget):
 
         bottom.addStretch()
 
-        btn_again = BigButton("Spar Again", stylesheet=PRIMARY_BTN)
+        btn_again = BigButton(f"{Icon.PLAY} Spar Again", stylesheet=PRIMARY_BTN)
         btn_again.setFixedHeight(42)
         btn_again.clicked.connect(
             lambda: self._router.navigate("sparring_select")

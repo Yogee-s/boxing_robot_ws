@@ -1,6 +1,8 @@
-"""Large timer display with optional circular progress ring.
+"""Large timer display with circular progress ring.
 
 Designed to be composable on any page with a transparent background.
+Features a thicker ring stroke, colour-changing arc, and outer glow
+when time is critical.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ log = logging.getLogger(__name__)
 
 
 class TimerDisplay(QWidget):
-    """Countdown / count-up timer with an optional progress arc.
+    """Countdown / count-up timer with a progress arc.
 
     Signals
     -------
@@ -120,21 +122,30 @@ class TimerDisplay(QWidget):
         side = min(self.width(), self.height())
 
         # Scale font to fit inside the ring with good clearance
-        # Ring takes full available height; text should be ~40% of ring diameter
         scaled_font_size = max(20, int(side * 0.22))
         time_font = QFont("Inter", scaled_font_size, QFont.Weight.Bold)
 
-        # -- progress ring (fills available space) ----------------------------
+        # -- progress ring (thicker, with glow when critical) -----------------
         if self._show_ring and self._total > 0:
-            pen_w = 3
-            margin = pen_w + 6
+            pen_w = Size.RING_THICKNESS
+            margin = pen_w + 8
             cx = self.width() // 2
             cy = self.height() // 2
             half = side // 2 - margin
             ring_rect = QRect(cx - half, cy - half, half * 2, half * 2)
 
+            # Outer glow when time is critical (<= 10s)
+            if self._remaining <= 10 and self._running:
+                glow_color = QColor(color_hex)
+                glow_color.setAlpha(30)
+                glow_pen = QPen(glow_color, pen_w + 10)
+                glow_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                painter.setPen(glow_pen)
+                painter.drawArc(ring_rect, 0, 360 * 16)
+
             # background track
-            track_pen = QPen(QColor(Color.SURFACE_LIGHT), pen_w)
+            track_color = QColor(Color.SURFACE_LIGHT)
+            track_pen = QPen(track_color, pen_w)
             track_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             painter.setPen(track_pen)
             painter.drawArc(ring_rect, 0, 360 * 16)

@@ -1,7 +1,7 @@
 """Post-training results with mastery progress and level-up detection.
 
 Shows session stats, combo mastery progress (Anki-style), AI coach
-summary, and action buttons. Checks level-up eligibility.
+summary, and action buttons. Enhanced with accent-colored stat cards.
 """
 from __future__ import annotations
 
@@ -20,7 +20,8 @@ from PySide6.QtWidgets import (
 )
 
 from boxbunny_gui.theme import (
-    Color, Size, font, GHOST_BTN, PRIMARY_BTN, SURFACE_BTN, section_title_style,
+    Color, Icon, Size, font, GHOST_BTN, PRIMARY_BTN, SURFACE_BTN,
+    section_title_style, accent_frame_style,
 )
 from boxbunny_gui.widgets import BigButton, StatCard
 
@@ -36,12 +37,12 @@ def _progress_bar_style(accent: str = Color.PRIMARY) -> str:
     return f"""
         QProgressBar {{
             background-color: {Color.SURFACE_LIGHT};
-            border: none; border-radius: 4px;
+            border: none; border-radius: 5px;
             height: 10px; text-align: center; font-size: 0px;
         }}
         QProgressBar::chunk {{
             background-color: {accent};
-            border-radius: 4px;
+            border-radius: 5px;
         }}
     """
 
@@ -70,20 +71,20 @@ class TrainingResultsPage(QWidget):
         root.setSpacing(8)
 
         # Title
-        title = QLabel("\u2713  Session Complete")
+        title = QLabel(f"{Icon.CHECK}  Session Complete")
         title.setFont(font(Size.TEXT_SUBHEADER, bold=True))
         title.setStyleSheet(f"color: {Color.PRIMARY};")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(title)
 
-        # Stat cards (2x2)
+        # Stat cards (2x2) with distinct accent colours
         stats = QGridLayout()
         stats.setSpacing(10)
         stats.setContentsMargins(8, 0, 8, 0)
-        self._stat_punches = StatCard("Total Punches", "0")
-        self._stat_accuracy = StatCard("Accuracy", "0%")
-        self._stat_best = StatCard("Best Round", "--")
-        self._stat_fatigue = StatCard("Fatigue Index", "--")
+        self._stat_punches = StatCard("Total Punches", "0", accent=Color.PRIMARY)
+        self._stat_accuracy = StatCard("Accuracy", "0%", accent=Color.INFO)
+        self._stat_best = StatCard("Best Round", "--", accent=Color.SUCCESS)
+        self._stat_fatigue = StatCard("Fatigue Index", "--", accent=Color.WARNING)
         stats.addWidget(self._stat_punches, 0, 0)
         stats.addWidget(self._stat_accuracy, 0, 1)
         stats.addWidget(self._stat_best, 1, 0)
@@ -92,13 +93,7 @@ class TrainingResultsPage(QWidget):
 
         # ── Mastery progress card ────────────────────────────────────
         self._mastery_card = QFrame()
-        self._mastery_card.setStyleSheet(f"""
-            QFrame {{
-                background-color: {Color.SURFACE};
-                border: 1px solid {Color.BORDER};
-                border-radius: {Size.RADIUS}px;
-            }}
-        """)
+        self._mastery_card.setStyleSheet(accent_frame_style(Color.PRIMARY))
         mc_lay = QVBoxLayout(self._mastery_card)
         mc_lay.setContentsMargins(16, 10, 16, 10)
         mc_lay.setSpacing(6)
@@ -154,7 +149,7 @@ class TrainingResultsPage(QWidget):
         coach_section = QVBoxLayout()
         coach_section.setSpacing(4)
         coach_header = QLabel("AI COACH")
-        coach_header.setStyleSheet(section_title_style())
+        coach_header.setStyleSheet(section_title_style(Color.INFO))
         coach_section.addWidget(coach_header)
 
         self._coach_lbl = QLabel("AI Coach analysis loading...")
@@ -162,6 +157,7 @@ class TrainingResultsPage(QWidget):
             f"color: {Color.TEXT_SECONDARY}; font-size: 13px;"
             f" background-color: {Color.SURFACE};"
             f" border: 1px solid {Color.BORDER};"
+            f" border-left: {Size.ACCENT_BAR_W}px solid {Color.INFO};"
             f" border-radius: {Size.RADIUS}px;"
             " padding: 10px 14px;"
         )
@@ -191,7 +187,7 @@ class TrainingResultsPage(QWidget):
         self._btn_combos.clicked.connect(self._on_back_to_combos)
         bottom.addWidget(self._btn_combos, stretch=1)
 
-        self._btn_again = BigButton("Train Again", stylesheet=PRIMARY_BTN)
+        self._btn_again = BigButton(f"{Icon.PLAY} Train Again", stylesheet=PRIMARY_BTN)
         self._btn_again.setFixedHeight(42)
         self._btn_again.clicked.connect(self._on_train_again)
         bottom.addWidget(self._btn_again, stretch=1)
@@ -218,7 +214,7 @@ class TrainingResultsPage(QWidget):
 
         self._mastery_name_lbl.setText(stats["combo_name"])
         self._mastery_pct_lbl.setText(
-            "\u2713 Mastered" if stats["is_mastered"] else f"{pct}%"
+            f"{Icon.CHECK} Mastered" if stats["is_mastered"] else f"{pct}%"
         )
         self._mastery_bar.setValue(pct)
 
@@ -237,7 +233,7 @@ class TrainingResultsPage(QWidget):
                 nxt = self._curriculum.get_next_difficulty(self._difficulty)
                 if nxt:
                     self._levelup_lbl.setText(
-                        f"\u2B50  Ready to advance to {nxt}!"
+                        f"Ready to advance to {nxt}!"
                     )
                     self._levelup_lbl.show()
 

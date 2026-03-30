@@ -1,7 +1,7 @@
 """Session configuration page (single page replaces old 5-page flow).
 
 Shows selected combo and tappable parameter tiles for rounds, work time,
-rest time, and speed.
+rest time, and speed. Enhanced with colored tile accents.
 """
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ from PySide6.QtWidgets import (
 )
 
 from boxbunny_gui.theme import (
-    Color, Size, font, GHOST_BTN, PRIMARY_BTN,
-    config_tile_style, back_link_style, badge_style,
+    Color, Icon, Size, font, GHOST_BTN, PRIMARY_BTN,
+    config_tile_style_v2, back_link_style, badge_style,
 )
 from boxbunny_gui.widgets import BigButton
 
@@ -29,44 +29,41 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_PARAMS: Dict[str, List[str]] = {
-    "Rounds": ["1", "2", "3", "5"],
-    "Work Time": ["60s", "90s", "120s", "180s"],
-    "Rest Time": ["30s", "45s", "60s"],
-    "Speed": ["Slow", "Medium", "Fast"],
+_PARAMS: Dict[str, Dict[str, Any]] = {
+    "Rounds": {"options": ["1", "2", "3", "5"], "accent": Color.PRIMARY},
+    "Work Time": {"options": ["60s", "90s", "120s", "180s"], "accent": Color.DANGER},
+    "Rest Time": {"options": ["30s", "45s", "60s"], "accent": Color.INFO},
+    "Speed": {"options": ["Slow", "Medium", "Fast"], "accent": Color.WARNING},
 }
 
 
 class _ParamTile(QPushButton):
-    """Tappable tile that cycles through values on each tap.
-
-    Uses QPushButton with child labels for clean layout:
-    small label on top, large value in center, subtle hint at bottom.
-    """
+    """Tappable tile with colored top accent that cycles through values."""
 
     def __init__(
-        self, label: str, options: List[str], parent: QWidget | None = None,
+        self, label: str, options: List[str],
+        accent: str = "", parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._label_text = label
         self._options = options
         self._index: int = 0
+        self._accent = accent or Color.PRIMARY
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(220, 105)
+        self.setFixedSize(220, 110)
         self.setText("")
-        self.setStyleSheet(config_tile_style())
+        self.setStyleSheet(config_tile_style_v2(self._accent))
         self.clicked.connect(self._cycle)
 
-        # Child layout for structured display
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(12, 10, 12, 8)
+        lay.setContentsMargins(12, 12, 12, 8)
         lay.setSpacing(2)
 
         self._label_lbl = QLabel(label.upper())
         self._label_lbl.setStyleSheet(
             "background: transparent;"
-            f" color: {Color.TEXT_DISABLED}; font-size: 11px;"
-            " font-weight: 700; letter-spacing: 0.8px;"
+            f" color: {Color.TEXT_DISABLED}; font-size: 10px;"
+            " font-weight: 700; letter-spacing: 1px;"
         )
         self._label_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(self._label_lbl)
@@ -115,15 +112,8 @@ class TrainingConfigPage(QWidget):
 
         # Back link + title row
         top = QHBoxLayout()
-        btn_back = QPushButton("\u2190  Back")
-        btn_back.setStyleSheet(f"""
-            QPushButton {{
-                font-size: 13px; color: {Color.TEXT_SECONDARY};
-                background: transparent; border: none;
-                min-height: 0; min-width: 0; padding: 6px 12px;
-            }}
-            QPushButton:hover {{ color: {Color.TEXT}; }}
-        """)
+        btn_back = QPushButton(f"{Icon.BACK}  Back")
+        btn_back.setStyleSheet(back_link_style())
         btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_back.clicked.connect(lambda: self._router.back())
         top.addWidget(btn_back)
@@ -145,6 +135,7 @@ class TrainingConfigPage(QWidget):
             f"color: {Color.PRIMARY}; font-size: 16px; font-weight: 600;"
             f" background-color: {Color.SURFACE};"
             f" border: 1px solid {Color.PRIMARY}30;"
+            f" border-left: {Size.ACCENT_BAR_W}px solid {Color.PRIMARY};"
             f" border-radius: {Size.RADIUS}px;"
             " padding: 8px 24px;"
         )
@@ -156,8 +147,12 @@ class TrainingConfigPage(QWidget):
         # Parameter grid (2x2)
         grid = QGridLayout()
         grid.setSpacing(14)
-        for i, (label, options) in enumerate(_PARAMS.items()):
-            tile = _ParamTile(label, options, self)
+        for i, (label, cfg) in enumerate(_PARAMS.items()):
+            tile = _ParamTile(
+                label, cfg["options"],
+                accent=cfg.get("accent", Color.PRIMARY),
+                parent=self,
+            )
             grid.addWidget(
                 tile, i // 2, i % 2,
                 alignment=Qt.AlignmentFlag.AlignCenter,
@@ -165,8 +160,10 @@ class TrainingConfigPage(QWidget):
             self._tiles[label] = tile
         root.addLayout(grid, stretch=1)
 
-        # Start button -- prominent with teal accent
-        self._btn_start = BigButton("\u25B6  Start Training", stylesheet=PRIMARY_BTN)
+        # Start button
+        self._btn_start = BigButton(
+            f"{Icon.PLAY}  Start Training", stylesheet=PRIMARY_BTN
+        )
         self._btn_start.setFixedHeight(64)
         self._btn_start.clicked.connect(self._on_start)
         root.addWidget(self._btn_start)

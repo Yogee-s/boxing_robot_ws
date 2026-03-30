@@ -1,6 +1,6 @@
-"""Compact stat-display card with optional trend indicator.
+"""Compact stat-display card with optional trend indicator and accent bar.
 
-Dark-surface rounded frame with colored top accent line.
+Dark-surface rounded frame with colored left accent line.
 """
 
 from __future__ import annotations
@@ -8,16 +8,16 @@ from __future__ import annotations
 import logging
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout
 
 from boxbunny_gui.theme import Color, Size
 
 log = logging.getLogger(__name__)
 
 _TREND_ARROWS: dict[str, tuple[str, str]] = {
-    "up": ("\u25B2", Color.PRIMARY),
-    "down": ("\u25BC", Color.DANGER),
-    "neutral": ("\u2014", Color.TEXT_SECONDARY),
+    "up": ("▲", Color.SUCCESS),
+    "down": ("▼", Color.DANGER),
+    "neutral": ("—", Color.TEXT_SECONDARY),
 }
 
 
@@ -35,7 +35,7 @@ class StatCard(QFrame):
     trend : str
         One of ``"up"``, ``"down"``, ``"neutral"``.
     accent : str
-        Color for the top accent line. Defaults to PRIMARY.
+        Color for the left accent line. Defaults to PRIMARY.
     """
 
     def __init__(
@@ -50,21 +50,22 @@ class StatCard(QFrame):
         super().__init__(parent)
         accent_color = accent or Color.PRIMARY
         self.setMinimumHeight(78)
-        self.setMaximumHeight(110)
+        self.setMaximumHeight(116)
         self.setStyleSheet(
             f"QFrame {{ background-color: {Color.SURFACE};"
             f" border: 1px solid {Color.BORDER};"
+            f" border-left: {Size.ACCENT_BAR_W}px solid {accent_color};"
             f" border-radius: {Size.RADIUS}px; }}"
         )
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 8, 14, 8)
+        layout.setContentsMargins(16, 10, 14, 10)
         layout.setSpacing(2)
 
         self._title_lbl = QLabel(title.upper())
         self._title_lbl.setStyleSheet(
-            f"color: {Color.TEXT_DISABLED}; font-size: 11px;"
-            " font-weight: 700; letter-spacing: 0.8px;"
+            f"color: {Color.TEXT_DISABLED}; font-size: 10px;"
+            " font-weight: 700; letter-spacing: 1px;"
             " border: none;"
         )
         self._title_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -99,7 +100,7 @@ class StatCard(QFrame):
         """Set the trend indicator: ``'up'``, ``'down'``, or ``'neutral'``."""
         arrow, color = _TREND_ARROWS.get(trend, _TREND_ARROWS["neutral"])
         current = self._sub_lbl.text()
-        prefix = current.lstrip("\u25B2\u25BC\u2014 ")
+        prefix = current.lstrip("▲▼— ")
         self._sub_lbl.setText(f"{arrow} {prefix}" if prefix else arrow)
         self._sub_lbl.setStyleSheet(
             f"color: {color}; font-size: 12px; border: none;"

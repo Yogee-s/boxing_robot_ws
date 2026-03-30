@@ -1,7 +1,7 @@
-"""Rest period between training rounds.
+"""Rest period between training rounds — calming dark treatment.
 
 Large countdown timer, brief stats from last round, and skip button.
-Visually distinct background shade.
+Subtly different background for visual distinction from active training.
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, font, SURFACE_BTN
+from boxbunny_gui.theme import Color, Icon, Size, font, SURFACE_BTN
 from boxbunny_gui.widgets import BigButton, StatCard, TimerDisplay
 
 if TYPE_CHECKING:
@@ -37,17 +37,19 @@ class TrainingRestPage(QWidget):
         self._build_ui()
 
     def _build_ui(self) -> None:
+        # Slightly blue-tinted surface for calming distinction
         self.setStyleSheet(f"background-color: {Color.SURFACE};")
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(40, 28, 40, 24)
-        root.setSpacing(12)
+        root.setContentsMargins(40, 24, 40, 20)
+        root.setSpacing(10)
 
-        # Large REST title -- calming and prominent
+        # Large REST title in calming blue tint
         title = QLabel("REST")
         title.setFont(font(42, bold=True))
         title.setStyleSheet(
-            f"background: transparent; color: {Color.TEXT_SECONDARY}; letter-spacing: 8px;"
+            f"background: transparent; color: {Color.INFO};"
+            " letter-spacing: 8px;"
         )
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(title)
@@ -55,25 +57,26 @@ class TrainingRestPage(QWidget):
         # Next round subtitle
         self._next_round_lbl = QLabel("Next round coming up...")
         self._next_round_lbl.setStyleSheet(
-            f"background: transparent; color: {Color.TEXT_DISABLED}; font-size: 14px;"
+            f"background: transparent; color: {Color.TEXT_DISABLED};"
+            " font-size: 14px;"
         )
         self._next_round_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(self._next_round_lbl)
 
         root.addSpacing(4)
 
-        # Timer -- centered and calm
+        # Timer — centered and calm (uses blue color via widget)
         self._timer = TimerDisplay(font_size=Size.TEXT_TIMER_SM, show_ring=True)
         self._timer.finished.connect(self._on_rest_done)
         root.addWidget(self._timer, stretch=1)
 
-        # Quick stats from last round -- centered row
+        # Quick stats from last round
         stats_row = QHBoxLayout()
         stats_row.setSpacing(14)
         stats_row.addStretch()
-        self._stat_punches = StatCard("Punches", "--")
+        self._stat_punches = StatCard("Punches", "--", accent=Color.PRIMARY)
         self._stat_punches.setFixedWidth(180)
-        self._stat_accuracy = StatCard("Accuracy", "--%")
+        self._stat_accuracy = StatCard("Accuracy", "--%", accent=Color.INFO)
         self._stat_accuracy.setFixedWidth(180)
         stats_row.addWidget(self._stat_punches)
         stats_row.addWidget(self._stat_accuracy)
@@ -82,8 +85,10 @@ class TrainingRestPage(QWidget):
 
         root.addSpacing(8)
 
-        # Skip button -- subtle, centered
-        self._btn_skip = BigButton("Skip Rest  \u2192", stylesheet=SURFACE_BTN)
+        # Skip button — subtle, centered
+        self._btn_skip = BigButton(
+            f"Skip Rest  {Icon.NEXT}", stylesheet=SURFACE_BTN
+        )
         self._btn_skip.setFixedSize(200, 50)
         self._btn_skip.clicked.connect(self._skip)
         root.addWidget(

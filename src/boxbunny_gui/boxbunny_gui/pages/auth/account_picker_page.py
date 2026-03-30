@@ -1,7 +1,4 @@
-"""Grid of user account cards with search and sign-up button.
-
-Receives optional ``coach_only`` kwarg to filter user type.
-"""
+"""Grid of user account cards with search and sign-up button — premium styling."""
 from __future__ import annotations
 
 import logging
@@ -20,7 +17,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, font, back_link_style, badge_style
+from boxbunny_gui.theme import (
+    Color, Icon, Size, font, back_link_style, badge_style,
+    outline_btn_style,
+)
 
 if TYPE_CHECKING:
     from boxbunny_gui.nav.router import PageRouter
@@ -33,51 +33,51 @@ _DEMO_USERS: List[Dict[str, str]] = [
     {"id": "c1", "name": "Coach Mike", "level": "Coach", "type": "coach"},
 ]
 
+_AVATAR_COLORS = [Color.PRIMARY, Color.INFO, Color.PURPLE, Color.WARNING, Color.DANGER]
+
 
 class _UserCard(QFrame):
-    """Clickable card showing avatar initial, display_name, and level badge.
+    """Clickable card showing avatar initial, display_name, and level badge."""
 
-    Uses QFrame with a click signal for proper internal layout.
-    """
+    clicked = None
 
-    clicked = None  # will be set per-instance via a signal-like pattern
-
-    def __init__(self, user: Dict[str, str], parent: QWidget | None = None) -> None:
+    def __init__(self, user: Dict[str, str], color_idx: int = 0,
+                 parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.user = user
-        self.setFixedSize(210, 130)
+        self.setFixedSize(210, 140)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._callback = None
+        accent = _AVATAR_COLORS[color_idx % len(_AVATAR_COLORS)]
 
         self.setStyleSheet(f"""
             QFrame {{
                 background-color: {Color.SURFACE};
                 border: 1px solid {Color.BORDER};
-                border-radius: 14px;
+                border-radius: {Size.RADIUS_LG}px;
             }}
             QFrame:hover {{
                 background-color: {Color.SURFACE_HOVER};
-                border-color: {Color.PRIMARY};
+                border-color: {accent};
             }}
         """)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(12, 14, 12, 12)
-        lay.setSpacing(6)
+        lay.setContentsMargins(12, 16, 12, 12)
+        lay.setSpacing(8)
         lay.setAlignment(Qt.AlignCenter)
 
-        # Avatar circle
+        # Avatar circle with user-specific accent colour
         initial = user["name"][0].upper()
         avatar = QLabel(initial)
-        avatar.setFixedSize(44, 44)
+        avatar.setFixedSize(48, 48)
         avatar.setAlignment(Qt.AlignCenter)
         avatar.setStyleSheet(f"""
-            background: transparent;
-            background-color: {Color.PRIMARY_MUTED};
-            color: {Color.PRIMARY};
-            font-size: 20px; font-weight: 700;
-            border: 2px solid {Color.PRIMARY};
-            border-radius: 22px;
+            background-color: {accent}20;
+            color: {accent};
+            font-size: 22px; font-weight: 700;
+            border: 2px solid {accent};
+            border-radius: 24px;
         """)
         lay.addWidget(avatar, alignment=Qt.AlignCenter)
 
@@ -91,7 +91,7 @@ class _UserCard(QFrame):
         lay.addWidget(name_lbl, alignment=Qt.AlignCenter)
 
         # Level badge
-        level_lbl = QLabel(user["level"])
+        level_lbl = QLabel(user["level"].upper())
         level_lbl.setAlignment(Qt.AlignCenter)
         level_lbl.setStyleSheet(
             "background: transparent; " + badge_style(Color.TEXT_SECONDARY)
@@ -104,7 +104,6 @@ class _UserCard(QFrame):
         super().mousePressEvent(event)
 
     def connect_clicked(self, callback) -> None:
-        """Register a click callback."""
         self._callback = callback
 
 
@@ -127,8 +126,9 @@ class AccountPickerPage(QWidget):
 
         # Top bar: back + title + search
         top = QHBoxLayout()
-        self._btn_back = QPushButton("\u2190  Back")
+        self._btn_back = QPushButton(f"{Icon.BACK}  Back")
         self._btn_back.setStyleSheet(back_link_style())
+        self._btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_back.clicked.connect(lambda: self._router.back())
         top.addWidget(self._btn_back)
 
@@ -164,19 +164,8 @@ class AccountPickerPage(QWidget):
 
         signup_btn = QPushButton("Sign Up")
         signup_btn.setFixedSize(110, 38)
-        signup_btn.setStyleSheet(f"""
-            QPushButton {{
-                font-size: 14px; font-weight: 600;
-                background-color: transparent; color: {Color.PRIMARY};
-                border: 1px solid {Color.PRIMARY}; border-radius: {Size.RADIUS_SM}px;
-            }}
-            QPushButton:hover {{
-                background-color: {Color.PRIMARY}; color: {Color.BG};
-            }}
-            QPushButton:pressed {{
-                background-color: {Color.PRIMARY_PRESSED}; color: {Color.BG};
-            }}
-        """)
+        signup_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        signup_btn.setStyleSheet(outline_btn_style())
         signup_btn.clicked.connect(lambda: self._router.navigate("signup"))
         bottom.addWidget(signup_btn)
         bottom.addStretch()
@@ -193,7 +182,7 @@ class AccountPickerPage(QWidget):
             users = [u for u in users if u["type"] == "coach"]
 
         for i, user in enumerate(users):
-            card = _UserCard(user, self)
+            card = _UserCard(user, color_idx=i, parent=self)
             card.connect_clicked(lambda u=user: self._select_user(u))
             self._grid.addWidget(card, i // 4, i % 4)
             self._cards.append(card)

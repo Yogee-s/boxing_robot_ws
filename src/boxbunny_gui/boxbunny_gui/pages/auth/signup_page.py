@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, back_link_style
+from boxbunny_gui.theme import Color, Size, back_link_style, subtle_btn_style
 
 logger = logging.getLogger(__name__)
 

@@ -1,4 +1,4 @@
-"""Full-screen sparring session page.
+"""Full-screen sparring session page — red-themed treatment.
 
 Timer, round counter, robot attack indicator, live offense/defense
 stats, and stop button. Connects to gui_bridge signals.
@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, font, badge_style
+from boxbunny_gui.theme import Color, Icon, Size, font, badge_style
 from boxbunny_gui.widgets import BigButton, PunchCounter, TimerDisplay
 
 if TYPE_CHECKING:
@@ -55,7 +55,13 @@ class SparringSessionPage(QWidget):
         top = QHBoxLayout()
         self._round_lbl = QLabel("Round 1/3")
         self._round_lbl.setFont(font(18, bold=True))
-        self._round_lbl.setStyleSheet(f"color: {Color.TEXT};")
+        self._round_lbl.setStyleSheet(
+            f"color: {Color.TEXT};"
+            f" background-color: {Color.SURFACE};"
+            f" border-left: {Size.ACCENT_BAR_W}px solid {Color.DANGER};"
+            f" border-radius: {Size.RADIUS_SM}px;"
+            " padding: 6px 16px;"
+        )
         top.addWidget(self._round_lbl)
         top.addStretch()
 
@@ -77,7 +83,8 @@ class SparringSessionPage(QWidget):
         attack_frame.setStyleSheet(
             f"QFrame {{ background-color: {Color.SURFACE};"
             f" border: 1px solid {Color.BORDER};"
-            f" border-radius: 12px; }}"
+            f" border-left: {Size.ACCENT_BAR_W}px solid {Color.WARNING};"
+            f" border-radius: {Size.RADIUS}px; }}"
         )
         attack_lay = QHBoxLayout(attack_frame)
         attack_lay.setContentsMargins(16, 0, 16, 0)
@@ -151,14 +158,14 @@ class SparringSessionPage(QWidget):
         # ── Stop button ──────────────────────────────────────────────────
         bottom = QHBoxLayout()
         bottom.addStretch()
-        self._btn_stop = QPushButton("STOP")
+        self._btn_stop = QPushButton(f"{Icon.STOP}  STOP")
         self._btn_stop.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_stop.setFixedSize(130, 42)
+        self._btn_stop.setFixedSize(140, 46)
         self._btn_stop.setStyleSheet(f"""
             QPushButton {{
                 background-color: {Color.DANGER}; color: white;
-                font-size: 15px; font-weight: 700;
-                border: none; border-radius: 21px;
+                font-size: 16px; font-weight: 700;
+                border: none; border-radius: {Size.RADIUS_LG}px;
             }}
             QPushButton:hover {{ background-color: {Color.DANGER_DARK}; }}
             QPushButton:pressed {{ background-color: #C33C3C; }}

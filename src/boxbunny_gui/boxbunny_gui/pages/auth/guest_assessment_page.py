@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, back_link_style
+from boxbunny_gui.theme import Color, Icon, Size, back_link_style, subtle_btn_style
 
 logger = logging.getLogger(__name__)
 
@@ -60,19 +60,19 @@ def _opt_style(selected: bool) -> str:
     if selected:
         return f"""
             QPushButton {{
-                font-size: 13px; font-weight: 600; padding: 6px 10px;
-                min-height: 34px;
+                font-size: 11px; font-weight: 700; padding: 4px 6px;
+                min-height: 28px;
                 background-color: {Color.PRIMARY}; color: {Color.BG};
-                border: none; border-radius: {Size.RADIUS_SM}px;
+                border: 1px solid {Color.PRIMARY_DARK}; border-radius: 6px;
             }}
             QPushButton:hover {{ background-color: {Color.PRIMARY_DARK}; }}
         """
     return f"""
         QPushButton {{
-            font-size: 13px; font-weight: 600; padding: 6px 10px;
-            min-height: 34px;
-            background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
-            border: 1px solid {Color.BORDER}; border-radius: {Size.RADIUS_SM}px;
+            font-size: 11px; font-weight: 600; padding: 4px 6px;
+            min-height: 28px;
+            background-color: {Color.SURFACE_LIGHT}; color: {Color.TEXT_SECONDARY};
+            border: 1px solid {Color.BORDER}; border-radius: 6px;
         }}
         QPushButton:hover {{
             border-color: {Color.PRIMARY}; color: {Color.TEXT};
@@ -122,26 +122,30 @@ class _QuestionsWidget(QWidget):
         self._btn_groups: Dict[str, list] = {}
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(50, 12, 50, 12)
-        root.setSpacing(4)
+        root.setContentsMargins(40, 12, 40, 10)
+        root.setSpacing(0)
 
-        title = QLabel("Quick Proficiency Check")
-        title.setAlignment(Qt.AlignCenter)
+        # Push content to vertical center
+        root.addStretch(1)
+
+        # Compact header
+        header = QHBoxLayout()
+        title = QLabel("Proficiency Check")
         title.setStyleSheet(
-            f"font-size: 24px; font-weight: 700; color: {Color.TEXT};"
+            f"font-size: 18px; font-weight: 700; color: {Color.TEXT};"
         )
-        root.addWidget(title)
+        header.addWidget(title)
+        header.addStretch()
+        sub = QLabel("Select your experience level for each question")
+        sub.setStyleSheet(f"font-size: 12px; color: {Color.TEXT_SECONDARY};")
+        header.addWidget(sub)
+        root.addLayout(header)
 
-        sub = QLabel("Tell us your background so we can suggest your starting level")
-        sub.setAlignment(Qt.AlignCenter)
-        sub.setStyleSheet(f"font-size: 13px; color: {Color.TEXT_SECONDARY};")
-        root.addWidget(sub)
-
-        root.addSpacing(6)
+        root.addSpacing(10)
 
         # 2-column grid
         grid = QGridLayout()
-        grid.setHorizontalSpacing(24)
+        grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(8)
 
         for idx, (prompt, key, options) in enumerate(_QUESTIONS):
@@ -150,23 +154,18 @@ class _QuestionsWidget(QWidget):
             card = self._make_question(prompt, key, options)
             grid.addWidget(card, row, col)
 
-        root.addLayout(grid, stretch=1)
-        root.addSpacing(8)
+        root.addLayout(grid)
+
+        root.addStretch(1)
+        root.addSpacing(4)
 
         # Bottom row: Skip + Back on left, Next on right
         bottom = QHBoxLayout()
         bottom.setSpacing(12)
 
         skip_btn = QPushButton("Skip")
-        skip_btn.setFixedSize(90, 38)
-        skip_btn.setStyleSheet(f"""
-            QPushButton {{
-                font-size: 13px; font-weight: 600;
-                background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
-                border: 1px solid {Color.BORDER_LIGHT}; border-radius: 8px;
-            }}
-            QPushButton:hover {{ color: {Color.TEXT}; border-color: {Color.PRIMARY}; }}
-        """)
+        skip_btn.setFixedSize(80, 34)
+        skip_btn.setStyleSheet(subtle_btn_style())
         skip_btn.clicked.connect(self._on_skip)
         bottom.addWidget(skip_btn)
 
@@ -179,11 +178,11 @@ class _QuestionsWidget(QWidget):
 
         bottom.addStretch()
 
-        self._next_btn = QPushButton("Next  \u2192")
-        self._next_btn.setFixedSize(120, 42)
+        self._next_btn = QPushButton(f"Next  {Icon.NEXT}")
+        self._next_btn.setFixedSize(110, 36)
         self._next_btn.setStyleSheet(f"""
             QPushButton {{
-                font-size: 15px; font-weight: 700;
+                font-size: 14px; font-weight: 700;
                 background-color: {Color.PRIMARY}; color: {Color.BG};
                 border: none; border-radius: {Size.RADIUS}px;
             }}
@@ -197,27 +196,28 @@ class _QuestionsWidget(QWidget):
 
     def _make_question(self, prompt: str, key: str, options: list) -> QWidget:
         container = QWidget()
+        container.setFixedHeight(82)
         container.setStyleSheet(f"""
             QWidget {{
                 background-color: {Color.SURFACE};
                 border: 1px solid {Color.BORDER};
-                border-radius: {Size.RADIUS}px;
+                border-radius: {Size.RADIUS_SM}px;
             }}
         """)
         col = QVBoxLayout(container)
-        col.setContentsMargins(14, 10, 14, 10)
-        col.setSpacing(6)
+        col.setContentsMargins(12, 8, 12, 8)
+        col.setSpacing(4)
 
-        label = QLabel(prompt)
+        label = QLabel(prompt.replace("\n", " "))
         label.setStyleSheet(
-            f"font-size: 13px; font-weight: 600; color: {Color.TEXT};"
+            f"font-size: 12px; font-weight: 600; color: {Color.TEXT};"
             " background: transparent; border: none;"
         )
         label.setWordWrap(True)
         col.addWidget(label)
 
         row = QHBoxLayout()
-        row.setSpacing(6)
+        row.setSpacing(5)
         btns = []
         for idx, opt in enumerate(options):
             btn = QPushButton(opt)

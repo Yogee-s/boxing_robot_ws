@@ -1,10 +1,7 @@
 """Startup page — first screen users see.
 
-Clean, modern dark UI. Large buttons, clear hierarchy, no clutter.
-QR popup for phone dashboard access via a small button in the corner.
-The popup starts the dashboard server + localhost.run tunnel automatically
-so the QR code works from any phone on any network.  When the user logs
-in on the phone, the GUI auto-navigates to the home screen.
+Premium dark landing page with gradient branding, animated CTA button,
+and clear entry points. QR popup for phone dashboard access.
 """
 from __future__ import annotations
 
@@ -19,13 +16,17 @@ from pathlib import Path
 from threading import Thread
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal, QObject, QTimer
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import Qt, Signal, QObject, QTimer, QPropertyAnimation, QEasingCurve, Property
+from PySide6.QtGui import QPixmap, QColor, QPainter, QLinearGradient, QFont
 from PySide6.QtWidgets import (
-    QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
+    QDialog, QFrame, QGraphicsDropShadowEffect,
+    QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, close_btn_style
+from boxbunny_gui.theme import (
+    Color, Icon, Size, close_btn_style,
+    hero_btn_style, secondary_btn_style, subtle_btn_style,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -107,11 +108,7 @@ class _TunnelSignals(QObject):
 
 
 class _QrPopup(QDialog):
-    """QR code popup that auto-starts dashboard + tunnel.
-
-    Polls ``/tmp/boxbunny_gui_login.json`` for a phone login event
-    and accepts with ``login_info`` set so the caller can auto-navigate.
-    """
+    """QR code popup that auto-starts dashboard + tunnel."""
 
     login_info: dict | None = None
 
@@ -134,7 +131,7 @@ class _QrPopup(QDialog):
         )
         layout.addWidget(title)
 
-        # QR code area — shows spinner text until tunnel is ready
+        # QR code area
         self._qr_label = QLabel("Connecting...")
         self._qr_label.setAlignment(Qt.AlignCenter)
         self._qr_label.setFixedSize(300, 300)
@@ -172,28 +169,23 @@ class _QrPopup(QDialog):
         close_btn.clicked.connect(self.close)
         layout.addWidget(close_btn, alignment=Qt.AlignCenter)
 
-        # Clear any stale login file before we start waiting
+        # Clear any stale login file
         try:
             _GUI_LOGIN_FILE.unlink(missing_ok=True)
         except OSError:
             pass
 
-        # Start server + tunnel in background thread
         self._signals = _TunnelSignals()
         self._signals.url_ready.connect(self._on_url_ready)
         self._worker = Thread(target=self._setup_tunnel, daemon=True)
         self._worker.start()
 
-        # Poll for phone login (every 1 second)
         self._poll_timer = QTimer(self)
         self._poll_timer.timeout.connect(self._check_phone_login)
         self._poll_timer.start(1000)
 
     def _setup_tunnel(self) -> None:
-        """Background: ensure server is up, open tunnel, emit URL."""
         _ensure_server()
-
-        # Check if tunnel URL already exists (from notebook cell 2)
         try:
             with open(_URL_FILE) as f:
                 existing = f.read().strip()
@@ -202,7 +194,6 @@ class _QrPopup(QDialog):
                 return
         except OSError:
             pass
-
         url = _start_tunnel()
         if url:
             try:
@@ -212,7 +203,6 @@ class _QrPopup(QDialog):
                 pass
             self._signals.url_ready.emit(url)
         else:
-            # Tunnel failed — fall back to local URL from the URL file
             fallback = "http://localhost:8080"
             try:
                 with open(_URL_FILE) as f:
@@ -222,16 +212,13 @@ class _QrPopup(QDialog):
             self._signals.url_ready.emit(fallback)
 
     def _on_url_ready(self, url: str) -> None:
-        """Called on main thread when the public URL is available."""
         self._url_label.setText(url)
         self._url_label.setStyleSheet(
             f"font-size: 16px; color: {Color.PRIMARY}; font-weight: 600;"
         )
         self._hint.setText("Scan the QR code or visit the URL to log in")
-
         try:
             import qrcode
-
             qr = qrcode.QRCode(version=1, box_size=8, border=2)
             qr.add_data(url)
             qr.make(fit=True)
@@ -253,7 +240,6 @@ class _QrPopup(QDialog):
             )
 
     def _check_phone_login(self) -> None:
-        """Poll for a login event written by the dashboard auth API."""
         try:
             data = json.loads(_GUI_LOGIN_FILE.read_text())
             username = data.get("username")
@@ -262,15 +248,104 @@ class _QrPopup(QDialog):
             logger.info("Phone login detected: %s", username)
             self._poll_timer.stop()
             self.login_info = data
-            # Clean up the file so it doesn't trigger again
             _GUI_LOGIN_FILE.unlink(missing_ok=True)
             self.accept()
         except (OSError, json.JSONDecodeError):
             pass
 
 
+# ── Gradient text label ──────────────────────────────────────────────────────
+
+class _GradientLabel(QWidget):
+    """Custom-painted label with a horizontal gradient fill on the text."""
+
+    def __init__(
+        self,
+        text: str,
+        font_size: int = 54,
+        color_left: str = "#FF6B35",
+        color_right: str = "#FFAB40",
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._text = text
+        self._font = QFont("Inter", font_size, QFont.Weight.ExtraBold)
+        self._color_left = QColor(color_left)
+        self._color_right = QColor(color_right)
+        self.setFixedHeight(font_size + 20)
+        # Estimate width from font metrics to avoid clipping
+        from PySide6.QtGui import QFontMetrics
+        fm = QFontMetrics(self._font)
+        self.setMinimumWidth(fm.horizontalAdvance(text) + 40)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setFont(self._font)
+
+        # Measure text bounding rect to center it
+        fm = p.fontMetrics()
+        text_rect = fm.boundingRect(self._text)
+        x = (self.width() - text_rect.width()) // 2
+        y = (self.height() + fm.ascent() - fm.descent()) // 2
+
+        # Create horizontal gradient across the text
+        gradient = QLinearGradient(x, 0, x + text_rect.width(), 0)
+        gradient.setColorAt(0.0, self._color_left)
+        gradient.setColorAt(1.0, self._color_right)
+
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(gradient)
+
+        # Draw text path for gradient fill
+        from PySide6.QtGui import QPainterPath
+        path = QPainterPath()
+        path.addText(x, y, self._font, self._text)
+        p.drawPath(path)
+        p.end()
+
+
+# ── Animated glow wrapper ────────────────────────────────────────────────────
+
+class _GlowButton(QPushButton):
+    """QPushButton with a pulsating drop-shadow glow animation."""
+
+    def __init__(self, text: str, parent=None) -> None:
+        super().__init__(text, parent)
+        self._glow_radius = 12.0
+
+        self._shadow = QGraphicsDropShadowEffect(self)
+        self._shadow.setColor(QColor(Color.PRIMARY))
+        self._shadow.setBlurRadius(int(self._glow_radius))
+        self._shadow.setOffset(0, 2)
+        self.setGraphicsEffect(self._shadow)
+
+        # Pulse animation
+        self._anim = QPropertyAnimation(self, b"glowRadius")
+        self._anim.setDuration(2000)
+        self._anim.setStartValue(10.0)
+        self._anim.setKeyValueAt(0.5, 28.0)
+        self._anim.setEndValue(10.0)
+        self._anim.setEasingCurve(QEasingCurve.Type.InOutSine)
+        self._anim.setLoopCount(-1)
+        self._anim.start()
+
+    def _get_glow(self) -> float:
+        return self._glow_radius
+
+    def _set_glow(self, v: float) -> None:
+        self._glow_radius = v
+        self._shadow.setBlurRadius(int(v))
+
+    glowRadius = Property(float, _get_glow, _set_glow)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Startup page
+# ═══════════════════════════════════════════════════════════════════════════════
+
 class StartupPage(QWidget):
-    """Landing screen — branding + clear entry points."""
+    """Landing screen — premium branding + clear entry points."""
 
     def __init__(self, router=None, **kwargs):
         super().__init__()
@@ -278,116 +353,107 @@ class StartupPage(QWidget):
 
         root = QVBoxLayout(self)
         root.setSpacing(0)
-        root.setContentsMargins(80, 24, 80, 24)
+        root.setContentsMargins(80, 16, 80, 16)
 
-        # ── Close button (top-right) ─────────────────────────────────────
-        close_btn = QPushButton("Close")
-        close_btn.setStyleSheet(close_btn_style())
-        close_btn.clicked.connect(lambda: self.window().close())
-
+        # ── Top bar: version tag (left) + close (right) ──────────────────
         top = QHBoxLayout()
+        version_lbl = QLabel("v2.0")
+        version_lbl.setStyleSheet(
+            f"font-size: 11px; font-weight: 600; color: {Color.TEXT_DISABLED};"
+            " letter-spacing: 1px;"
+        )
+        top.addWidget(version_lbl)
         top.addStretch()
+
+        close_btn = QPushButton(f"{Icon.CLOSE}")
+        close_btn.setStyleSheet(close_btn_style())
+        close_btn.setFixedSize(44, 32)
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.clicked.connect(lambda: self.window().close())
         top.addWidget(close_btn)
         root.addLayout(top)
 
-        root.addStretch(4)
-
-        # ── Branding ─────────────────────────────────────────────────────
-        title = QLabel("BoxBunny")
-        title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet(
-            f"font-size: 54px; font-weight: 800; color: {Color.PRIMARY};"
-            " letter-spacing: 2px;"
-        )
-
-        subtitle = QLabel("AI Boxing Training Robot")
-        subtitle.setAlignment(Qt.AlignCenter)
-        subtitle.setStyleSheet(
-            f"font-size: 17px; color: {Color.TEXT_SECONDARY};"
-            " letter-spacing: 3px; text-transform: uppercase;"
-        )
-
-        root.addWidget(title, alignment=Qt.AlignCenter)
-        root.addSpacing(6)
-        root.addWidget(subtitle, alignment=Qt.AlignCenter)
-
         root.addStretch(3)
 
-        # ── Primary action — clearly labeled as guest ────────────────────
-        start_btn = QPushButton("Quick Start (Guest)")
+        # ── Branding — gradient title + tagline ──────────────────────────
+        brand_container = QVBoxLayout()
+        brand_container.setSpacing(6)
+        brand_container.setAlignment(Qt.AlignCenter)
+
+        # Gradient title
+        title = _GradientLabel("BoxBunny", font_size=52)
+        brand_container.addWidget(title, alignment=Qt.AlignCenter)
+
+        subtitle = QLabel("AI  BOXING  TRAINING  ROBOT")
+        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setStyleSheet(
+            f"font-size: 13px; color: {Color.TEXT_DISABLED};"
+            " letter-spacing: 5px; font-weight: 600;"
+        )
+        brand_container.addWidget(subtitle, alignment=Qt.AlignCenter)
+
+        root.addLayout(brand_container)
+
+        root.addStretch(2)
+
+        # ── Decorative divider ───────────────────────────────────────────
+        divider = QFrame()
+        divider.setFixedSize(80, 2)
+        divider.setStyleSheet(
+            f"background-color: {Color.PRIMARY}; border-radius: 1px;"
+        )
+        root.addWidget(divider, alignment=Qt.AlignCenter)
+        root.addSpacing(20)
+
+        # ── Primary CTA — glowing button ─────────────────────────────────
+        start_btn = _GlowButton("Quick Start  →")
         start_btn.setFixedSize(480, 64)
-        start_btn.setStyleSheet(f"""
-            QPushButton {{
-                font-size: 22px; font-weight: 700;
-                background-color: {Color.PRIMARY}; color: {Color.BG};
-                border: none; border-radius: 14px;
-            }}
-            QPushButton:hover {{ background-color: {Color.PRIMARY_DARK}; }}
-            QPushButton:pressed {{ background-color: {Color.PRIMARY_PRESSED}; }}
-        """)
+        start_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        start_btn.setStyleSheet(hero_btn_style())
         start_btn.clicked.connect(lambda: self._nav("guest_assessment"))
         root.addWidget(start_btn, alignment=Qt.AlignCenter)
 
-        guest_hint = QLabel("No account needed \u2014 start training right away")
+        guest_hint = QLabel("No account needed — start training right away")
         guest_hint.setAlignment(Qt.AlignCenter)
         guest_hint.setStyleSheet(
-            f"font-size: 13px; color: {Color.TEXT_DISABLED};"
+            f"font-size: 12px; color: {Color.TEXT_DISABLED};"
+            " letter-spacing: 0.3px;"
         )
         root.addSpacing(6)
         root.addWidget(guest_hint, alignment=Qt.AlignCenter)
 
-        root.addSpacing(20)
+        root.addSpacing(24)
 
-        # ── Log In / Sign Up side by side ────────────────────────────────
+        # ── Log In / Sign Up — equal secondary buttons ───────────────────
         btn_row = QHBoxLayout()
         btn_row.setAlignment(Qt.AlignCenter)
         btn_row.setSpacing(16)
 
-        _secondary_style = f"""
-            QPushButton {{
-                font-size: 19px; font-weight: 600;
-                background-color: {Color.SURFACE}; color: {Color.TEXT};
-                border: 1px solid {Color.BORDER_LIGHT}; border-radius: 14px;
-            }}
-            QPushButton:hover {{
-                background-color: {Color.SURFACE_HOVER};
-                border-color: {Color.PRIMARY};
-            }}
-            QPushButton:pressed {{ background-color: {Color.SURFACE_LIGHT}; }}
-        """
-
         login_btn = QPushButton("Log In")
-        login_btn.setFixedSize(230, 56)
-        login_btn.setStyleSheet(_secondary_style)
+        login_btn.setFixedSize(228, 54)
+        login_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        login_btn.setStyleSheet(secondary_btn_style())
         login_btn.clicked.connect(lambda: self._nav("account_picker"))
 
         signup_btn = QPushButton("Sign Up")
-        signup_btn.setFixedSize(230, 56)
-        signup_btn.setStyleSheet(_secondary_style)
+        signup_btn.setFixedSize(228, 54)
+        signup_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        signup_btn.setStyleSheet(secondary_btn_style())
         signup_btn.clicked.connect(lambda: self._nav("signup"))
 
         btn_row.addWidget(login_btn)
         btn_row.addWidget(signup_btn)
         root.addLayout(btn_row)
 
-        root.addStretch(3)
+        root.addStretch(2)
 
-        # ── Bottom row: Phone Login button (bottom-right) ────────────────
+        # ── Bottom row: Phone Login ──────────────────────────────────────
         bottom = QHBoxLayout()
         bottom.addStretch()
         qr_btn = QPushButton("Phone Login")
-        qr_btn.setFixedSize(140, 40)
-        qr_btn.setStyleSheet(f"""
-            QPushButton {{
-                font-size: 14px; font-weight: 600;
-                background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
-                border: 1px solid {Color.BORDER_LIGHT}; border-radius: 10px;
-            }}
-            QPushButton:hover {{
-                color: {Color.PRIMARY}; border-color: {Color.PRIMARY};
-            }}
-            QPushButton:pressed {{ background-color: {Color.SURFACE_HOVER}; }}
-        """)
+        qr_btn.setFixedSize(150, 36)
+        qr_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        qr_btn.setStyleSheet(subtle_btn_style())
         qr_btn.clicked.connect(self._show_qr)
         bottom.addWidget(qr_btn)
         root.addLayout(bottom)

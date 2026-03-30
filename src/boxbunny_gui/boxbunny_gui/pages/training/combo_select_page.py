@@ -31,7 +31,8 @@ from boxbunny_gui.curriculum import (
     MIN_ATTEMPTS_FOR_MASTERY, _combo_index,
 )
 from boxbunny_gui.theme import (
-    Color, Size, font, PRIMARY_BTN, back_link_style, tab_btn_style,
+    Color, Icon, Size, font, PRIMARY_BTN, back_link_style, tab_btn_style,
+    accent_frame_style,
 )
 from boxbunny_gui.widgets import BigButton
 
@@ -89,11 +90,12 @@ class _ComboRow(QWidget):
         border_color = Color.PRIMARY if is_next else Color.BORDER
         bg = Color.SURFACE_HOVER if is_next else Color.SURFACE
 
-        self.setFixedHeight(58)
+        self.setFixedHeight(60)
         self.setStyleSheet(f"""
             QWidget {{
                 background-color: {bg};
                 border: 1px solid {border_color};
+                {'border-left: ' + str(Size.ACCENT_BAR_W) + 'px solid ' + Color.PRIMARY + ';' if is_next else ''}
                 border-radius: {Size.RADIUS_SM}px;
             }}
         """)
@@ -196,7 +198,7 @@ class ComboSelectPage(QWidget):
 
         # ── Top row: back + title ─────────────────────────────────────
         top = QHBoxLayout()
-        btn_back = QPushButton("\u2190  Back")
+        btn_back = QPushButton(f"{Icon.BACK}  Back")
         btn_back.setStyleSheet(back_link_style())
         btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_back.clicked.connect(lambda: self._router.back())
@@ -231,13 +233,7 @@ class ComboSelectPage(QWidget):
 
         # ── Group progress card ─────────���─────────────────────────────
         self._progress_card = QFrame()
-        self._progress_card.setStyleSheet(f"""
-            QFrame {{
-                background-color: {Color.SURFACE};
-                border: 1px solid {Color.BORDER};
-                border-radius: {Size.RADIUS}px;
-            }}
-        """)
+        self._progress_card.setStyleSheet(accent_frame_style(Color.PRIMARY))
         pc_lay = QVBoxLayout(self._progress_card)
         pc_lay.setContentsMargins(18, 12, 18, 12)
         pc_lay.setSpacing(6)
@@ -279,21 +275,29 @@ class ComboSelectPage(QWidget):
         pc_bottom.addWidget(self._groups_lbl)
         pc_lay.addLayout(pc_bottom)
 
+        # Center the progress card vertically
+        root.addStretch(1)
+
         root.addWidget(self._progress_card)
+
+        root.addSpacing(8)
 
         # ── Scrollable combo list ─────────────────────────────────────
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet("border: none;")
+        scroll.setMaximumHeight(260)
         self._list_widget = QWidget()
         self._list_layout = QVBoxLayout(self._list_widget)
         self._list_layout.setSpacing(6)
         self._list_layout.setContentsMargins(0, 0, 4, 0)
         scroll.setWidget(self._list_widget)
-        root.addWidget(scroll, stretch=1)
+        root.addWidget(scroll)
+
+        root.addStretch(1)
 
         # ── Bottom: Train Next button ─────────────────────────────────
-        self._btn_train = BigButton("\u25B6  Train Next Combo", stylesheet=PRIMARY_BTN)
+        self._btn_train = BigButton(f"{Icon.PLAY}  Train Next Combo", stylesheet=PRIMARY_BTN)
         self._btn_train.setFixedHeight(54)
         self._btn_train.clicked.connect(self._on_train_next)
         root.addWidget(self._btn_train)

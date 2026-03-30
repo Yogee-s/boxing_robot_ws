@@ -1,6 +1,6 @@
 """Performance test selection menu.
 
-Three large cards: Power Test, Stamina Test, Reaction Time Test.
+Three large premium cards: Power Test, Stamina Test, Reaction Time.
 """
 from __future__ import annotations
 
@@ -16,7 +16,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, font, GHOST_BTN, mode_card_style
+from boxbunny_gui.theme import (
+    Color, Icon, Size, font, GHOST_BTN,
+    mode_card_style_v2, back_link_style,
+)
 from boxbunny_gui.widgets import BigButton
 
 if TYPE_CHECKING:
@@ -39,7 +42,7 @@ _TESTS = [
     },
     {
         "name": "Reaction Time",
-        "desc": "Punch when the screen flashes \u2014 10 trials",
+        "desc": "Punch when the screen flashes — 10 trials",
         "route": "reaction_test",
         "accent": Color.WARNING,
     },
@@ -56,55 +59,81 @@ class PerformanceMenuPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(40, Size.SPACING, 40, Size.SPACING)
+        root.setContentsMargins(32, Size.SPACING, 32, Size.SPACING)
         root.setSpacing(Size.SPACING_SM)
 
         # Back + title
         top = QHBoxLayout()
-        btn_back = BigButton("Back", stylesheet=GHOST_BTN)
-        btn_back.setFixedWidth(100)
+        btn_back = QPushButton(f"{Icon.BACK}  Back")
+        btn_back.setStyleSheet(back_link_style())
+        btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_back.clicked.connect(lambda: self._router.back())
         top.addWidget(btn_back)
+        top.addStretch()
         title = QLabel("Performance Tests")
         title.setFont(font(Size.TEXT_SUBHEADER, bold=True))
         top.addWidget(title)
         top.addStretch()
+        # Balance spacer
+        spacer = QLabel()
+        spacer.setFixedWidth(80)
+        top.addWidget(spacer)
         root.addLayout(top)
 
         subtitle = QLabel("Select a test to measure your boxing performance")
+        subtitle.setAlignment(Qt.AlignCenter)
         subtitle.setStyleSheet(
             f"color: {Color.TEXT_SECONDARY}; font-size: 14px;"
-            " padding-left: 4px;"
         )
         root.addWidget(subtitle)
         root.addSpacing(8)
 
-        # Test cards as QPushButtons using mode_card_style
+        # Test cards as QPushButtons with icon layout
         for test in _TESTS:
             accent = test["accent"]
             card = QPushButton()
             card.setCursor(Qt.CursorShape.PointingHandCursor)
             card.setFixedHeight(120)
-            card.setStyleSheet(mode_card_style(accent))
+            card.setStyleSheet(mode_card_style_v2(accent))
 
-            card_layout = QVBoxLayout(card)
+            card_layout = QHBoxLayout(card)
             card_layout.setContentsMargins(20, 14, 20, 14)
-            card_layout.setSpacing(6)
+            card_layout.setSpacing(16)
+
+            # Text column
+            text_col = QVBoxLayout()
+            text_col.setSpacing(4)
+            text_col.setContentsMargins(0, 0, 0, 0)
 
             name_lbl = QLabel(test["name"])
             name_lbl.setStyleSheet(
                 "background: transparent;"
                 f" color: {Color.TEXT}; font-size: 18px; font-weight: 700;"
+                " border: none;"
             )
-            card_layout.addWidget(name_lbl)
+            name_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            text_col.addWidget(name_lbl)
 
             desc_lbl = QLabel(test["desc"])
             desc_lbl.setStyleSheet(
                 "background: transparent;"
-                f" color: {Color.TEXT_SECONDARY}; font-size: 14px;"
+                f" color: {Color.TEXT_SECONDARY}; font-size: 13px;"
+                " border: none;"
             )
             desc_lbl.setWordWrap(True)
-            card_layout.addWidget(desc_lbl)
+            desc_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            text_col.addWidget(desc_lbl)
+
+            card_layout.addLayout(text_col, stretch=1)
+
+            # Arrow
+            arrow = QLabel("→")
+            arrow.setStyleSheet(
+                f"color: {Color.TEXT_DISABLED}; font-size: 20px;"
+                " background: transparent; border: none;"
+            )
+            arrow.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            card_layout.addWidget(arrow)
 
             card.clicked.connect(
                 lambda _c=False, r=test["route"]: self._router.navigate(r)

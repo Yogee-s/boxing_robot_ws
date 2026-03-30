@@ -1,8 +1,8 @@
-"""Full-screen active training session page.
+"""Full-screen active training session page — premium treatment.
 
-Timer, combo display with highlighting, round counter, live punch counter,
-coach tip bar, and stop button. Integrates with ComboCurriculum for
-Anki-style scoring at round end.
+Timer with thick ring, combo display with highlighting, round counter,
+live punch counter, coach tip bar, and stop button. Integrates with
+ComboCurriculum for Anki-style scoring at round end.
 """
 from __future__ import annotations
 
@@ -13,11 +13,12 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, font, DANGER_BTN, badge_style
+from boxbunny_gui.theme import Color, Icon, Size, font, DANGER_BTN, badge_style
 from boxbunny_gui.widgets import (
     BigButton, CoachTipBar, ComboDisplay, PunchCounter, TimerDisplay,
 )
@@ -53,8 +54,8 @@ class TrainingSessionPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 12, 24, 16)
-        root.setSpacing(8)
+        root.setContentsMargins(24, 10, 24, 14)
+        root.setSpacing(6)
 
         # Coach tip bar (collapsible, top)
         self._coach_bar = CoachTipBar(parent=self)
@@ -64,8 +65,9 @@ class TrainingSessionPage(QWidget):
         top_row = QHBoxLayout()
         self._round_lbl = QLabel("Round 1/3")
         self._round_lbl.setStyleSheet(
-            f"color: {Color.TEXT}; font-size: 18px; font-weight: 600;"
+            f"color: {Color.TEXT}; font-size: 18px; font-weight: 700;"
             f" background-color: {Color.SURFACE};"
+            f" border-left: {Size.ACCENT_BAR_W}px solid {Color.PRIMARY};"
             f" border-radius: {Size.RADIUS_SM}px;"
             " padding: 6px 16px;"
         )
@@ -98,7 +100,7 @@ class TrainingSessionPage(QWidget):
         self._combo_seq_lbl = QLabel("")
         self._combo_seq_lbl.setAlignment(Qt.AlignCenter)
         self._combo_seq_lbl.setStyleSheet(
-            f"color: {Color.INFO}; font-size: 22px; font-weight: 700;"
+            f"color: {Color.INFO}; font-size: 20px; font-weight: 700;"
         )
         root.addWidget(self._combo_seq_lbl)
 
@@ -108,13 +110,23 @@ class TrainingSessionPage(QWidget):
 
         # Bottom row: punch counter (left) + stop button (right)
         bottom = QHBoxLayout()
-        bottom.setContentsMargins(0, 8, 0, 0)
+        bottom.setContentsMargins(0, 6, 0, 0)
         self._punch_counter = PunchCounter(label="PUNCHES")
         bottom.addWidget(self._punch_counter)
         bottom.addStretch()
 
-        self._btn_stop = BigButton("STOP", stylesheet=DANGER_BTN)
-        self._btn_stop.setFixedSize(100, 56)
+        self._btn_stop = QPushButton(f"{Icon.STOP}  STOP")
+        self._btn_stop.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_stop.setFixedSize(120, 52)
+        self._btn_stop.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {Color.DANGER}; color: white;
+                font-size: 16px; font-weight: 700;
+                border: none; border-radius: {Size.RADIUS_LG}px;
+            }}
+            QPushButton:hover {{ background-color: {Color.DANGER_DARK}; }}
+            QPushButton:pressed {{ background-color: #C33C3C; }}
+        """)
         self._btn_stop.clicked.connect(self._on_stop)
         bottom.addWidget(
             self._btn_stop, alignment=Qt.AlignmentFlag.AlignVCenter
@@ -183,7 +195,6 @@ class TrainingSessionPage(QWidget):
     def _score_round(self) -> None:
         """Score the current round via the curriculum (placeholder score)."""
         if self._curriculum and self._combo_id:
-            # TODO: Replace with real performance score from action recognition
             score = 3.0
             self._curriculum.update_score(self._combo_id, score)
             logger.info(
@@ -201,7 +212,6 @@ class TrainingSessionPage(QWidget):
         seq = combo.get("seq", "")
         self._combo_name_lbl.setText(name)
         if seq:
-            # Format sequence for display: "1-2-3" -> "JAB - CROSS - HOOK"
             tokens = seq.split("-") if isinstance(seq, str) else []
             display_parts = []
             for t in tokens:
@@ -210,7 +220,7 @@ class TrainingSessionPage(QWidget):
                 if t.endswith("b"):
                     pname = f"Body {pname}"
                 display_parts.append(pname)
-            self._combo_seq_lbl.setText("  \u2192  ".join(display_parts))
+            self._combo_seq_lbl.setText("  →  ".join(display_parts))
         else:
             self._combo_seq_lbl.setText("")
 

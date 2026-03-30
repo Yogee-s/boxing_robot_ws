@@ -1,4 +1,4 @@
-"""Sparring style selection and parameter configuration."""
+"""Sparring style selection and parameter configuration — premium layout."""
 from __future__ import annotations
 
 import logging
@@ -16,8 +16,8 @@ from PySide6.QtWidgets import (
 )
 
 from boxbunny_gui.theme import (
-    Color, Size, font, PRIMARY_BTN,
-    config_tile_style, section_title_style, badge_style, back_link_style,
+    Color, Icon, Size, font, PRIMARY_BTN,
+    config_tile_style_v2, section_title_style, badge_style, back_link_style,
 )
 from boxbunny_gui.widgets import BigButton
 
@@ -45,11 +45,12 @@ _PARAMS: Dict[str, List[str]] = {
 
 
 class _StyleCard(QPushButton):
-    """Selectable style card that expands to fill grid space."""
+    """Selectable style card with premium selected state."""
 
     def __init__(self, name: str, desc: str, parent: QWidget | None = None) -> None:
-        super().__init__(f"{name}\n{desc}", parent)
+        super().__init__(parent)
         self.style_name = name
+        self._desc = desc
         self._selected = False
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setSizePolicy(
@@ -68,9 +69,9 @@ class _StyleCard(QPushButton):
                     background-color: {Color.PRIMARY_MUTED};
                     color: {Color.PRIMARY_LIGHT};
                     border: 2px solid {Color.PRIMARY};
-                    border-radius: 14px;
-                    font-size: 16px; font-weight: 700;
-                    padding: 10px;
+                    border-radius: {Size.RADIUS_LG}px;
+                    font-size: 14px; font-weight: 700;
+                    padding: 8px;
                 }}
             """)
         else:
@@ -79,9 +80,9 @@ class _StyleCard(QPushButton):
                     background-color: {Color.SURFACE};
                     color: {Color.TEXT_SECONDARY};
                     border: 1px solid {Color.BORDER};
-                    border-radius: 14px;
-                    font-size: 16px; font-weight: 600;
-                    padding: 10px;
+                    border-radius: {Size.RADIUS_LG}px;
+                    font-size: 14px; font-weight: 600;
+                    padding: 8px;
                 }}
                 QPushButton:hover {{
                     background-color: {Color.SURFACE_HOVER};
@@ -89,10 +90,11 @@ class _StyleCard(QPushButton):
                     color: {Color.TEXT};
                 }}
             """)
+        self.setText(f"{self.style_name}\n{self._desc}")
 
 
 class _ParamTile(QPushButton):
-    """Tappable tile cycling through values, expands to fill space."""
+    """Tappable tile cycling through values, with accent top border."""
 
     def __init__(self, label: str, options: List[str], parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -104,7 +106,7 @@ class _ParamTile(QPushButton):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
         self._update_text()
-        self.setStyleSheet(config_tile_style())
+        self.setStyleSheet(config_tile_style_v2(Color.DANGER))
         self.clicked.connect(self._cycle)
 
     def _cycle(self) -> None:
@@ -138,7 +140,7 @@ class SparringConfigPage(QWidget):
 
         # Back + title
         top = QHBoxLayout()
-        btn_back = QPushButton("\u2190  Back")
+        btn_back = QPushButton(f"{Icon.BACK}  Back")
         btn_back.setStyleSheet(back_link_style())
         btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_back.clicked.connect(lambda: self._router.back())
@@ -154,11 +156,10 @@ class SparringConfigPage(QWidget):
         root.addLayout(top)
 
         # Style section
-        style_lbl = QLabel("Fighting Style")
-        style_lbl.setStyleSheet(section_title_style())
+        style_lbl = QLabel("FIGHTING STYLE")
+        style_lbl.setStyleSheet(section_title_style(Color.DANGER))
         root.addWidget(style_lbl)
 
-        # Style cards in a row that expand
         styles_row = QHBoxLayout()
         styles_row.setSpacing(8)
         for name, desc in _STYLES:
@@ -172,11 +173,10 @@ class SparringConfigPage(QWidget):
         self._refresh_style_selection()
 
         # Parameters section
-        params_lbl = QLabel("Parameters")
-        params_lbl.setStyleSheet(section_title_style())
+        params_lbl = QLabel("PARAMETERS")
+        params_lbl.setStyleSheet(section_title_style(Color.DANGER))
         root.addWidget(params_lbl)
 
-        # Param tiles in a grid that expands
         params_grid = QGridLayout()
         params_grid.setSpacing(8)
         param_items = list(_PARAMS.items())
@@ -192,13 +192,15 @@ class SparringConfigPage(QWidget):
         self._diff_btn.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        self._diff_btn.setStyleSheet(config_tile_style())
+        self._diff_btn.setStyleSheet(config_tile_style_v2(Color.WARNING))
         self._diff_btn.clicked.connect(self._cycle_difficulty)
         params_grid.addWidget(self._diff_btn, 1, 1)
         root.addLayout(params_grid, stretch=3)
 
         # Start button
-        btn_start = BigButton("Start Sparring", stylesheet=PRIMARY_BTN)
+        btn_start = BigButton(
+            f"{Icon.PLAY}  Start Sparring", stylesheet=PRIMARY_BTN
+        )
         btn_start.setFixedHeight(60)
         btn_start.clicked.connect(self._on_start)
         root.addWidget(btn_start)
