@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 _H = f"color:{Color.PRIMARY_LIGHT}; font-weight:600"
 _MODES = [
     {
-        "name": "Training",
-        "desc": f'Practice <span style="{_H}">combos</span> with '
+        "name": "Techniques",
+        "desc": f'Practice <span style="{_H}">punch combinations</span> with '
                 f'<span style="{_H}">guided drills</span>',
         "accent": Color.PRIMARY,
         "bg": "#1A1510", "border": "#3D2E1A",
