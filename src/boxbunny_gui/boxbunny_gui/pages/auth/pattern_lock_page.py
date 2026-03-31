@@ -1,12 +1,13 @@
 """Pattern lock screen for user authentication.
 
 Supports both a 3x3 pattern lock (tap dots in sequence) and a
-password text field as a fallback. User can toggle between modes.
+password text field as a fallback. If the user has no pattern set,
+only the password mode is shown.
 """
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, List
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from PySide6.QtCore import Qt, QPoint, QRectF, QTimer
 from PySide6.QtGui import QPainter, QPen, QColor
@@ -32,6 +33,15 @@ _CORRECT_PASSWORD = "boxing123"
 _DOT_RADIUS = 22
 _GRID_SIZE = 3
 _CELL_SIZE = 80
+
+
+def _db_available() -> bool:
+    """Check if the DB helper can reach the database."""
+    try:
+        from boxbunny_gui.db_helper import get_user_by_username
+        return True
+    except Exception:
+        return False
 
 
 class _PatternGrid(QWidget):
@@ -145,6 +155,8 @@ class PatternLockPage(QWidget):
         self._router = router
         self._user_id: str = ""
         self._user_name: str = ""
+        self._username: str = ""
+        self._has_pattern: bool = True
         self._use_password: bool = False
         self._build_ui()
 
@@ -161,16 +173,12 @@ class PatternLockPage(QWidget):
 
         root.addSpacing(6)
 
-        # Status label in a subtle pill container
+        # Status label
         self._status_lbl = QLabel("Draw your pattern")
         self._status_lbl.setStyleSheet(
-            f"color: {Color.TEXT_SECONDARY}; font-size: 15px;"
-            f" background-color: {Color.SURFACE}; border-radius: 12px;"
-            " padding: 6px 20px;"
+            f"color: {Color.TEXT_SECONDARY}; font-size: 14px;"
         )
         self._status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._status_lbl.setWordWrap(True)
-        self._status_lbl.setFixedHeight(36)
         root.addWidget(self._status_lbl, alignment=Qt.AlignmentFlag.AlignCenter)
 
         root.addStretch(2)
@@ -196,48 +204,34 @@ class PatternLockPage(QWidget):
 
         root.addWidget(self._pattern_widget)
 
-        # ── Password mode ────────────────────────────────────────────────
+        # ── Password mode (clean, no box) ────────────────────────────────
         self._password_widget = QWidget()
-        self._password_widget.setObjectName("pwBox")
-        self._password_widget.setStyleSheet(
-            f"QWidget#pwBox {{ background-color: {Color.SURFACE};"
-            f" border: 1px solid {Color.BORDER};"
-            f" border-radius: 14px; }}"
-        )
-        self._password_widget.setFixedSize(360, 160)
         pw_lay = QVBoxLayout(self._password_widget)
-        pw_lay.setContentsMargins(24, 20, 24, 20)
+        pw_lay.setContentsMargins(0, 0, 0, 0)
         pw_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        pw_lay.setSpacing(14)
-
-        pw_icon_lbl = QLabel("Enter your password")
-        pw_icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        pw_icon_lbl.setStyleSheet(
-            f"font-size: 13px; font-weight: 600; color: {Color.TEXT_SECONDARY};"
-        )
-        pw_lay.addWidget(pw_icon_lbl)
+        pw_lay.setSpacing(12)
 
         self._pw_field = QLineEdit()
         self._pw_field.setPlaceholderText("Password")
         self._pw_field.setEchoMode(QLineEdit.EchoMode.Password)
-        self._pw_field.setFixedHeight(46)
+        self._pw_field.setFixedSize(320, 48)
         self._pw_field.returnPressed.connect(self._check_password)
-        pw_lay.addWidget(self._pw_field)
+        pw_lay.addWidget(self._pw_field, alignment=Qt.AlignmentFlag.AlignCenter)
 
         pw_submit = QPushButton("Unlock")
         pw_submit.setCursor(Qt.CursorShape.PointingHandCursor)
-        pw_submit.setFixedHeight(44)
+        pw_submit.setFixedSize(320, 48)
         pw_submit.setStyleSheet(f"""
             QPushButton {{
-                font-size: 16px; font-weight: 600;
-                background-color: {Color.PRIMARY}; color: {Color.BG};
+                font-size: 16px; font-weight: 700;
+                background-color: {Color.PRIMARY}; color: #FFFFFF;
                 border: none; border-radius: 12px;
             }}
             QPushButton:hover {{ background-color: {Color.PRIMARY_DARK}; }}
             QPushButton:pressed {{ background-color: {Color.PRIMARY_PRESSED}; }}
         """)
         pw_submit.clicked.connect(self._check_password)
-        pw_lay.addWidget(pw_submit)
+        pw_lay.addWidget(pw_submit, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self._password_widget.setVisible(False)
         root.addWidget(self._password_widget, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -285,52 +279,73 @@ class PatternLockPage(QWidget):
             self._status_lbl.setText("Draw your pattern")
             self._toggle_btn.setText("Use password instead")
             self._grid.reset()
+        self._reset_status_style()
+
+    def _reset_status_style(self) -> None:
         self._status_lbl.setStyleSheet(
-            f"color: {Color.TEXT_SECONDARY}; font-size: 15px;"
-            f" background-color: {Color.SURFACE}; border-radius: 12px;"
-            " padding: 6px 20px;"
+            f"color: {Color.TEXT_SECONDARY}; font-size: 14px;"
         )
 
     def _on_pattern_complete(self, pattern: List[int]) -> None:
-        if pattern == _CORRECT_PATTERN:
+        verified = False
+        try:
+            from boxbunny_gui.db_helper import verify_pattern
+            user_id_int = int(self._user_id)
+            verified = verify_pattern(user_id_int, pattern)
+        except Exception as exc:
+            logger.debug("DB pattern verify failed: %s", exc)
+
+        # Fall back to hardcoded check
+        if not verified and not _db_available():
+            verified = (pattern == _CORRECT_PATTERN)
+
+        if verified:
             logger.info("Pattern correct for user %s", self._user_id)
             self._status_lbl.setText("Unlocked!")
             self._status_lbl.setStyleSheet(
-                f"color: {Color.PRIMARY}; font-size: 15px; font-weight: 600;"
-                f" background-color: {Color.PRIMARY_MUTED}; border-radius: 12px;"
-                " padding: 6px 20px;"
+                f"color: {Color.PRIMARY}; font-size: 14px; font-weight: 600;"
             )
             QTimer.singleShot(
                 300,
                 lambda: self._router.navigate(
                     "home", user_id=self._user_id,
-                    username=self._user_name,
+                    username=self._username or self._user_name,
                 ),
             )
         else:
             logger.info("Incorrect pattern for user %s", self._user_id)
-            self._status_lbl.setText("Incorrect pattern \u2014 try again")
+            self._status_lbl.setText("Incorrect pattern \u2013 try again")
             self._status_lbl.setStyleSheet(
-                f"color: {Color.DANGER}; font-size: 15px; font-weight: 600;"
-                f" background-color: {Color.DANGER}18; border-radius: 12px;"
-                " padding: 6px 20px;"
+                f"color: {Color.DANGER}; font-size: 14px; font-weight: 600;"
             )
             QTimer.singleShot(600, self._grid.reset)
 
     def _check_password(self) -> None:
         pw = self._pw_field.text()
-        if pw == _CORRECT_PASSWORD:
+
+        verified = False
+        if self._username:
+            try:
+                from boxbunny_gui.db_helper import verify_password
+                result = verify_password(self._username, pw)
+                verified = result is not None
+            except Exception as exc:
+                logger.debug("DB password verify failed: %s", exc)
+
+        # Fall back to hardcoded check
+        if not verified and not _db_available():
+            verified = (pw == _CORRECT_PASSWORD)
+
+        if verified:
             logger.info("Password correct for user %s", self._user_id)
             self._router.navigate(
                 "home", user_id=self._user_id,
-                username=self._user_name,
+                username=self._username or self._user_name,
             )
         else:
-            self._status_lbl.setText("Incorrect password \u2014 try again")
+            self._status_lbl.setText("Incorrect password \u2013 try again")
             self._status_lbl.setStyleSheet(
-                f"color: {Color.DANGER}; font-size: 15px; font-weight: 600;"
-                f" background-color: {Color.DANGER}18; border-radius: 12px;"
-                " padding: 6px 20px;"
+                f"color: {Color.DANGER}; font-size: 14px; font-weight: 600;"
             )
             self._pw_field.clear()
 
@@ -338,20 +353,32 @@ class PatternLockPage(QWidget):
     def on_enter(self, **kwargs: Any) -> None:
         self._user_id = kwargs.get("user_id", "")
         self._user_name = kwargs.get("user_name", "User")
+        self._username = kwargs.get("username", "")
+        self._has_pattern = kwargs.get("has_pattern", True)
         self._name_lbl.setText(self._user_name)
-        self._use_password = False
-        self._pattern_widget.setVisible(True)
-        self._password_widget.setVisible(False)
-        self._toggle_btn.setText("Use password instead")
-        self._status_lbl.setText("Draw your pattern")
-        self._status_lbl.setStyleSheet(
-            f"color: {Color.TEXT_SECONDARY}; font-size: 15px;"
-            f" background-color: {Color.SURFACE}; border-radius: 12px;"
-            " padding: 6px 20px;"
-        )
         self._grid.reset()
         self._pw_field.clear()
-        logger.debug("PatternLockPage entered for user %s", self._user_id)
+
+        if self._has_pattern:
+            # User has pattern — show pattern mode by default
+            self._use_password = False
+            self._pattern_widget.setVisible(True)
+            self._password_widget.setVisible(False)
+            self._toggle_btn.setText("Use password instead")
+            self._toggle_btn.setVisible(True)
+            self._status_lbl.setText("Draw your pattern")
+        else:
+            # User has no pattern — go straight to password mode
+            self._use_password = True
+            self._pattern_widget.setVisible(False)
+            self._password_widget.setVisible(True)
+            self._toggle_btn.setVisible(False)
+            self._status_lbl.setText("Enter your password")
+            self._pw_field.setFocus()
+
+        self._reset_status_style()
+        logger.debug("PatternLockPage entered for user %s (has_pattern=%s)",
+                      self._user_id, self._has_pattern)
 
     def on_leave(self) -> None:
         self._grid.reset()

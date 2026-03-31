@@ -1,116 +1,162 @@
 """Home page for logged-in users.
 
-Premium dark dashboard with icon-enriched mode cards and welcome section.
+Premium dark dashboard with clean mode cards and welcome section.
 """
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QRectF
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath
 from PySide6.QtWidgets import (
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton,
+    QGridLayout, QHBoxLayout, QLabel, QPushButton,
     QVBoxLayout, QWidget,
 )
 
-from boxbunny_gui.theme import (
-    Color, Icon, Size, close_btn_style, top_bar_btn_style,
-)
+from boxbunny_gui.theme import Color, Icon, Size
 
 logger = logging.getLogger(__name__)
 
+_H = f"color:{Color.PRIMARY_LIGHT}; font-weight:600"
 _MODES = [
     {
         "name": "Training",
-        "desc": "Practice combos with guided drills",
+        "desc": f'Practice <span style="{_H}">combos</span> with '
+                f'<span style="{_H}">guided drills</span>',
         "accent": Color.PRIMARY,
+        "bg": "#1A1510", "border": "#3D2E1A",
         "route": "training_select",
     },
     {
         "name": "Sparring",
-        "desc": "Fight against the robot AI",
+        "desc": f'<span style="{_H}">Fight</span> against the '
+                f'<span style="{_H}">robot AI</span>',
         "accent": Color.DANGER,
+        "bg": "#1A1214", "border": "#3D1A22",
         "route": "sparring_select",
     },
     {
         "name": "Free Training",
-        "desc": "Open session, no structure",
+        "desc": f'<span style="{_H}">Open session</span>, no structure',
         "accent": Color.INFO,
+        "bg": "#101820", "border": "#1A2E40",
         "route": "training_session",
     },
     {
         "name": "Performance",
-        "desc": "Test your power, stamina and speed",
+        "desc": f'Test your <span style="{_H}">power</span>, '
+                f'<span style="{_H}">stamina</span> and '
+                f'<span style="{_H}">speed</span>',
         "accent": Color.PURPLE,
+        "bg": "#16101E", "border": "#2A1A3D",
         "route": "performance",
     },
     {
         "name": "History",
-        "desc": "Past sessions and progress",
+        "desc": f'Past <span style="{_H}">sessions</span> and '
+                f'<span style="{_H}">progress</span>',
         "accent": Color.WARNING,
+        "bg": "#1A1810", "border": "#3D351A",
         "route": "history",
     },
 ]
 
 
-def _mode_card(mode: dict, height: int = 90) -> QPushButton:
-    """Mode card with left accent bar, accent-colored title, and arrow."""
+# ── Small avatar for the top bar ─────────────────────────────────────────
+
+class _MiniAvatar(QWidget):
+    """Small circular gradient avatar with person silhouette."""
+
+    def __init__(self, size: int = 38, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(size, size)
+        self._sz = size
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        s = self._sz
+
+        clip = QPainterPath()
+        clip.addEllipse(QRectF(0, 0, s, s))
+        p.setClipPath(clip)
+
+        grad = QLinearGradient(0, 0, 0, s)
+        grad.setColorAt(0.0, QColor(Color.PRIMARY))
+        grad.setColorAt(1.0, QColor(Color.PRIMARY_DARK))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(grad)
+        p.drawEllipse(QRectF(0, 0, s, s))
+
+        person = QColor(255, 255, 255, 200)
+        p.setBrush(person)
+        head_r = s * 0.16
+        p.drawEllipse(QRectF(s / 2 - head_r, s * 0.24, head_r * 2, head_r * 2))
+        p.drawEllipse(QRectF(s * 0.22, s * 0.56, s * 0.56, s * 0.44))
+        p.end()
+
+
+# ── Mode card ────────────────────────────────────────────────────────────
+
+def _mode_card(mode: dict, height: int = 100) -> QPushButton:
+    """Mode card with warm tinted background and accent border."""
     accent = mode["accent"]
+    bg = mode.get("bg", Color.SURFACE)
+    border = mode.get("border", Color.BORDER)
     btn = QPushButton()
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
     btn.setFixedHeight(height)
     btn.setStyleSheet(f"""
         QPushButton {{
-            background-color: {Color.SURFACE};
-            border: 1px solid {Color.BORDER};
-            border-left: 4px solid {accent};
+            background-color: {bg};
+            border: 1px solid {border};
+            border-left: 3px solid {accent};
             border-radius: {Size.RADIUS}px;
             text-align: left;
         }}
         QPushButton:hover {{
             background-color: {Color.SURFACE_HOVER};
-            border-color: {accent}40;
-            border-left: 4px solid {accent};
+            border: 1px solid {accent};
+            border-left: 3px solid {accent};
         }}
         QPushButton:pressed {{
-            background-color: {Color.SURFACE_LIGHT};
-            border-left: 4px solid {accent};
+            background-color: {accent};
+            border-color: {accent};
+            border-left: 3px solid {accent};
         }}
     """)
 
     lay = QHBoxLayout(btn)
-    lay.setContentsMargins(20, 12, 18, 12)
-    lay.setSpacing(14)
+    lay.setContentsMargins(18, 14, 16, 14)
+    lay.setSpacing(0)
 
-    # Text column
     text_col = QVBoxLayout()
     text_col.setSpacing(4)
     text_col.setContentsMargins(0, 0, 0, 0)
 
     title = QLabel(mode["name"])
     title.setStyleSheet(
-        "background: transparent;"
-        f" font-size: 18px; font-weight: 700; color: {accent};"
-        " border: none;"
+        "background: transparent; border: none;"
+        f" font-size: 17px; font-weight: 700; color: {Color.TEXT};"
     )
     title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
     text_col.addWidget(title)
 
     desc = QLabel(mode["desc"])
+    desc.setTextFormat(Qt.TextFormat.RichText)
     desc.setStyleSheet(
-        f"background: transparent; font-size: 13px;"
-        f" color: {Color.TEXT_SECONDARY};"
-        " border: none;"
+        "background: transparent; border: none;"
+        f" font-size: 12px; color: {Color.TEXT_SECONDARY};"
     )
     desc.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
     text_col.addWidget(desc)
 
     lay.addLayout(text_col, stretch=1)
 
-    # Arrow in accent color
     arrow = QLabel(Icon.NEXT)
     arrow.setStyleSheet(
-        f"color: {accent}60; font-size: 20px;"
+        f"color: {accent}; font-size: 16px;"
         " background: transparent; border: none;"
     )
     arrow.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -119,33 +165,26 @@ def _mode_card(mode: dict, height: int = 90) -> QPushButton:
     return btn
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+
 class HomeIndividualPage(QWidget):
-    """Main menu for authenticated users — premium icon card grid."""
+    """Main menu for authenticated users."""
 
     def __init__(self, router=None, **kwargs):
         super().__init__()
         self._router = router
+        self._username = "Guest"
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 16, 32, 12)
-        root.setSpacing(8)
+        root.setContentsMargins(32, 14, 32, 10)
+        root.setSpacing(0)
 
         # ── Top bar ──────────────────────────────────────────────────────
         top = QHBoxLayout()
-        top.setSpacing(12)
+        top.setSpacing(10)
 
-        # User avatar + welcome
-        self._avatar_lbl = QLabel("G")
-        self._avatar_lbl.setFixedSize(40, 40)
-        self._avatar_lbl.setAlignment(Qt.AlignCenter)
-        self._avatar_lbl.setStyleSheet(f"""
-            background-color: {Color.PRIMARY_MUTED};
-            color: {Color.PRIMARY};
-            font-size: 18px; font-weight: 700;
-            border: 2px solid {Color.PRIMARY};
-            border-radius: 20px;
-        """)
-        top.addWidget(self._avatar_lbl)
+        self._avatar = _MiniAvatar(size=38)
+        top.addWidget(self._avatar)
 
         self._name_label = QLabel("Welcome back!")
         self._name_label.setStyleSheet(
@@ -155,23 +194,43 @@ class HomeIndividualPage(QWidget):
         top.addStretch()
 
         settings_btn = QPushButton("Settings")
-        settings_btn.setStyleSheet(top_bar_btn_style())
-        settings_btn.setFixedSize(80, 32)
+        settings_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 13px; font-weight: 600; padding: 6px 16px;
+                background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
+                border: 1px solid {Color.BORDER_LIGHT}; border-radius: 8px;
+            }}
+            QPushButton:hover {{
+                color: {Color.TEXT}; border-color: {Color.PRIMARY};
+                background-color: {Color.SURFACE_LIGHT};
+            }}
+        """)
+        settings_btn.setFixedHeight(32)
         settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         settings_btn.clicked.connect(lambda: self._nav("settings"))
         top.addWidget(settings_btn)
 
-        close_btn = QPushButton(f"{Icon.CLOSE}")
-        close_btn.setStyleSheet(close_btn_style())
-        close_btn.setFixedSize(44, 32)
+        close_btn = QPushButton("Close")
+        close_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 13px; font-weight: 600; padding: 6px 14px;
+                background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
+                border: 1px solid {Color.BORDER_LIGHT}; border-radius: 8px;
+            }}
+            QPushButton:hover {{
+                background-color: {Color.DANGER}; color: white;
+                border-color: {Color.DANGER};
+            }}
+        """)
+        close_btn.setFixedHeight(32)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.clicked.connect(lambda: self.window().close())
         top.addWidget(close_btn)
         root.addLayout(top)
 
-        root.addSpacing(4)
+        root.addSpacing(12)
 
-        # ── Mode grid: 2+2+1 layout ─────────────────────────────────────
+        # ── Mode grid ────────────────────────────────────────────────────
         grid = QGridLayout()
         grid.setSpacing(10)
         grid.setColumnStretch(0, 1)
@@ -179,7 +238,7 @@ class HomeIndividualPage(QWidget):
 
         for i, mode in enumerate(_MODES):
             is_last = i == len(_MODES) - 1
-            btn = _mode_card(mode, height=65 if is_last else 110)
+            btn = _mode_card(mode, height=60 if is_last else 100)
             btn.clicked.connect(
                 lambda _c=False, r=mode["route"]: self._nav(r)
             )
@@ -198,7 +257,7 @@ class HomeIndividualPage(QWidget):
 
         logout = QPushButton("Log Out")
         logout.setCursor(Qt.CursorShape.PointingHandCursor)
-        logout.setFixedSize(110, 30)
+        logout.setFixedSize(100, 28)
         logout.setStyleSheet(f"""
             QPushButton {{
                 font-size: 12px; font-weight: 600;
@@ -208,10 +267,6 @@ class HomeIndividualPage(QWidget):
             QPushButton:hover {{
                 color: {Color.DANGER}; border-color: {Color.DANGER};
             }}
-            QPushButton:pressed {{
-                background-color: {Color.DANGER}; color: white;
-                border-color: {Color.DANGER};
-            }}
         """)
         logout.clicked.connect(lambda: self._nav("auth"))
         bottom.addWidget(logout)
@@ -220,14 +275,11 @@ class HomeIndividualPage(QWidget):
 
     def _nav(self, page: str):
         if self._router:
-            self._router.navigate(page)
+            self._router.navigate(page, username=self._username)
 
     def on_enter(self, username: str = "Guest", **kwargs: Any):
         self._username = username
         self._name_label.setText(f"Welcome, {username}!")
-        # Update avatar initial
-        initial = username[0].upper() if username else "G"
-        self._avatar_lbl.setText(initial)
 
     def on_leave(self) -> None:
         pass

@@ -1,16 +1,13 @@
-"""Large timer display with circular progress ring.
+"""Large timer display with rounded-rectangle progress bar.
 
-Designed to be composable on any page with a transparent background.
-Features a thicker ring stroke, colour-changing arc, and outer glow
-when time is critical.
+Clean, modern design — time text centered over a horizontal progress track.
 """
-
 from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import QRect, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
+from PySide6.QtCore import QRectF, QTimer, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QLinearGradient
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from boxbunny_gui.theme import Color, Size
@@ -19,7 +16,7 @@ log = logging.getLogger(__name__)
 
 
 class TimerDisplay(QWidget):
-    """Countdown / count-up timer with a progress arc.
+    """Countdown timer with a rounded-rectangle progress bar.
 
     Signals
     -------
@@ -51,14 +48,13 @@ class TimerDisplay(QWidget):
         self._timer.timeout.connect(self._on_tick)
 
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setMinimumSize(160, 160)
+        self.setMinimumSize(160, 100)
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
 
     # -- public API -----------------------------------------------------------
     def start(self, total_seconds: int) -> None:
-        """Begin a countdown from *total_seconds*."""
         self._total = total_seconds
         self._remaining = total_seconds
         self._running = True
@@ -112,57 +108,72 @@ class TimerDisplay(QWidget):
 
     # -- painting -------------------------------------------------------------
     def paintEvent(self, event) -> None:  # noqa: N802
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
+        w = self.width()
+        h = self.height()
         color_hex = self._current_color()
         color = QColor(color_hex)
 
-        # Use the full available square for the ring
-        side = min(self.width(), self.height())
+        # Scale font to widget
+        time_font_size = max(28, int(h * 0.35))
+        time_font = QFont("Inter", time_font_size, QFont.Weight.Bold)
 
-        # Scale font to fit inside the ring with good clearance
-        scaled_font_size = max(20, int(side * 0.22))
-        time_font = QFont("Inter", scaled_font_size, QFont.Weight.Bold)
-
-        # -- progress ring (thicker, with glow when critical) -----------------
-        if self._show_ring and self._total > 0:
-            pen_w = Size.RING_THICKNESS
-            margin = pen_w + 8
-            cx = self.width() // 2
-            cy = self.height() // 2
-            half = side // 2 - margin
-            ring_rect = QRect(cx - half, cy - half, half * 2, half * 2)
-
-            # Outer glow when time is critical (<= 10s)
-            if self._remaining <= 10 and self._running:
-                glow_color = QColor(color_hex)
-                glow_color.setAlpha(30)
-                glow_pen = QPen(glow_color, pen_w + 10)
-                glow_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-                painter.setPen(glow_pen)
-                painter.drawArc(ring_rect, 0, 360 * 16)
-
-            # background track
-            track_color = QColor(Color.SURFACE_LIGHT)
-            track_pen = QPen(track_color, pen_w)
-            track_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            painter.setPen(track_pen)
-            painter.drawArc(ring_rect, 0, 360 * 16)
-
-            # foreground arc
-            fraction = self._remaining / self._total if self._total else 0
-            span = int(fraction * 360 * 16)
-            arc_pen = QPen(color, pen_w)
-            arc_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            painter.setPen(arc_pen)
-            painter.drawArc(ring_rect, 90 * 16, span)
-
-        # -- time text (centered, scaled to fit) ------------------------------
-        painter.setPen(QColor(color_hex))
-        painter.setFont(time_font)
-        painter.drawText(
-            self.rect(), Qt.AlignmentFlag.AlignCenter,
-            self._format_time(self._remaining),
+        # ── Background card ──────────────────────────────────────────────
+        card_margin = 16
+        card_rect = QRectF(
+            card_margin, card_margin,
+            w - card_margin * 2, h - card_margin * 2,
         )
-        painter.end()
+        bg = QColor("#131920")
+        p.setPen(QPen(QColor("#1E2832"), 1))
+        p.setBrush(bg)
+        p.drawRoundedRect(card_rect, Size.RADIUS_LG, Size.RADIUS_LG)
+
+        # ── Time text ────────────────────────────────────────────────────
+        p.setPen(color)
+        p.setFont(time_font)
+        text_rect = QRectF(
+            card_margin, card_margin,
+            w - card_margin * 2, h - card_margin * 2 - 30,
+        )
+        p.drawText(text_rect, Qt.AlignCenter, self._format_time(self._remaining))
+
+        # ── Progress bar at bottom of card ───────────────────────────────
+        if self._show_ring and self._total > 0:
+            bar_h = 6
+            bar_margin = 28
+            bar_y = card_rect.bottom() - bar_h - 14
+            bar_w = w - card_margin * 2 - bar_margin * 2
+            bar_x = card_margin + bar_margin
+
+            # Track
+            track_rect = QRectF(bar_x, bar_y, bar_w, bar_h)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(Color.SURFACE_LIGHT))
+            p.drawRoundedRect(track_rect, bar_h / 2, bar_h / 2)
+
+            # Fill
+            fraction = self._remaining / self._total if self._total else 0
+            fill_w = max(bar_h, bar_w * fraction)
+            fill_rect = QRectF(bar_x, bar_y, fill_w, bar_h)
+
+            # Gradient fill
+            grad = QLinearGradient(bar_x, 0, bar_x + fill_w, 0)
+            grad.setColorAt(0.0, color)
+            dim = QColor(color_hex)
+            dim.setAlpha(160)
+            grad.setColorAt(1.0, dim)
+            p.setBrush(grad)
+            p.drawRoundedRect(fill_rect, bar_h / 2, bar_h / 2)
+
+            # Glow when critical
+            if self._remaining <= 10 and self._running:
+                glow = QColor(color_hex)
+                glow.setAlpha(40)
+                glow_rect = QRectF(bar_x - 2, bar_y - 2, fill_w + 4, bar_h + 4)
+                p.setBrush(glow)
+                p.drawRoundedRect(glow_rect, bar_h, bar_h)
+
+        p.end()

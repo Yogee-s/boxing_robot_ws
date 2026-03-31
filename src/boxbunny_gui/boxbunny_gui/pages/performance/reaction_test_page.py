@@ -177,7 +177,7 @@ class ReactionTestPage(QWidget):
         self._set_stimulus_bg(Color.PRIMARY)
         self._stimulus_lbl.setText("PUNCH NOW!")
         self._stimulus_lbl.setStyleSheet(
-            f"background: transparent; color: {Color.BG}; font-size: 44px; font-weight: 800;"
+            f"background: transparent; color: #FFFFFF; font-size: 44px; font-weight: 800;"
             " letter-spacing: 2px;"
         )
 

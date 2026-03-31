@@ -184,6 +184,7 @@ GLOBAL_STYLESHEET = f"""
         color: {Color.TEXT};
         font-family: "Inter", "Segoe UI", "Helvetica Neue", sans-serif;
         font-size: 15px;
+        font-weight: 500;
     }}
     QLabel {{
         background-color: transparent;
@@ -354,7 +355,7 @@ def tab_btn_style(active: bool = False) -> str:
         return f"""
             QPushButton {{
                 font-size: 13px; font-weight: 700; padding: 8px 20px;
-                background-color: {Color.PRIMARY}; color: {Color.BG};
+                background-color: {Color.PRIMARY}; color: #FFFFFF;
                 border: none; border-radius: 10px;
                 min-height: 0; min-width: 0;
                 letter-spacing: 0.3px;
@@ -537,7 +538,7 @@ def hero_btn_style(bg: str = "", hover: str = "", size: int = 22) -> str:
     return f"""
         QPushButton {{
             font-size: {size}px; font-weight: 700;
-            background-color: {_bg}; color: {Color.BG};
+            background-color: {_bg}; color: #FFFFFF;
             border: none; border-radius: {Size.RADIUS_LG}px;
             letter-spacing: 0.5px;
         }}
@@ -552,11 +553,11 @@ def secondary_btn_style() -> str:
         QPushButton {{
             font-size: 18px; font-weight: 600;
             background-color: {Color.SURFACE}; color: {Color.TEXT};
-            border: 1px solid {Color.BORDER_LIGHT}; border-radius: {Size.RADIUS_LG}px;
+            border: 2px solid {Color.BORDER_LIGHT}; border-radius: {Size.RADIUS_LG}px;
         }}
         QPushButton:hover {{
             background-color: {Color.SURFACE_HOVER};
-            border-color: {Color.PRIMARY};
+            border-color: {Color.PRIMARY}; color: {Color.PRIMARY_LIGHT};
         }}
         QPushButton:pressed {{ background-color: {Color.SURFACE_LIGHT}; }}
     """
@@ -572,10 +573,10 @@ def outline_btn_style(accent: str = "") -> str:
             border: 1px solid {c}; border-radius: {Size.RADIUS_SM}px;
         }}
         QPushButton:hover {{
-            background-color: {c}; color: {Color.BG};
+            background-color: {c}; color: #FFFFFF;
         }}
         QPushButton:pressed {{
-            background-color: {c}; color: {Color.BG};
+            background-color: {c}; color: #FFFFFF;
         }}
     """
 
@@ -605,7 +606,7 @@ def pill_toggle_style(active: bool) -> str:
         return f"""
             QPushButton {{
                 font-size: 14px; font-weight: 700;
-                background-color: {Color.PRIMARY}; color: {Color.BG};
+                background-color: {Color.PRIMARY}; color: #FFFFFF;
                 border: 2px solid {Color.PRIMARY}; border-radius: {Size.RADIUS}px;
                 padding: 8px 16px;
             }}

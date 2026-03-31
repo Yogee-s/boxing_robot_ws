@@ -39,6 +39,7 @@ class PageRouter(QObject):
         self._stack: QStackedWidget = stack
         self._pages: Dict[str, QWidget] = {}
         self._history: List[str] = []
+        self._page_kwargs: Dict[str, Dict[str, Any]] = {}
         self._current: Optional[str] = None
 
     # ── Registration ────────────────────────────────────────────────────
@@ -80,6 +81,7 @@ class PageRouter(QObject):
 
         # Enter new page
         self._current = name
+        self._page_kwargs[name] = kwargs
         new_widget = self._pages[name]
         self._stack.setCurrentWidget(new_widget)
         if isinstance(new_widget, Routable):
@@ -136,9 +138,10 @@ class PageRouter(QObject):
         self._current = prev
         widget = self._pages[prev]
         self._stack.setCurrentWidget(widget)
+        saved_kwargs = self._page_kwargs.get(prev, {})
         if isinstance(widget, Routable):
             try:
-                widget.on_enter()
+                widget.on_enter(**saved_kwargs)
             except Exception:
                 logger.exception("Error in on_enter for '%s'", prev)
 

@@ -1,7 +1,7 @@
 """Sign up page — create a new account.
 
-Simple form: username, display name, password or pattern.
-Experience level is asked in the assessment after signup.
+Single centered column: fields, auth toggle, pattern/password, create button.
+Pattern is default. Compact layout to fit 1024x600 screen.
 """
 from __future__ import annotations
 
@@ -14,17 +14,17 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, back_link_style, subtle_btn_style
+from boxbunny_gui.theme import Color, Size, back_link_style
 
 logger = logging.getLogger(__name__)
 
 _DOT_RADIUS = 18
 _GRID_SIZE = 3
-_CELL_SIZE = 64
+_CELL_SIZE = 66
 
 
-class _MiniPatternGrid(QWidget):
-    """Smaller pattern grid for signup."""
+class _PatternGrid(QWidget):
+    """Compact pattern grid for signup."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -115,111 +115,104 @@ class _MiniPatternGrid(QWidget):
 
 
 class SignupPage(QWidget):
-    """Account creation with username, display name, and pattern or password."""
+    """Account creation — single centered column."""
 
     def __init__(self, router=None, db=None, **kwargs):
         super().__init__()
         self._router = router
         self._db = db
-        self._use_pattern: bool = False
+        self._use_pattern: bool = True
 
         root = QVBoxLayout(self)
         root.setSpacing(0)
-        root.setContentsMargins(60, 20, 60, 16)
+        root.setContentsMargins(60, 12, 60, 12)
 
         # ── Top bar ──────────────────────────────────────────────────────
         top = QHBoxLayout()
         back_btn = QPushButton("\u2190  Back")
         back_btn.setStyleSheet(back_link_style())
+        back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         back_btn.clicked.connect(lambda: self._nav("auth"))
         top.addWidget(back_btn)
+
+        title = QLabel("Create Account")
+        title.setStyleSheet(
+            f"font-size: 22px; font-weight: 700; color: {Color.TEXT};"
+        )
+        top.addWidget(title)
         top.addStretch()
         root.addLayout(top)
 
         root.addStretch(1)
 
-        # ── Title ────────────────────────────────────────────────────────
-        title = QLabel("Create Account")
-        title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet(
-            f"font-size: 28px; font-weight: 700; color: {Color.TEXT};"
-        )
-        root.addWidget(title, alignment=Qt.AlignCenter)
-        root.addSpacing(20)
+        # ── Centered form column ─────────────────────────────────────────
+        self._username = self._make_field(root, "Username")
+        root.addSpacing(8)
+        self._display_name = self._make_field(root, "Display Name")
+        root.addSpacing(12)
 
-        # ── Form fields ──────────────────────────────────────────────────
-        form = QVBoxLayout()
-        form.setSpacing(12)
-        form.setAlignment(Qt.AlignCenter)
-
-        self._username = self._make_field(form, "Username")
-        self._display_name = self._make_field(form, "Display Name")
-
-        root.addLayout(form)
-        root.addSpacing(16)
-
-        # ── Auth method toggle ───────────────────────────────────────────
-        auth_label = QLabel("Choose authentication method")
-        auth_label.setAlignment(Qt.AlignCenter)
-        auth_label.setStyleSheet(
-            f"font-size: 14px; color: {Color.TEXT_SECONDARY};"
-        )
-        root.addWidget(auth_label, alignment=Qt.AlignCenter)
-        root.addSpacing(6)
-
+        # Auth toggle
         toggle_row = QHBoxLayout()
         toggle_row.setAlignment(Qt.AlignCenter)
         toggle_row.setSpacing(0)
-        self._pw_toggle = QPushButton("Password")
         self._pat_toggle = QPushButton("Pattern")
-        for btn in (self._pw_toggle, self._pat_toggle):
-            btn.setFixedSize(140, 40)
-        self._pw_toggle.clicked.connect(lambda: self._set_auth_mode(False))
+        self._pw_toggle = QPushButton("Password")
+        for btn in (self._pat_toggle, self._pw_toggle):
+            btn.setFixedSize(130, 36)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._pat_toggle.clicked.connect(lambda: self._set_auth_mode(True))
-        toggle_row.addWidget(self._pw_toggle)
+        self._pw_toggle.clicked.connect(lambda: self._set_auth_mode(False))
         toggle_row.addWidget(self._pat_toggle)
+        toggle_row.addWidget(self._pw_toggle)
         root.addLayout(toggle_row)
         root.addSpacing(10)
 
-        # ── Password input ───────────────────────────────────────────────
-        self._pw_container = QWidget()
-        pw_lay = QVBoxLayout(self._pw_container)
-        pw_lay.setContentsMargins(0, 0, 0, 0)
-        pw_lay.setAlignment(Qt.AlignCenter)
-        self._password = QLineEdit()
-        self._password.setPlaceholderText("Password (min 4 chars)")
-        self._password.setFixedSize(400, 48)
-        self._password.setEchoMode(QLineEdit.EchoMode.Password)
-        pw_lay.addWidget(self._password, alignment=Qt.AlignCenter)
-        root.addWidget(self._pw_container)
-
-        # ── Pattern input ────────────────────────────────────────────────
+        # ── Pattern container ────────────────────────────────────────────
         self._pat_container = QWidget()
         pat_lay = QVBoxLayout(self._pat_container)
         pat_lay.setContentsMargins(0, 0, 0, 0)
         pat_lay.setAlignment(Qt.AlignCenter)
-        self._pattern_grid = _MiniPatternGrid()
-        pat_lay.addWidget(
-            self._pattern_grid, alignment=Qt.AlignmentFlag.AlignCenter
-        )
-        pat_hint = QLabel("Draw a pattern (min 3 dots)")
+        pat_lay.setSpacing(6)
+        self._pattern_grid = _PatternGrid()
+        pat_lay.addWidget(self._pattern_grid, alignment=Qt.AlignCenter)
+        pat_hint = QLabel("Connect at least 3 dots")
         pat_hint.setAlignment(Qt.AlignCenter)
         pat_hint.setStyleSheet(
-            f"font-size: 13px; color: {Color.TEXT_DISABLED};"
+            f"font-size: 11px; color: {Color.TEXT_DISABLED};"
         )
         pat_lay.addWidget(pat_hint)
-        self._pat_container.setVisible(False)
         root.addWidget(self._pat_container)
 
-        root.addStretch(1)
+        # ── Password container ───────────────────────────────────────────
+        self._pw_container = QWidget()
+        pw_lay = QVBoxLayout(self._pw_container)
+        pw_lay.setContentsMargins(0, 0, 0, 0)
+        pw_lay.setAlignment(Qt.AlignCenter)
+        pw_lay.setSpacing(6)
+        self._password = QLineEdit()
+        self._password.setPlaceholderText("Password (min 4 chars)")
+        self._password.setFixedSize(400, 44)
+        self._password.setEchoMode(QLineEdit.EchoMode.Password)
+        pw_lay.addWidget(self._password, alignment=Qt.AlignCenter)
+        pw_hint = QLabel("You can set a pattern later in settings")
+        pw_hint.setAlignment(Qt.AlignCenter)
+        pw_hint.setStyleSheet(
+            f"font-size: 11px; color: {Color.TEXT_DISABLED};"
+        )
+        pw_lay.addWidget(pw_hint)
+        self._pw_container.setVisible(False)
+        root.addWidget(self._pw_container)
+
+        root.addSpacing(12)
 
         # ── Create button ────────────────────────────────────────────────
         create_btn = QPushButton("Create Account")
-        create_btn.setFixedSize(400, 56)
+        create_btn.setFixedSize(400, 48)
+        create_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         create_btn.setStyleSheet(f"""
             QPushButton {{
-                font-size: 22px; font-weight: 700;
-                background-color: {Color.PRIMARY}; color: {Color.BG};
+                font-size: 18px; font-weight: 700;
+                background-color: {Color.PRIMARY}; color: #FFFFFF;
                 border: none; border-radius: 14px;
             }}
             QPushButton:hover {{ background-color: {Color.PRIMARY_DARK}; }}
@@ -228,56 +221,64 @@ class SignupPage(QWidget):
         create_btn.clicked.connect(self._on_create)
         root.addWidget(create_btn, alignment=Qt.AlignCenter)
 
-        root.addSpacing(8)
+        root.addSpacing(4)
 
         # ── Status ───────────────────────────────────────────────────────
         self._status = QLabel("")
         self._status.setAlignment(Qt.AlignCenter)
-        self._status.setStyleSheet(f"font-size: 14px; color: {Color.DANGER};")
+        self._status.setStyleSheet(f"font-size: 13px; color: {Color.DANGER};")
         self._status.setWordWrap(True)
         self._status.setMaximumWidth(400)
         root.addWidget(self._status, alignment=Qt.AlignCenter)
+
         root.addStretch(1)
 
-        self._set_auth_mode(False)
+        # Initial state
+        self._apply_toggle_style()
 
-    def _make_field(
-        self, layout: QVBoxLayout, placeholder: str,
-    ) -> QLineEdit:
+    def _make_field(self, layout: QVBoxLayout, placeholder: str) -> QLineEdit:
         field = QLineEdit()
         field.setPlaceholderText(placeholder)
-        field.setFixedSize(400, 48)
+        field.setFixedSize(400, 44)
         layout.addWidget(field, alignment=Qt.AlignCenter)
         return field
 
     def _set_auth_mode(self, use_pattern: bool) -> None:
+        if use_pattern == self._use_pattern:
+            return
         self._use_pattern = use_pattern
-        self._pw_container.setVisible(not use_pattern)
-        self._pat_container.setVisible(use_pattern)
         self._pattern_grid.reset()
+        self._status.setText("")
+        self._pat_container.setVisible(use_pattern)
+        self._pw_container.setVisible(not use_pattern)
+        self._apply_toggle_style()
 
+    def _apply_toggle_style(self) -> None:
         active = f"""
             QPushButton {{
-                font-size: 14px; font-weight: 600;
-                background-color: {Color.PRIMARY}; color: {Color.BG};
+                font-size: 13px; font-weight: 600;
+                background-color: {Color.PRIMARY}; color: #FFFFFF;
                 border: none; border-radius: {Size.RADIUS}px;
             }}
             QPushButton:hover {{ background-color: {Color.PRIMARY_DARK}; }}
         """
         inactive = f"""
             QPushButton {{
-                font-size: 14px; font-weight: 600;
+                font-size: 13px; font-weight: 600;
                 background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
                 border: 1px solid {Color.BORDER}; border-radius: {Size.RADIUS}px;
             }}
             QPushButton:hover {{
-                color: {Color.TEXT};
-                border-color: {Color.PRIMARY};
+                color: {Color.TEXT}; border-color: {Color.PRIMARY};
                 background-color: {Color.SURFACE_HOVER};
             }}
         """
-        self._pw_toggle.setStyleSheet(inactive if use_pattern else active)
-        self._pat_toggle.setStyleSheet(active if use_pattern else inactive)
+        self._pat_toggle.setStyleSheet(
+            active if self._use_pattern else inactive
+        )
+        self._pw_toggle.setStyleSheet(
+            inactive if self._use_pattern else active
+        )
 
     def _on_create(self) -> None:
         username = self._username.text().strip()
@@ -308,7 +309,7 @@ class SignupPage(QWidget):
                 self._status.setText("Username already taken")
                 return
 
-        self._status.setStyleSheet(f"font-size: 14px; color: {Color.PRIMARY};")
+        self._status.setStyleSheet(f"font-size: 13px; color: {Color.PRIMARY};")
         self._status.setText(f"Account created! Welcome, {display}")
         logger.info("Created user: %s", username)
         QTimer.singleShot(
@@ -325,7 +326,11 @@ class SignupPage(QWidget):
         self._password.clear()
         self._pattern_grid.reset()
         self._status.setText("")
-        self._set_auth_mode(False)
+        self._status.setStyleSheet(f"font-size: 13px; color: {Color.DANGER};")
+        self._use_pattern = True
+        self._apply_toggle_style()
+        self._pat_container.setVisible(True)
+        self._pw_container.setVisible(False)
 
     def on_leave(self) -> None:
         pass

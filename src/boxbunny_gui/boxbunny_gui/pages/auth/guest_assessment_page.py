@@ -42,10 +42,15 @@ _QUESTIONS = [
 ]
 
 _LEVELS = ["Beginner", "Intermediate", "Advanced"]
+_KW = f"color:{Color.PRIMARY}; font-weight:700"
 _LEVEL_DESCRIPTIONS = {
-    "Beginner": "New to boxing. You'll start with fundamental\npunches and basic combos.",
-    "Intermediate": "Some boxing experience. You'll work on\ncombinations and technique.",
-    "Advanced": "Experienced boxer. You'll tackle complex\ncombos and sparring modes.",
+    "Beginner": f'New to boxing. You\'ll start with <span style="{_KW}">fundamental '
+                f'punches</span> and <span style="{_KW}">basic combos</span>.',
+    "Intermediate": f'Some boxing experience. You\'ll work on '
+                    f'<span style="{_KW}">combinations</span> and '
+                    f'<span style="{_KW}">technique refinement</span>.',
+    "Advanced": f'Experienced boxer. You\'ll tackle <span style="{_KW}">complex '
+                f'combos</span> and <span style="{_KW}">sparring modes</span>.',
 }
 _LEVEL_COLORS = {
     "Beginner": Color.PRIMARY,
@@ -60,19 +65,19 @@ def _opt_style(selected: bool) -> str:
     if selected:
         return f"""
             QPushButton {{
-                font-size: 11px; font-weight: 700; padding: 4px 6px;
-                min-height: 28px;
-                background-color: {Color.PRIMARY}; color: {Color.BG};
-                border: 1px solid {Color.PRIMARY_DARK}; border-radius: 6px;
+                font-size: 13px; font-weight: 700; padding: 6px 10px;
+                min-height: 36px;
+                background-color: {Color.PRIMARY}; color: #FFFFFF;
+                border: 2px solid {Color.PRIMARY_DARK}; border-radius: 8px;
             }}
             QPushButton:hover {{ background-color: {Color.PRIMARY_DARK}; }}
         """
     return f"""
         QPushButton {{
-            font-size: 11px; font-weight: 600; padding: 4px 6px;
-            min-height: 28px;
+            font-size: 13px; font-weight: 600; padding: 6px 10px;
+            min-height: 36px;
             background-color: {Color.SURFACE_LIGHT}; color: {Color.TEXT_SECONDARY};
-            border: 1px solid {Color.BORDER}; border-radius: 6px;
+            border: 1px solid {Color.BORDER}; border-radius: 8px;
         }}
         QPushButton:hover {{
             border-color: {Color.PRIMARY}; color: {Color.TEXT};
@@ -87,7 +92,7 @@ def _level_btn_style(selected: bool) -> str:
             QPushButton {{
                 font-size: 18px; font-weight: 700; padding: 12px 20px;
                 min-width: 170px; min-height: 54px;
-                background-color: {Color.PRIMARY}; color: {Color.BG};
+                background-color: {Color.PRIMARY}; color: #FFFFFF;
                 border: 2px solid {Color.PRIMARY_DARK};
                 border-radius: {Size.RADIUS}px;
             }}
@@ -122,31 +127,31 @@ class _QuestionsWidget(QWidget):
         self._btn_groups: Dict[str, list] = {}
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(40, 12, 40, 10)
+        root.setContentsMargins(32, 14, 32, 10)
         root.setSpacing(0)
 
         # Push content to vertical center
         root.addStretch(1)
 
-        # Compact header
-        header = QHBoxLayout()
+        # Header
+        header = QVBoxLayout()
+        header.setSpacing(4)
         title = QLabel("Proficiency Check")
         title.setStyleSheet(
-            f"font-size: 18px; font-weight: 700; color: {Color.TEXT};"
+            f"font-size: 22px; font-weight: 700; color: {Color.TEXT};"
         )
         header.addWidget(title)
-        header.addStretch()
         sub = QLabel("Select your experience level for each question")
-        sub.setStyleSheet(f"font-size: 12px; color: {Color.TEXT_SECONDARY};")
+        sub.setStyleSheet(f"font-size: 13px; color: {Color.TEXT_SECONDARY};")
         header.addWidget(sub)
         root.addLayout(header)
 
-        root.addSpacing(10)
+        root.addSpacing(12)
 
         # 2-column grid
         grid = QGridLayout()
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(8)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(10)
 
         for idx, (prompt, key, options) in enumerate(_QUESTIONS):
             row = idx // 2
@@ -179,11 +184,12 @@ class _QuestionsWidget(QWidget):
         bottom.addStretch()
 
         self._next_btn = QPushButton(f"Next  {Icon.NEXT}")
-        self._next_btn.setFixedSize(110, 36)
+        self._next_btn.setFixedSize(130, 42)
+        self._next_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._next_btn.setStyleSheet(f"""
             QPushButton {{
-                font-size: 14px; font-weight: 700;
-                background-color: {Color.PRIMARY}; color: {Color.BG};
+                font-size: 15px; font-weight: 700;
+                background-color: {Color.PRIMARY}; color: #FFFFFF;
                 border: none; border-radius: {Size.RADIUS}px;
             }}
             QPushButton:hover {{ background-color: {Color.PRIMARY_DARK}; }}
@@ -196,32 +202,35 @@ class _QuestionsWidget(QWidget):
 
     def _make_question(self, prompt: str, key: str, options: list) -> QWidget:
         container = QWidget()
-        container.setFixedHeight(82)
+        container.setMinimumHeight(100)
+        container.setMaximumHeight(120)
         container.setStyleSheet(f"""
             QWidget {{
-                background-color: {Color.SURFACE};
-                border: 1px solid {Color.BORDER};
-                border-radius: {Size.RADIUS_SM}px;
+                background-color: #131920;
+                border: 1px solid #1E2832;
+                border-left: 3px solid {Color.PRIMARY_MUTED};
+                border-radius: {Size.RADIUS}px;
             }}
         """)
         col = QVBoxLayout(container)
-        col.setContentsMargins(12, 8, 12, 8)
-        col.setSpacing(4)
+        col.setContentsMargins(16, 12, 16, 12)
+        col.setSpacing(10)
 
         label = QLabel(prompt.replace("\n", " "))
         label.setStyleSheet(
-            f"font-size: 12px; font-weight: 600; color: {Color.TEXT};"
+            f"font-size: 14px; font-weight: 600; color: {Color.TEXT};"
             " background: transparent; border: none;"
         )
         label.setWordWrap(True)
         col.addWidget(label)
 
         row = QHBoxLayout()
-        row.setSpacing(5)
+        row.setSpacing(6)
         btns = []
         for idx, opt in enumerate(options):
             btn = QPushButton(opt)
-            btn.setStyleSheet(_opt_style(False))
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(_opt_style(idx == 0))
             btn.clicked.connect(
                 lambda _c, k=key, i=idx, bl=btns: self._select(k, i, bl)
             )
@@ -229,6 +238,8 @@ class _QuestionsWidget(QWidget):
             btns.append((idx, btn))
         col.addLayout(row)
 
+        # Pre-select first option as default
+        self._answers[key] = 0
         self._btn_groups[key] = btns
         return container
 
@@ -263,8 +274,9 @@ class _QuestionsWidget(QWidget):
     def reset(self) -> None:
         self._answers.clear()
         for key, btns in self._btn_groups.items():
-            for _, btn in btns:
-                btn.setStyleSheet(_opt_style(False))
+            for idx, btn in btns:
+                btn.setStyleSheet(_opt_style(idx == 0))
+            self._answers[key] = 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -281,36 +293,43 @@ class _ResultWidget(QWidget):
         self._level_btns: Dict[str, QPushButton] = {}
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(80, 24, 80, 24)
-        root.setSpacing(14)
+        root.setContentsMargins(60, 20, 60, 16)
+        root.setSpacing(0)
 
+        root.addStretch(2)
+
+        # Title + suggestion — centered block
         title = QLabel("Your Proficiency Result")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet(
-            f"font-size: 26px; font-weight: 700; color: {Color.TEXT};"
+            f"font-size: 24px; font-weight: 700; color: {Color.TEXT};"
         )
         root.addWidget(title)
+        root.addSpacing(4)
 
         sub = QLabel("Based on your answers, we suggest:")
         sub.setAlignment(Qt.AlignCenter)
-        sub.setStyleSheet(f"font-size: 14px; color: {Color.TEXT_SECONDARY};")
+        sub.setStyleSheet(f"font-size: 13px; color: {Color.TEXT_SECONDARY};")
         root.addWidget(sub)
+        root.addSpacing(6)
 
         self._suggestion_lbl = QLabel("Beginner")
         self._suggestion_lbl.setAlignment(Qt.AlignCenter)
         self._suggestion_lbl.setStyleSheet(
-            f"font-size: 38px; font-weight: 700; color: {Color.PRIMARY};"
+            f"font-size: 36px; font-weight: 700; color: {Color.PRIMARY};"
         )
         root.addWidget(self._suggestion_lbl)
 
-        root.addStretch()
+        root.addStretch(1)
 
+        # Level override
         choose = QLabel("You can still choose your own level:")
         choose.setAlignment(Qt.AlignCenter)
-        choose.setStyleSheet(f"font-size: 14px; color: {Color.TEXT};")
+        choose.setStyleSheet(f"font-size: 13px; color: {Color.TEXT_SECONDARY};")
         root.addWidget(choose)
+        root.addSpacing(10)
 
-        # Level selection buttons
+        # Level selection buttons — centered
         level_row = QHBoxLayout()
         level_row.setSpacing(14)
         level_row.addStretch()
@@ -325,30 +344,32 @@ class _ResultWidget(QWidget):
             self._level_btns[level] = btn
         level_row.addStretch()
         root.addLayout(level_row)
+        root.addSpacing(12)
 
+        # Description card — warm tint
         self._desc_lbl = QLabel("")
         self._desc_lbl.setAlignment(Qt.AlignCenter)
         self._desc_lbl.setWordWrap(True)
         self._desc_lbl.setStyleSheet(
-            f"font-size: 13px; color: {Color.TEXT_SECONDARY};"
-            f" background-color: {Color.SURFACE};"
-            f" border: 1px solid {Color.BORDER};"
+            f"font-size: 13px; color: {Color.TEXT};"
+            " background-color: #1A1510;"
+            " border: 1px solid #3D2E1A;"
             f" border-radius: {Size.RADIUS}px;"
-            " padding: 12px 20px;"
+            " padding: 14px 24px;"
         )
         root.addWidget(self._desc_lbl)
 
-        root.addStretch()
+        root.addStretch(2)
 
-        # Bottom row
+        # Bottom row — back left, confirm right
         bottom = QHBoxLayout()
         bottom.setSpacing(12)
 
-        back_btn = QPushButton("\u2190  Back")
-        back_btn.setFixedSize(100, 42)
+        back_btn = QPushButton(f"{Icon.BACK}  Back")
+        back_btn.setFixedSize(100, 40)
         back_btn.setStyleSheet(f"""
             QPushButton {{
-                font-size: 14px; font-weight: 600;
+                font-size: 13px; font-weight: 600;
                 background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
                 border: 1px solid {Color.BORDER_LIGHT};
                 border-radius: {Size.RADIUS}px;
@@ -360,12 +381,13 @@ class _ResultWidget(QWidget):
 
         bottom.addStretch()
 
-        confirm_btn = QPushButton("Confirm  \u2713")
-        confirm_btn.setFixedSize(160, 48)
+        confirm_btn = QPushButton(f"Confirm  {Icon.CHECK}")
+        confirm_btn.setFixedSize(150, 44)
+        confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         confirm_btn.setStyleSheet(f"""
             QPushButton {{
-                font-size: 17px; font-weight: 700;
-                background-color: {Color.PRIMARY}; color: {Color.BG};
+                font-size: 16px; font-weight: 700;
+                background-color: {Color.PRIMARY}; color: #FFFFFF;
                 border: none; border-radius: {Size.RADIUS}px;
             }}
             QPushButton:hover {{ background-color: {Color.PRIMARY_DARK}; }}
@@ -392,7 +414,11 @@ class _ResultWidget(QWidget):
     def _refresh(self) -> None:
         for lv, btn in self._level_btns.items():
             btn.setStyleSheet(_level_btn_style(lv == self._chosen))
-        self._desc_lbl.setText(_LEVEL_DESCRIPTIONS.get(self._chosen, ""))
+        self._desc_lbl.setTextFormat(Qt.TextFormat.RichText)
+        desc = _LEVEL_DESCRIPTIONS.get(self._chosen, "")
+        self._desc_lbl.setText(
+            f'<span style="color:{Color.TEXT}; font-size:13px;">{desc}</span>'
+        )
 
     def _on_confirm(self) -> None:
         logger.info("Proficiency confirmed: %s", self._chosen)

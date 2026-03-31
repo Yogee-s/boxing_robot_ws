@@ -365,9 +365,9 @@ class StartupPage(QWidget):
         top.addWidget(version_lbl)
         top.addStretch()
 
-        close_btn = QPushButton(f"{Icon.CLOSE}")
+        close_btn = QPushButton("Close")
         close_btn.setStyleSheet(close_btn_style())
-        close_btn.setFixedSize(44, 32)
+        close_btn.setFixedSize(72, 32)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.clicked.connect(lambda: self.window().close())
         top.addWidget(close_btn)
@@ -398,45 +398,45 @@ class StartupPage(QWidget):
 
         # ── Decorative divider ───────────────────────────────────────────
         divider = QFrame()
-        divider.setFixedSize(80, 2)
+        divider.setFixedSize(60, 3)
         divider.setStyleSheet(
             f"background-color: {Color.PRIMARY}; border-radius: 1px;"
         )
         root.addWidget(divider, alignment=Qt.AlignCenter)
-        root.addSpacing(20)
+        root.addSpacing(24)
 
         # ── Primary CTA — glowing button ─────────────────────────────────
-        start_btn = _GlowButton("Quick Start  →")
-        start_btn.setFixedSize(480, 64)
+        start_btn = _GlowButton("Quick Start  \u2192")
+        start_btn.setFixedSize(420, 60)
         start_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         start_btn.setStyleSheet(hero_btn_style())
         start_btn.clicked.connect(lambda: self._nav("guest_assessment"))
         root.addWidget(start_btn, alignment=Qt.AlignCenter)
 
-        guest_hint = QLabel("No account needed — start training right away")
+        guest_hint = QLabel("No account needed \u2014 start training right away")
         guest_hint.setAlignment(Qt.AlignCenter)
         guest_hint.setStyleSheet(
             f"font-size: 12px; color: {Color.TEXT_DISABLED};"
             " letter-spacing: 0.3px;"
         )
-        root.addSpacing(6)
+        root.addSpacing(4)
         root.addWidget(guest_hint, alignment=Qt.AlignCenter)
 
-        root.addSpacing(24)
+        root.addSpacing(20)
 
         # ── Log In / Sign Up — equal secondary buttons ───────────────────
         btn_row = QHBoxLayout()
         btn_row.setAlignment(Qt.AlignCenter)
-        btn_row.setSpacing(16)
+        btn_row.setSpacing(14)
 
         login_btn = QPushButton("Log In")
-        login_btn.setFixedSize(228, 54)
+        login_btn.setFixedSize(200, 50)
         login_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         login_btn.setStyleSheet(secondary_btn_style())
         login_btn.clicked.connect(lambda: self._nav("account_picker"))
 
         signup_btn = QPushButton("Sign Up")
-        signup_btn.setFixedSize(228, 54)
+        signup_btn.setFixedSize(200, 50)
         signup_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         signup_btn.setStyleSheet(secondary_btn_style())
         signup_btn.clicked.connect(lambda: self._nav("signup"))
@@ -451,7 +451,7 @@ class StartupPage(QWidget):
         bottom = QHBoxLayout()
         bottom.addStretch()
         qr_btn = QPushButton("Phone Login")
-        qr_btn.setFixedSize(150, 36)
+        qr_btn.setFixedSize(130, 34)
         qr_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         qr_btn.setStyleSheet(subtle_btn_style())
         qr_btn.clicked.connect(self._show_qr)

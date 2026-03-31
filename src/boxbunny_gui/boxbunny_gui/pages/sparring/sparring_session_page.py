@@ -1,8 +1,4 @@
-"""Full-screen sparring session page — red-themed treatment.
-
-Timer, round counter, robot attack indicator, live offense/defense
-stats, and stop button. Connects to gui_bridge signals.
-"""
+"""Full-screen sparring session — clean dark layout with live stats."""
 from __future__ import annotations
 
 import logging
@@ -10,7 +6,6 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -19,13 +14,47 @@ from PySide6.QtWidgets import (
 )
 
 from boxbunny_gui.theme import Color, Icon, Size, font, badge_style
-from boxbunny_gui.widgets import BigButton, PunchCounter, TimerDisplay
+from boxbunny_gui.widgets import PunchCounter, TimerDisplay
 
 if TYPE_CHECKING:
     from boxbunny_gui.gui_bridge import GuiBridge
     from boxbunny_gui.nav.router import PageRouter
 
 logger = logging.getLogger(__name__)
+
+
+def _stat_box(title: str, value: str, accent: str) -> tuple:
+    """Compact stat display. Returns (widget, value_label)."""
+    box = QWidget()
+    box.setFixedHeight(70)
+    box.setStyleSheet(f"""
+        QWidget {{
+            background-color: #131920;
+            border: 1px solid #1E2832;
+            border-left: 3px solid {accent};
+            border-radius: {Size.RADIUS}px;
+        }}
+    """)
+    lay = QVBoxLayout(box)
+    lay.setContentsMargins(14, 6, 14, 6)
+    lay.setSpacing(0)
+
+    hdr = QLabel(title)
+    hdr.setAlignment(Qt.AlignCenter)
+    hdr.setStyleSheet(
+        f"font-size: 10px; font-weight: 700; color: {Color.TEXT_DISABLED};"
+        " letter-spacing: 0.8px; background: transparent; border: none;"
+    )
+    lay.addWidget(hdr)
+
+    val = QLabel(value)
+    val.setAlignment(Qt.AlignCenter)
+    val.setStyleSheet(
+        f"font-size: 24px; font-weight: 700; color: {Color.TEXT};"
+        " background: transparent; border: none;"
+    )
+    lay.addWidget(val)
+    return box, val
 
 
 class SparringSessionPage(QWidget):
@@ -48,127 +77,84 @@ class SparringSessionPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 10, 24, 10)
-        root.setSpacing(8)
+        root.setContentsMargins(28, 10, 28, 12)
+        root.setSpacing(0)
 
-        # ── Top: round counter + mode badge ──────────────────────────────
+        # ── Top: round + mode ────────────────────────────────────────────
         top = QHBoxLayout()
         self._round_lbl = QLabel("Round 1/3")
-        self._round_lbl.setFont(font(18, bold=True))
         self._round_lbl.setStyleSheet(
-            f"color: {Color.TEXT};"
-            f" background-color: {Color.SURFACE};"
-            f" border-left: {Size.ACCENT_BAR_W}px solid {Color.DANGER};"
+            f"font-size: 15px; font-weight: 700; color: {Color.TEXT};"
+            " background-color: #1A1214;"
+            " border: 1px solid #3D1A22;"
+            f" border-left: 3px solid {Color.DANGER};"
             f" border-radius: {Size.RADIUS_SM}px;"
             " padding: 6px 16px;"
         )
         top.addWidget(self._round_lbl)
         top.addStretch()
-
         mode_lbl = QLabel("SPARRING")
         mode_lbl.setStyleSheet(badge_style(Color.DANGER))
         top.addWidget(mode_lbl)
         root.addLayout(top)
 
-        # ── Timer ────────────────────────────────────────────────────────
+        # ── Timer (main visual) ──────────────────────────────────────────
         self._timer = TimerDisplay(
             font_size=Size.TEXT_TIMER_SM, show_ring=True
         )
         self._timer.finished.connect(self._on_timer_done)
         root.addWidget(self._timer, stretch=1)
 
-        # ── Robot attack indicator ───────────────────────────────────────
-        attack_frame = QFrame()
-        attack_frame.setFixedHeight(50)
-        attack_frame.setStyleSheet(
-            f"QFrame {{ background-color: {Color.SURFACE};"
-            f" border: 1px solid {Color.BORDER};"
-            f" border-left: {Size.ACCENT_BAR_W}px solid {Color.WARNING};"
-            f" border-radius: {Size.RADIUS}px; }}"
-        )
-        attack_lay = QHBoxLayout(attack_frame)
-        attack_lay.setContentsMargins(16, 0, 16, 0)
+        root.addSpacing(6)
+
+        # ── Incoming attack indicator ────────────────────────────────────
+        attack_row = QHBoxLayout()
         attack_tag = QLabel("INCOMING")
         attack_tag.setStyleSheet(
-            "background: transparent;"
-            f" color: {Color.TEXT_DISABLED}; font-size: 11px;"
-            " font-weight: 700; letter-spacing: 1px;"
+            f"font-size: 10px; font-weight: 700; color: {Color.TEXT_DISABLED};"
+            " letter-spacing: 1px;"
         )
-        attack_lay.addWidget(attack_tag)
+        attack_row.addWidget(attack_tag)
         self._attack_lbl = QLabel("Waiting...")
-        self._attack_lbl.setFont(font(18, bold=True))
         self._attack_lbl.setStyleSheet(
-            f"background: transparent; color: {Color.WARNING};"
+            f"font-size: 16px; font-weight: 700; color: {Color.WARNING};"
         )
-        self._attack_lbl.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
-        attack_lay.addWidget(self._attack_lbl, stretch=1)
-        root.addWidget(attack_frame)
+        self._attack_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        attack_row.addWidget(self._attack_lbl, stretch=1)
+        root.addLayout(attack_row)
 
-        # ── Stats row: punches | hits taken | defense rate ───────────────
-        stats = QHBoxLayout()
-        stats.setSpacing(10)
+        root.addSpacing(10)
+
+        # ── Stats row ────────────────────────────────────────────────────
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(10)
 
         self._punch_counter = PunchCounter(label="YOUR PUNCHES")
-        stats.addWidget(self._punch_counter)
+        stats_row.addWidget(self._punch_counter)
 
-        stats.addStretch()
+        hits_box, self._hits_lbl = _stat_box("HITS TAKEN", "0", Color.DANGER)
+        stats_row.addWidget(hits_box)
 
-        # Hits taken
-        hits_col = QVBoxLayout()
-        hits_col.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hits_col.setSpacing(2)
-        hits_hdr = QLabel("HITS TAKEN")
-        hits_hdr.setStyleSheet(
-            f"color: {Color.TEXT_DISABLED}; font-size: 11px;"
-            " font-weight: 700; letter-spacing: 0.5px;"
-        )
-        hits_hdr.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._hits_lbl = QLabel("0")
-        self._hits_lbl.setFont(font(28, bold=True))
-        self._hits_lbl.setStyleSheet(f"color: {Color.DANGER};")
-        self._hits_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hits_col.addWidget(hits_hdr)
-        hits_col.addWidget(self._hits_lbl)
-        stats.addLayout(hits_col)
+        def_box, self._def_lbl = _stat_box("DEFENSE", "--%", Color.INFO)
+        stats_row.addWidget(def_box)
 
-        stats.addStretch()
+        root.addLayout(stats_row)
 
-        # Defense rate
-        def_col = QVBoxLayout()
-        def_col.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        def_col.setSpacing(2)
-        def_hdr = QLabel("DEFENSE")
-        def_hdr.setStyleSheet(
-            f"color: {Color.TEXT_DISABLED}; font-size: 11px;"
-            " font-weight: 700; letter-spacing: 0.5px;"
-        )
-        def_hdr.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._def_lbl = QLabel("--%")
-        self._def_lbl.setFont(font(28, bold=True))
-        self._def_lbl.setStyleSheet(f"color: {Color.PRIMARY};")
-        self._def_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        def_col.addWidget(def_hdr)
-        def_col.addWidget(self._def_lbl)
-        stats.addLayout(def_col)
-
-        root.addLayout(stats)
+        root.addSpacing(10)
 
         # ── Stop button ──────────────────────────────────────────────────
         bottom = QHBoxLayout()
         bottom.addStretch()
         self._btn_stop = QPushButton(f"{Icon.STOP}  STOP")
         self._btn_stop.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_stop.setFixedSize(140, 46)
+        self._btn_stop.setFixedSize(160, 44)
         self._btn_stop.setStyleSheet(f"""
             QPushButton {{
                 background-color: {Color.DANGER}; color: white;
-                font-size: 16px; font-weight: 700;
-                border: none; border-radius: {Size.RADIUS_LG}px;
+                font-size: 15px; font-weight: 700;
+                border: none; border-radius: {Size.RADIUS}px;
             }}
             QPushButton:hover {{ background-color: {Color.DANGER_DARK}; }}
-            QPushButton:pressed {{ background-color: #C33C3C; }}
         """)
         self._btn_stop.clicked.connect(self._on_stop)
         bottom.addWidget(self._btn_stop)
@@ -208,11 +194,12 @@ class SparringSessionPage(QWidget):
     def _parse_seconds(self, val: str) -> int:
         return int(val.rstrip("s")) if val.rstrip("s").isdigit() else 90
 
-    # ── Lifecycle ──────────────────────────────────────────────────────
     def on_enter(self, **kwargs: Any) -> None:
         self._config = kwargs.get("config", {})
         rounds = self._config.get("Rounds", "3")
-        work_time = self._parse_seconds(self._config.get("Work", "90s"))
+        work_time = self._parse_seconds(
+            self._config.get("Duration", self._config.get("Work", "90s"))
+        )
         self._round_lbl.setText(f"Round 1/{rounds}")
         self._hits_taken = 0
         self._total_attacks = 0

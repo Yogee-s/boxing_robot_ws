@@ -1,14 +1,17 @@
-"""Settings page: hardware, sound, display, AI, network, system sections."""
+"""Settings page: account, hardware, sound, display, AI, network, system."""
 from __future__ import annotations
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QPoint, QPropertyAnimation, QEasingCurve
+from PySide6.QtGui import QPainter, QPen, QColor
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
+    QPushButton,
     QScrollArea,
     QSlider,
     QVBoxLayout,
@@ -95,6 +98,91 @@ def _setting_row(label_text: str) -> tuple:
     return row, lbl
 
 
+class _SettingsPatternGrid(QWidget):
+    """Compact 3x3 pattern grid for settings."""
+
+    _CELL = 50
+    _DOT_R = 14
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        total = self._CELL * 3
+        self.setFixedSize(total, total)
+        self._entered: List[int] = []
+        self._drawing = False
+        self._cur: QPoint | None = None
+
+    def reset(self) -> None:
+        self._entered.clear()
+        self._drawing = False
+        self._cur = None
+        self.update()
+
+    @property
+    def pattern(self) -> List[int]:
+        return list(self._entered)
+
+    def _center(self, idx: int) -> QPoint:
+        r, c = divmod(idx, 3)
+        return QPoint(c * self._CELL + self._CELL // 2,
+                       r * self._CELL + self._CELL // 2)
+
+    def _hit(self, pos: QPoint) -> int:
+        for i in range(9):
+            c = self._center(i)
+            dx, dy = pos.x() - c.x(), pos.y() - c.y()
+            if dx * dx + dy * dy <= (self._DOT_R + 8) ** 2:
+                return i
+        return -1
+
+    def mousePressEvent(self, e) -> None:
+        self._entered.clear()
+        self._drawing = True
+        self._handle(e.position().toPoint())
+
+    def mouseMoveEvent(self, e) -> None:
+        if self._drawing:
+            self._cur = e.position().toPoint()
+            self._handle(self._cur)
+
+    def mouseReleaseEvent(self, e) -> None:
+        self._drawing = False
+        self._cur = None
+        self.update()
+
+    def _handle(self, pos: QPoint) -> None:
+        idx = self._hit(pos)
+        if idx >= 0 and idx not in self._entered:
+            self._entered.append(idx)
+        self.update()
+
+    def paintEvent(self, e) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        active = QColor(Color.PRIMARY)
+        inactive = QColor(Color.SURFACE_HOVER)
+        if len(self._entered) > 1:
+            lc = QColor(Color.PRIMARY)
+            lc.setAlpha(180)
+            p.setPen(QPen(lc, 3))
+            for i in range(len(self._entered) - 1):
+                p.drawLine(self._center(self._entered[i]),
+                           self._center(self._entered[i + 1]))
+            if self._drawing and self._cur:
+                p.drawLine(self._center(self._entered[-1]), self._cur)
+        for i in range(9):
+            c = self._center(i)
+            is_on = i in self._entered
+            p.setPen(Qt.NoPen)
+            p.setBrush(active if is_on else inactive)
+            r = self._DOT_R if is_on else self._DOT_R - 3
+            p.drawEllipse(c, r, r)
+            if not is_on:
+                p.setBrush(QColor(Color.TEXT_DISABLED))
+                p.drawEllipse(c, 4, 4)
+        p.end()
+
+
 class SettingsPage(QWidget):
     def __init__(
         self,
@@ -132,6 +220,124 @@ class SettingsPage(QWidget):
         sections = QVBoxLayout(container)
         sections.setSpacing(12)
         sections.setContentsMargins(2, 2, 2, 2)
+
+        # Account — password & pattern reset
+        acct = _Section("Account")
+        self._acct_user_lbl = QLabel("Not logged in")
+        self._acct_user_lbl.setStyleSheet(
+            f"background: transparent; font-size: 14px; color: {Color.TEXT};"
+        )
+        acct.content_layout.addWidget(self._acct_user_lbl)
+
+        # Password change row
+        pw_lbl = QLabel("Change Password")
+        pw_lbl.setStyleSheet(
+            f"background: transparent; font-size: 12px; font-weight: 600;"
+            f" color: {Color.TEXT_SECONDARY};"
+        )
+        acct.content_layout.addWidget(pw_lbl)
+
+        pw_row = QHBoxLayout()
+        pw_row.setSpacing(8)
+        self._new_pw = QLineEdit()
+        self._new_pw.setPlaceholderText("New password")
+        self._new_pw.setEchoMode(QLineEdit.EchoMode.Password)
+        self._new_pw.setFixedHeight(36)
+        self._new_pw.setMinimumWidth(160)
+        pw_row.addWidget(self._new_pw)
+
+        self._confirm_pw = QLineEdit()
+        self._confirm_pw.setPlaceholderText("Confirm password")
+        self._confirm_pw.setEchoMode(QLineEdit.EchoMode.Password)
+        self._confirm_pw.setFixedHeight(36)
+        self._confirm_pw.setMinimumWidth(160)
+        pw_row.addWidget(self._confirm_pw)
+
+        pw_save = QPushButton("Update Password")
+        pw_save.setCursor(Qt.CursorShape.PointingHandCursor)
+        pw_save.setFixedSize(140, 36)
+        pw_save.setStyleSheet(self._action_btn_style())
+        pw_save.clicked.connect(self._on_change_password)
+        pw_row.addWidget(pw_save)
+        acct.content_layout.addLayout(pw_row)
+
+        # Pattern — collapsible behind a button
+        pat_toggle_row = QHBoxLayout()
+        pat_lbl = QLabel("Pattern Lock")
+        pat_lbl.setStyleSheet(
+            f"background: transparent; font-size: 12px; font-weight: 600;"
+            f" color: {Color.TEXT_SECONDARY};"
+        )
+        pat_toggle_row.addWidget(pat_lbl)
+        pat_toggle_row.addStretch()
+
+        self._pat_toggle_btn = QPushButton("Set / Change Pattern")
+        self._pat_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._pat_toggle_btn.setFixedSize(170, 32)
+        self._pat_toggle_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 12px; font-weight: 600;
+                background-color: {Color.SURFACE_LIGHT}; color: {Color.TEXT_SECONDARY};
+                border: 1px solid {Color.BORDER}; border-radius: 6px;
+            }}
+            QPushButton:hover {{
+                color: {Color.PRIMARY}; border-color: {Color.PRIMARY};
+            }}
+        """)
+        self._pat_toggle_btn.clicked.connect(self._toggle_pattern_panel)
+        pat_toggle_row.addWidget(self._pat_toggle_btn)
+        acct.content_layout.addLayout(pat_toggle_row)
+
+        # Hidden pattern panel — centered grid + buttons below
+        self._pat_panel = QWidget()
+        self._pat_panel.setMaximumHeight(0)
+        pat_panel_lay = QVBoxLayout(self._pat_panel)
+        pat_panel_lay.setContentsMargins(0, 6, 0, 0)
+        pat_panel_lay.setSpacing(8)
+        pat_panel_lay.setAlignment(Qt.AlignCenter)
+
+        self._pattern_grid = _SettingsPatternGrid()
+        pat_panel_lay.addWidget(self._pattern_grid, alignment=Qt.AlignCenter)
+
+        pat_btn_row = QHBoxLayout()
+        pat_btn_row.setAlignment(Qt.AlignCenter)
+        pat_btn_row.setSpacing(8)
+
+        pat_save = QPushButton("Save Pattern")
+        pat_save.setCursor(Qt.CursorShape.PointingHandCursor)
+        pat_save.setFixedSize(120, 32)
+        pat_save.setStyleSheet(self._action_btn_style())
+        pat_save.clicked.connect(self._on_set_pattern)
+        pat_btn_row.addWidget(pat_save)
+
+        pat_clear = QPushButton("Reset")
+        pat_clear.setCursor(Qt.CursorShape.PointingHandCursor)
+        pat_clear.setFixedSize(80, 32)
+        pat_clear.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 12px; font-weight: 600;
+                background-color: transparent; color: {Color.TEXT_SECONDARY};
+                border: 1px solid {Color.BORDER}; border-radius: 6px;
+            }}
+            QPushButton:hover {{ color: {Color.TEXT}; border-color: {Color.PRIMARY}; }}
+        """)
+        pat_clear.clicked.connect(self._pattern_grid.reset)
+        pat_btn_row.addWidget(pat_clear)
+        pat_panel_lay.addLayout(pat_btn_row)
+
+        # Animation for smooth expand/collapse
+        self._pat_anim = QPropertyAnimation(self._pat_panel, b"maximumHeight")
+        self._pat_anim.setDuration(250)
+        self._pat_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        acct.content_layout.addWidget(self._pat_panel)
+
+        self._pw_status = QLabel("")
+        self._pw_status.setStyleSheet(
+            f"background: transparent; font-size: 12px; color: {Color.DANGER};"
+        )
+        acct.content_layout.addWidget(self._pw_status)
+        sections.addWidget(acct)
 
         # Hardware
         hw = _Section("Hardware")
@@ -218,8 +424,97 @@ class SettingsPage(QWidget):
         scroll.setWidget(container)
         root.addWidget(scroll, stretch=1)
 
+    def _toggle_pattern_panel(self) -> None:
+        expanding = self._pat_panel.maximumHeight() == 0
+        self._pat_anim.stop()
+        if expanding:
+            self._pat_anim.setStartValue(0)
+            self._pat_anim.setEndValue(220)
+            self._pat_toggle_btn.setText("Cancel")
+        else:
+            self._pat_anim.setStartValue(self._pat_panel.height())
+            self._pat_anim.setEndValue(0)
+            self._pat_toggle_btn.setText("Set / Change Pattern")
+            self._pattern_grid.reset()
+        self._pat_anim.start()
+
+    @staticmethod
+    def _action_btn_style() -> str:
+        return f"""
+            QPushButton {{
+                font-size: 13px; font-weight: 600;
+                background-color: {Color.PRIMARY}; color: #FFFFFF;
+                border: none; border-radius: 8px;
+            }}
+            QPushButton:hover {{ background-color: {Color.PRIMARY_DARK}; }}
+        """
+
+    def _set_status(self, text: str, success: bool = False) -> None:
+        color = Color.PRIMARY if success else Color.DANGER
+        self._pw_status.setStyleSheet(
+            f"background: transparent; font-size: 12px; color: {color};"
+        )
+        self._pw_status.setText(text)
+
+    def _on_set_pattern(self) -> None:
+        pattern = self._pattern_grid.pattern
+        if len(pattern) < 3:
+            self._set_status("Pattern must connect at least 3 dots")
+            return
+        try:
+            from boxbunny_gui.db_helper import update_pattern
+            if update_pattern(self._username, pattern):
+                self._set_status("Pattern updated successfully", success=True)
+                self._pattern_grid.reset()
+                self._pat_anim.stop()
+                self._pat_anim.setStartValue(self._pat_panel.height())
+                self._pat_anim.setEndValue(0)
+                self._pat_anim.start()
+                self._pat_toggle_btn.setText("Set / Change Pattern")
+                logger.info("Pattern updated for user: %s", self._username)
+            else:
+                self._set_status("Failed to update pattern")
+        except Exception as exc:
+            logger.warning("Pattern change failed: %s", exc)
+            self._set_status("Failed to update pattern")
+
+    def _on_change_password(self) -> None:
+        new_pw = self._new_pw.text()
+        confirm = self._confirm_pw.text()
+
+        if len(new_pw) < 4:
+            self._set_status("Password must be at least 4 characters")
+            return
+        if new_pw != confirm:
+            self._set_status("Passwords do not match")
+            return
+
+        try:
+            from boxbunny_gui.db_helper import update_password
+            if update_password(self._username, new_pw):
+                self._set_status("Password updated successfully", success=True)
+                self._new_pw.clear()
+                self._confirm_pw.clear()
+                logger.info("Password updated for user: %s", self._username)
+            else:
+                self._set_status("Failed to update password")
+        except Exception as exc:
+            logger.warning("Password change failed: %s", exc)
+            self._set_status("Failed to update password")
+
     def on_enter(self, **kwargs: Any) -> None:
-        logger.debug("SettingsPage entered")
+        self._username = kwargs.get("username", "")
+        if self._username:
+            self._acct_user_lbl.setText(f"Logged in as: {self._username}")
+        else:
+            self._acct_user_lbl.setText("Guest session")
+        self._new_pw.clear()
+        self._confirm_pw.clear()
+        self._pattern_grid.reset()
+        self._pat_panel.setMaximumHeight(0)
+        self._pat_toggle_btn.setText("Set / Change Pattern")
+        self._pw_status.setText("")
+        logger.debug("SettingsPage entered (user=%s)", self._username)
 
     def on_leave(self) -> None:
         pass

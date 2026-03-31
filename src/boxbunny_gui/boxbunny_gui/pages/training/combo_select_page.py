@@ -87,15 +87,21 @@ class _ComboRow(QWidget):
         mastered = attempts >= MIN_ATTEMPTS_FOR_MASTERY and mastery >= threshold
         pct = min(int((mastery / threshold) * 100), 100) if threshold > 0 else 0
 
-        border_color = Color.PRIMARY if is_next else Color.BORDER
-        bg = Color.SURFACE_HOVER if is_next else Color.SURFACE
+        if is_next:
+            bg = "#1A1510"
+            border_color = "#3D2E1A"
+            left_border = f"border-left: 3px solid {Color.PRIMARY};"
+        else:
+            bg = Color.SURFACE
+            border_color = Color.BORDER
+            left_border = ""
 
-        self.setFixedHeight(60)
+        self.setFixedHeight(58)
         self.setStyleSheet(f"""
             QWidget {{
                 background-color: {bg};
                 border: 1px solid {border_color};
-                {'border-left: ' + str(Size.ACCENT_BAR_W) + 'px solid ' + Color.PRIMARY + ';' if is_next else ''}
+                {left_border}
                 border-radius: {Size.RADIUS_SM}px;
             }}
         """)
@@ -110,7 +116,7 @@ class _ComboRow(QWidget):
             badge.setFixedWidth(42)
             badge.setAlignment(Qt.AlignCenter)
             badge.setStyleSheet(
-                f"background: {Color.PRIMARY}; color: {Color.BG};"
+                f"background: {Color.PRIMARY}; color: #FFFFFF;"
                 " font-size: 10px; font-weight: 700;"
                 f" border-radius: 4px; padding: 2px 6px; border: none;"
             )
@@ -231,9 +237,16 @@ class ComboSelectPage(QWidget):
         tabs.addStretch()
         root.addLayout(tabs)
 
-        # ── Group progress card ─────────���─────────────────────────────
+        # ── Group progress card ──────────────────────────────────────
         self._progress_card = QFrame()
-        self._progress_card.setStyleSheet(accent_frame_style(Color.PRIMARY))
+        self._progress_card.setStyleSheet(f"""
+            QFrame {{
+                background-color: #1A1510;
+                border: 1px solid #3D2E1A;
+                border-left: 3px solid {Color.PRIMARY};
+                border-radius: {Size.RADIUS}px;
+            }}
+        """)
         pc_lay = QVBoxLayout(self._progress_card)
         pc_lay.setContentsMargins(18, 12, 18, 12)
         pc_lay.setSpacing(6)
@@ -384,7 +397,7 @@ class ComboSelectPage(QWidget):
             # Group header
             header = QLabel(f"  {group_name}")
             header.setStyleSheet(
-                f"color: {Color.TEXT_DISABLED}; font-size: 11px;"
+                f"color: {Color.TEXT_SECONDARY}; font-size: 11px;"
                 " font-weight: 700; letter-spacing: 0.6px;"
             )
             header.setFixedHeight(20)

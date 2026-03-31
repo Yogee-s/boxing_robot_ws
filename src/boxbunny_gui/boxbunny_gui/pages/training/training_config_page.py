@@ -1,7 +1,7 @@
-"""Session configuration page (single page replaces old 5-page flow).
+"""Session configuration page — selected combo + parameter tiles.
 
-Shows selected combo and tappable parameter tiles for rounds, work time,
-rest time, and speed. Enhanced with colored tile accents.
+Matches the old GUI's config flow (rounds, work time, rest time, speed)
+but consolidated into a single clean page.
 """
 from __future__ import annotations
 
@@ -10,17 +10,17 @@ from typing import TYPE_CHECKING, Any, Dict, List
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from boxbunny_gui.theme import (
-    Color, Icon, Size, font, GHOST_BTN, PRIMARY_BTN,
-    config_tile_style_v2, back_link_style, badge_style,
+    Color, Icon, Size, font, PRIMARY_BTN,
+    back_link_style, badge_style,
 )
 from boxbunny_gui.widgets import BigButton
 
@@ -29,64 +29,68 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_PARAMS: Dict[str, Dict[str, Any]] = {
-    "Rounds": {"options": ["1", "2", "3", "5"], "accent": Color.PRIMARY},
-    "Work Time": {"options": ["60s", "90s", "120s", "180s"], "accent": Color.DANGER},
-    "Rest Time": {"options": ["30s", "45s", "60s"], "accent": Color.INFO},
-    "Speed": {"options": ["Slow", "Medium", "Fast"], "accent": Color.WARNING},
+# Punch display helpers
+_PUNCH_NAMES = {
+    "1": "Jab", "2": "Cross", "3": "L Hook", "4": "R Hook",
+    "5": "L Upper", "6": "R Upper",
+}
+
+_PARAMS: Dict[str, Dict] = {
+    "Rounds":    {"opts": ["1", "2", "3", "5", "8"], "accent": "#4A90D9",
+                  "default": 2},
+    "Work Time": {"opts": ["60s", "90s", "120s", "180s"], "accent": "#56B886",
+                  "default": 1},
+    "Rest Time": {"opts": ["30s", "45s", "60s", "90s"], "accent": "#8B7EC8",
+                  "default": 1},
+    "Speed":     {"opts": ["Slow", "Medium", "Fast"], "accent": "#C88D2E",
+                  "default": 1},
 }
 
 
 class _ParamTile(QPushButton):
-    """Tappable tile with colored top accent that cycles through values."""
+    """Tappable tile with left accent that cycles through values."""
 
-    def __init__(
-        self, label: str, options: List[str],
-        accent: str = "", parent: QWidget | None = None,
-    ) -> None:
+    def __init__(self, label: str, options: List[str], accent: str,
+                 default: int = 0, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._label_text = label
+        self._label = label
         self._options = options
-        self._index: int = 0
-        self._accent = accent or Color.PRIMARY
+        self._index: int = default
+        self._accent = accent
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(220, 110)
-        self.setText("")
-        self.setStyleSheet(config_tile_style_v2(self._accent))
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setFixedHeight(70)
+        self._apply_style()
+        self._update_text()
         self.clicked.connect(self._cycle)
 
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(12, 12, 12, 8)
-        lay.setSpacing(2)
-
-        self._label_lbl = QLabel(label.upper())
-        self._label_lbl.setStyleSheet(
-            "background: transparent;"
-            f" color: {Color.TEXT_DISABLED}; font-size: 10px;"
-            " font-weight: 700; letter-spacing: 1px;"
-        )
-        self._label_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lay.addWidget(self._label_lbl)
-
-        self._value_lbl = QLabel(self._options[0])
-        self._value_lbl.setStyleSheet(
-            "background: transparent;"
-            f" color: {Color.TEXT}; font-size: 28px; font-weight: 700;"
-        )
-        self._value_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lay.addWidget(self._value_lbl, stretch=1)
-
-        self._hint_lbl = QLabel("tap to change")
-        self._hint_lbl.setStyleSheet(
-            "background: transparent;"
-            f" color: {Color.TEXT_DISABLED}; font-size: 10px;"
-        )
-        self._hint_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lay.addWidget(self._hint_lbl)
+    def _apply_style(self) -> None:
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {Color.SURFACE}; color: {Color.TEXT};
+                border: 1px solid {Color.BORDER};
+                border-left: 3px solid {self._accent};
+                border-radius: {Size.RADIUS}px;
+                font-size: 15px; font-weight: 600; padding: 10px 14px;
+            }}
+            QPushButton:hover {{
+                background-color: {Color.SURFACE_HOVER};
+                border-color: {self._accent};
+                border-left: 3px solid {self._accent};
+            }}
+            QPushButton:pressed {{
+                background-color: {self._accent}; color: #FFFFFF;
+                border-color: {self._accent};
+                border-left: 3px solid {self._accent};
+            }}
+        """)
 
     def _cycle(self) -> None:
         self._index = (self._index + 1) % len(self._options)
-        self._value_lbl.setText(self._options[self._index])
+        self._update_text()
+
+    def _update_text(self) -> None:
+        self.setText(f"{self._label}\n{self._options[self._index]}")
 
     @property
     def value(self) -> str:
@@ -107,64 +111,113 @@ class TrainingConfigPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 16, 24, 20)
-        root.setSpacing(14)
+        root.setContentsMargins(32, 12, 32, 14)
+        root.setSpacing(0)
 
-        # Back link + title row
+        # ── Top bar ──────────────────────────────────────────────────────
         top = QHBoxLayout()
         btn_back = QPushButton(f"{Icon.BACK}  Back")
         btn_back.setStyleSheet(back_link_style())
         btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_back.clicked.connect(lambda: self._router.back())
         top.addWidget(btn_back)
-        top.addStretch()
-        self._title = QLabel("Configure Session")
+        self._title = QLabel("Training Setup")
         self._title.setFont(font(Size.TEXT_SUBHEADER, bold=True))
         top.addWidget(self._title)
         top.addStretch()
-        spacer = QLabel()
-        spacer.setFixedWidth(80)
-        top.addWidget(spacer)
+        self._diff_badge = QLabel("TRAINING")
+        self._diff_badge.setStyleSheet(badge_style(Color.PRIMARY))
+        top.addWidget(self._diff_badge)
         root.addLayout(top)
 
-        # Combo badge display
-        combo_row = QHBoxLayout()
-        combo_row.addStretch()
-        self._combo_lbl = QLabel()
-        self._combo_lbl.setStyleSheet(
-            f"color: {Color.PRIMARY}; font-size: 16px; font-weight: 600;"
-            f" background-color: {Color.SURFACE};"
-            f" border: 1px solid {Color.PRIMARY}30;"
-            f" border-left: {Size.ACCENT_BAR_W}px solid {Color.PRIMARY};"
-            f" border-radius: {Size.RADIUS}px;"
-            " padding: 8px 24px;"
+        root.addSpacing(14)
+
+        # ── Selected combo display ───────────────────────────────────────
+        combo_lbl = QLabel("Selected Combo")
+        combo_lbl.setStyleSheet(
+            f"font-size: 13px; font-weight: 700; color: {Color.TEXT_SECONDARY};"
+            " letter-spacing: 0.5px;"
         )
-        self._combo_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        combo_row.addWidget(self._combo_lbl)
-        combo_row.addStretch()
-        root.addLayout(combo_row)
+        root.addWidget(combo_lbl)
+        root.addSpacing(6)
 
-        # Parameter grid (2x2)
-        grid = QGridLayout()
-        grid.setSpacing(14)
-        for i, (label, cfg) in enumerate(_PARAMS.items()):
-            tile = _ParamTile(
-                label, cfg["options"],
-                accent=cfg.get("accent", Color.PRIMARY),
-                parent=self,
-            )
-            grid.addWidget(
-                tile, i // 2, i % 2,
-                alignment=Qt.AlignmentFlag.AlignCenter,
-            )
-            self._tiles[label] = tile
-        root.addLayout(grid, stretch=1)
+        # Combo info card — warm tint like sparring description
+        self._combo_card = QWidget()
+        self._combo_card.setStyleSheet(f"""
+            QWidget {{
+                background-color: #1A1510;
+                border: 1px solid #3D2E1A;
+                border-left: 3px solid {Color.PRIMARY};
+                border-radius: {Size.RADIUS}px;
+            }}
+        """)
+        card_lay = QHBoxLayout(self._combo_card)
+        card_lay.setContentsMargins(16, 12, 16, 12)
+        card_lay.setSpacing(16)
 
-        # Start button
+        self._combo_name_lbl = QLabel("Free Training")
+        self._combo_name_lbl.setStyleSheet(
+            f"font-size: 18px; font-weight: 700; color: {Color.TEXT};"
+            " background: transparent; border: none;"
+        )
+        card_lay.addWidget(self._combo_name_lbl)
+
+        self._combo_seq_lbl = QLabel("")
+        self._combo_seq_lbl.setStyleSheet(
+            f"font-size: 13px; color: {Color.TEXT_SECONDARY};"
+            " background: transparent; border: none;"
+        )
+        card_lay.addWidget(self._combo_seq_lbl)
+        card_lay.addStretch()
+
+        root.addWidget(self._combo_card)
+
+        root.addSpacing(18)
+
+        # ── Parameters ───────────────────────────────────────────────────
+        params_header = QHBoxLayout()
+        params_lbl = QLabel("Parameters")
+        params_lbl.setStyleSheet(
+            f"font-size: 13px; font-weight: 700; color: {Color.TEXT_SECONDARY};"
+            " letter-spacing: 0.5px;"
+        )
+        params_header.addWidget(params_lbl)
+        params_header.addStretch()
+        tap_hint = QLabel("Tap to cycle")
+        tap_hint.setStyleSheet(f"font-size: 11px; color: {Color.TEXT_DISABLED};")
+        params_header.addWidget(tap_hint)
+        root.addLayout(params_header)
+        root.addSpacing(8)
+
+        # Row 1: Rounds, Work Time
+        row1 = QHBoxLayout()
+        row1.setSpacing(10)
+        for key in ["Rounds", "Work Time"]:
+            p = _PARAMS[key]
+            tile = _ParamTile(key, p["opts"], p["accent"], p["default"], self)
+            row1.addWidget(tile)
+            self._tiles[key] = tile
+        root.addLayout(row1)
+
+        root.addSpacing(10)
+
+        # Row 2: Rest Time, Speed
+        row2 = QHBoxLayout()
+        row2.setSpacing(10)
+        for key in ["Rest Time", "Speed"]:
+            p = _PARAMS[key]
+            tile = _ParamTile(key, p["opts"], p["accent"], p["default"], self)
+            row2.addWidget(tile)
+            self._tiles[key] = tile
+        root.addLayout(row2)
+
+        root.addStretch(1)
+
+        # ── Start button ─────────────────────────────────────────────────
         self._btn_start = BigButton(
             f"{Icon.PLAY}  Start Training", stylesheet=PRIMARY_BTN
         )
-        self._btn_start.setFixedHeight(64)
+        self._btn_start.setFixedHeight(54)
         self._btn_start.clicked.connect(self._on_start)
         root.addWidget(self._btn_start)
 
@@ -183,8 +236,28 @@ class TrainingConfigPage(QWidget):
         self._combo = kwargs.get("combo", {})
         self._curriculum = kwargs.get("curriculum")
         self._difficulty = kwargs.get("difficulty", "")
+
         combo_name = self._combo.get("name", "Free Training")
-        self._combo_lbl.setText(combo_name)
+        self._combo_name_lbl.setText(combo_name)
+
+        # Build readable sequence
+        seq = self._combo.get("seq", "")
+        if seq:
+            parts = []
+            for token in seq.split("-"):
+                base = token.rstrip("b")
+                name = _PUNCH_NAMES.get(base, token)
+                if token.endswith("b"):
+                    name += " (body)"
+                parts.append(name)
+            self._combo_seq_lbl.setText(" \u2192 ".join(parts))
+        else:
+            self._combo_seq_lbl.setText("")
+
+        # Update badge
+        if self._difficulty:
+            self._diff_badge.setText(self._difficulty.upper())
+
         logger.debug("TrainingConfigPage entered (combo=%s)", combo_name)
 
     def on_leave(self) -> None:

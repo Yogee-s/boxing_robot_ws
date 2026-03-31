@@ -1,6 +1,6 @@
 """Guest home page — shown after skill assessment.
 
-Clean mode selection with accent-colored cards.
+Matches the individual home page styling with warm-tinted cards.
 """
 from __future__ import annotations
 
@@ -13,97 +13,104 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from boxbunny_gui.theme import (
-    Color, Icon, Size, close_btn_style, subtle_btn_style,
-)
+from boxbunny_gui.theme import Color, Icon, Size, subtle_btn_style
 
 logger = logging.getLogger(__name__)
 
+_H = f"color:{Color.PRIMARY_LIGHT}; font-weight:600"
 _MODES = [
     {
         "name": "Training",
-        "desc": "Practice combos with guided drills",
+        "desc": f'Practice <span style="{_H}">combos</span> with '
+                f'<span style="{_H}">guided drills</span>',
         "accent": Color.PRIMARY,
+        "bg": "#1A1510", "border": "#3D2E1A",
         "route": "training_select",
     },
     {
         "name": "Sparring",
-        "desc": "Fight against the robot AI",
+        "desc": f'<span style="{_H}">Fight</span> against the '
+                f'<span style="{_H}">robot AI</span>',
         "accent": Color.DANGER,
+        "bg": "#1A1214", "border": "#3D1A22",
         "route": "sparring_select",
     },
     {
         "name": "Free Training",
-        "desc": "Open session, no structure",
+        "desc": f'<span style="{_H}">Open session</span>, no structure',
         "accent": Color.INFO,
+        "bg": "#101820", "border": "#1A2E40",
         "route": "training_session",
     },
     {
         "name": "Performance",
-        "desc": "Test your power, stamina and speed",
+        "desc": f'Test your <span style="{_H}">power</span>, '
+                f'<span style="{_H}">stamina</span> and '
+                f'<span style="{_H}">speed</span>',
         "accent": Color.PURPLE,
+        "bg": "#16101E", "border": "#2A1A3D",
         "route": "performance",
     },
 ]
 
 
 def _mode_card(mode: dict) -> QPushButton:
-    """Mode card with left accent bar, accent-colored title, and arrow."""
     accent = mode["accent"]
+    bg = mode.get("bg", Color.SURFACE)
+    border = mode.get("border", Color.BORDER)
     btn = QPushButton()
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
-    btn.setFixedHeight(120)
+    btn.setFixedHeight(110)
     btn.setStyleSheet(f"""
         QPushButton {{
-            background-color: {Color.SURFACE};
-            border: 1px solid {Color.BORDER};
-            border-left: 4px solid {accent};
+            background-color: {bg};
+            border: 1px solid {border};
+            border-left: 3px solid {accent};
             border-radius: {Size.RADIUS}px;
             text-align: left;
         }}
         QPushButton:hover {{
             background-color: {Color.SURFACE_HOVER};
-            border-color: {accent}40;
-            border-left: 4px solid {accent};
+            border: 1px solid {accent};
+            border-left: 3px solid {accent};
         }}
         QPushButton:pressed {{
-            background-color: {Color.SURFACE_LIGHT};
-            border-left: 4px solid {accent};
+            background-color: {accent};
+            border-color: {accent};
+            border-left: 3px solid {accent};
         }}
     """)
 
     lay = QHBoxLayout(btn)
-    lay.setContentsMargins(20, 14, 18, 14)
-    lay.setSpacing(14)
+    lay.setContentsMargins(18, 14, 16, 14)
+    lay.setSpacing(0)
 
-    # Text column
     text_col = QVBoxLayout()
     text_col.setSpacing(4)
     text_col.setContentsMargins(0, 0, 0, 0)
 
     title = QLabel(mode["name"])
     title.setStyleSheet(
-        "background: transparent;"
-        f" font-size: 18px; font-weight: 700; color: {accent};"
-        " border: none;"
+        "background: transparent; border: none;"
+        f" font-size: 17px; font-weight: 700; color: {Color.TEXT};"
     )
     title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
     text_col.addWidget(title)
 
     desc = QLabel(mode["desc"])
+    desc.setTextFormat(Qt.TextFormat.RichText)
     desc.setStyleSheet(
-        f"background: transparent; font-size: 13px;"
-        f" color: {Color.TEXT_SECONDARY}; border: none;"
+        "background: transparent; border: none;"
+        f" font-size: 12px; color: {Color.TEXT_SECONDARY};"
     )
     desc.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
     text_col.addWidget(desc)
 
     lay.addLayout(text_col, stretch=1)
 
-    # Arrow in accent color
     arrow = QLabel(Icon.NEXT)
     arrow.setStyleSheet(
-        f"color: {accent}60; font-size: 20px;"
+        f"color: {accent}; font-size: 16px;"
         " background: transparent; border: none;"
     )
     arrow.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -120,40 +127,47 @@ class HomeGuestPage(QWidget):
         self._router = router
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(40, 12, 40, 12)
+        root.setContentsMargins(32, 14, 32, 10)
         root.setSpacing(0)
 
-        # ── Top bar (pinned to top) ─────────────────────────────────────
+        # ── Top bar ──────────────────────────────────────────────────────
         top = QHBoxLayout()
         top.setSpacing(10)
 
         title = QLabel("Welcome")
         title.setStyleSheet(
-            f"font-size: 24px; font-weight: 700; color: {Color.TEXT};"
+            f"font-size: 22px; font-weight: 700; color: {Color.TEXT};"
         )
         top.addWidget(title)
         top.addStretch()
 
-        close_btn = QPushButton(f"{Icon.CLOSE}")
-        close_btn.setStyleSheet(close_btn_style())
-        close_btn.setFixedSize(44, 32)
+        close_btn = QPushButton("Close")
+        close_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 13px; font-weight: 600; padding: 6px 14px;
+                background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
+                border: 1px solid {Color.BORDER_LIGHT}; border-radius: 8px;
+            }}
+            QPushButton:hover {{
+                background-color: {Color.DANGER}; color: white;
+                border-color: {Color.DANGER};
+            }}
+        """)
+        close_btn.setFixedHeight(32)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.clicked.connect(lambda: self.window().close())
         top.addWidget(close_btn)
         root.addLayout(top)
 
         sub = QLabel("Choose a mode to get started")
-        sub.setStyleSheet(
-            f"font-size: 13px; color: {Color.TEXT_SECONDARY};"
-        )
+        sub.setStyleSheet(f"font-size: 13px; color: {Color.TEXT_SECONDARY};")
         root.addWidget(sub)
 
-        # Center the grid vertically
         root.addStretch(1)
 
         # ── 2x2 Mode grid ───────────────────────────────────────────────
         grid = QGridLayout()
-        grid.setSpacing(12)
+        grid.setSpacing(10)
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
 
@@ -165,13 +179,11 @@ class HomeGuestPage(QWidget):
             grid.addWidget(btn, i // 2, i % 2)
 
         root.addLayout(grid)
-
         root.addStretch(1)
 
         # ── Bottom ───────────────────────────────────────────────────────
         bottom = QHBoxLayout()
         bottom.addStretch()
-
         back = QPushButton(f"{Icon.BACK}  Back")
         back.setCursor(Qt.CursorShape.PointingHandCursor)
         back.setFixedSize(100, 30)
