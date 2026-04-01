@@ -57,40 +57,39 @@ _PUNCH_TYPES = {
     "r_upper":   ("right", "centre"),
 }
 
-# Punch colours for the simulator
+# Punch colours — match GUI theme
 PUNCH_JAB    = "#58A6FF"
 PUNCH_CROSS  = "#FF5C5C"
 PUNCH_HOOK   = "#56D364"
 PUNCH_UPPER  = "#BC8CFF"
 
-# ── Theme ────────────────────────────────────────────────────────────────
-BG       = "#0D0D0D"
-SURFACE  = "#161616"
-SURFACE2 = "#1E1E1E"
-FG       = "#E8E8E8"
-FG_DIM   = "#888888"
-FG_MUTED = "#444444"
-PRIMARY  = "#FF6B35"
-BORDER   = "#252525"
+# ── Theme — matches BoxBunny GUI palette ─────────────────────────────────
+BG         = "#0B0F14"
+SURFACE    = "#131920"
+SURFACE2   = "#1A2029"
+SURFACE3   = "#222B37"  # hover state
+FG         = "#E6EDF3"
+FG_DIM     = "#8B949E"
+FG_MUTED   = "#484F58"
+PRIMARY    = "#FF6B35"
+PRIMARY_DK = "#E85E2C"
+BORDER     = "#1C222A"
+BORDER_LT  = "#2A3340"
 
-# Force level colours
-GREEN   = "#2ECC71"
-AMBER   = "#F39C12"
-RED     = "#E74C3C"
+GREEN   = "#56D364"
+AMBER   = "#FFAB40"
+RED     = "#FF5C5C"
 
-# Pad resting colour (dark crimson)
-PAD_BG     = "#2A1216"
-PAD_BORDER = "#4A2030"
+PAD_BG     = "#1A1214"
+PAD_FLASH  = "#3D1A22"
 
-# Arm resting colour (dark navy)
-ARM_BG     = "#121A2E"
-ARM_BORDER = "#1E3050"
+ARM_BG     = "#101820"
+ARM_FLASH  = "#1A2E40"
 
-# Sequence panel
-SEQ_BG = "#111111"
+SEQ_BG = "#0E1319"
 
-FONT     = "Helvetica"
-FONT_M   = "Monospace"
+FONT   = "Helvetica"
+FONT_M = "Monospace"
 
 log = logging.getLogger("imu_simulator")
 
@@ -198,212 +197,173 @@ class IMUSimulatorGUI:
     def _build(self) -> None:
         r = self._root
 
-        # Title
-        top = tk.Frame(r, bg=SURFACE, height=48)
+        # ── Title bar ───────────────────────────────────────────────────
+        top = tk.Frame(r, bg=SURFACE, height=44)
         top.pack(fill="x")
         top.pack_propagate(False)
-        tk.Label(top, text="Box", font=(FONT, 15, "bold"),
-                 bg=SURFACE, fg=FG).pack(side="left", padx=(14, 0))
-        tk.Label(top, text="Bunny", font=(FONT, 15, "bold"),
+        tk.Label(top, text="Box", font=(FONT, 14, "bold"),
+                 bg=SURFACE, fg=FG).pack(side="left", padx=(16, 0))
+        tk.Label(top, text="Bunny", font=(FONT, 14, "bold"),
                  bg=SURFACE, fg=PRIMARY).pack(side="left")
-        tk.Label(top, text="IMU Simulator", font=(FONT, 10),
+        tk.Label(top, text="IMU Simulator", font=(FONT, 9),
                  bg=SURFACE, fg=FG_DIM).pack(side="left", padx=8)
 
-        # ── Acceleration slider ─────────────────────────────────────────
-        tk.Label(r, text="ACCELERATION (m/s\u00B2)", font=(FONT, 8),
-                 bg=BG, fg=FG_MUTED).pack(anchor="w", padx=20, pady=(12, 0))
+        # ── Force section ───────────────────────────────────────────────
+        force_frame = tk.Frame(r, bg=BG)
+        force_frame.pack(fill="x", padx=16, pady=(10, 0))
 
-        accel_row = tk.Frame(r, bg=BG)
-        accel_row.pack(fill="x", padx=20, pady=(4, 0))
+        tk.Label(force_frame, text="FORCE", font=(FONT, 8, "bold"),
+                 bg=BG, fg=FG_MUTED).pack(side="left", padx=(0, 8))
 
         self._accel_var = tk.DoubleVar(value=30.0)
-        self._accel_slider = tk.Scale(
-            accel_row, from_=0, to=60, orient="horizontal",
-            variable=self._accel_var, resolution=0.5,
-            bg=BG, fg=FG, troughcolor=SURFACE2,
-            highlightthickness=0, font=(FONT, 9),
-            length=300,
-        )
-        self._accel_slider.pack(side="left", fill="x", expand=True)
-
-        self._accel_lbl = tk.Label(
-            accel_row, text="30.0", font=(FONT, 12, "bold"),
-            bg=BG, fg=AMBER, width=6,
-        )
-        self._accel_lbl.pack(side="left", padx=(8, 0))
-        self._accel_var.trace_add("write", self._update_accel_label)
-
-        # Quick preset buttons
-        preset_row = tk.Frame(r, bg=BG)
-        preset_row.pack(fill="x", padx=20, pady=(2, 0))
         for val, lbl, color in [
             (10, "Light", GREEN), (30, "Medium", AMBER), (50, "Hard", RED),
         ]:
             tk.Button(
-                preset_row, text=f"{lbl} ({val})", font=(FONT, 8),
+                force_frame, text=lbl, font=(FONT, 9, "bold"),
                 bg=SURFACE2, fg=color,
                 activebackground=color, activeforeground="#000",
-                relief="flat", bd=0, pady=3,
+                relief="flat", bd=0, pady=6, padx=14,
                 command=lambda v=val: self._accel_var.set(v),
-            ).pack(side="left", expand=True, fill="x", padx=1)
+            ).pack(side="left", padx=2)
 
-        # ── Robot body ──────────────────────────────────────────────────
+        self._accel_lbl = tk.Label(
+            force_frame, text="30 m/s\u00B2", font=(FONT, 10, "bold"),
+            bg=BG, fg=AMBER, anchor="e",
+        )
+        self._accel_lbl.pack(side="right")
+        self._accel_var.trace_add("write", self._update_accel_label)
+
+        # Slider
+        slider_frame = tk.Frame(r, bg=BG)
+        slider_frame.pack(fill="x", padx=16, pady=(4, 0))
+        self._accel_slider = tk.Scale(
+            slider_frame, from_=0, to=60, orient="horizontal",
+            variable=self._accel_var, resolution=0.5,
+            bg=BG, fg=FG, troughcolor=SURFACE2,
+            highlightthickness=0, font=(FONT, 8),
+            showvalue=False,
+        )
+        self._accel_slider.pack(fill="x")
+
+        # ── Pad & Arm section ───────────────────────────────────────────
+        tk.Frame(r, bg=BORDER, height=1).pack(fill="x", padx=16, pady=(10, 0))
+        tk.Label(r, text="USER STRIKE DETECTION", font=(FONT, 8, "bold"),
+                 bg=BG, fg=FG_MUTED).pack(anchor="w", padx=16, pady=(8, 0))
+
         body = tk.Frame(r, bg=BG)
-        body.pack(padx=16, pady=(14, 6))
+        body.pack(padx=16, pady=(6, 0))
 
-        # Left arm
         self._arm_btns["left"] = self._make_arm(body, "L", 0, 0)
-
-        # Pads
         pf = tk.Frame(body, bg=BG)
-        pf.grid(row=0, column=1, padx=8)
+        pf.grid(row=0, column=1, padx=6)
         self._pad_btns["head"] = self._make_pad(pf, "HEAD", 0, 1)
         self._pad_btns["left"] = self._make_pad(pf, "LEFT", 1, 0)
         self._pad_btns["centre"] = self._make_pad(pf, "CENTRE", 1, 1)
         self._pad_btns["right"] = self._make_pad(pf, "RIGHT", 1, 2)
-
-        # Right arm
         self._arm_btns["right"] = self._make_arm(body, "R", 0, 2)
 
-        # Hint
-        tk.Label(r, text="STRIKE DETECTION: click pad = user hit detected    click arm = user strike",
-                 font=(FONT, 7), bg=BG, fg=FG_MUTED).pack(pady=(0, 6))
-
-        # ── Sequence builder ────────────────────────────────────────────
-        sep = tk.Frame(r, bg=BORDER, height=1)
-        sep.pack(fill="x", padx=20, pady=(4, 0))
-
-        tk.Label(r, text="SEQUENCE BUILDER", font=(FONT, 8),
-                 bg=BG, fg=FG_MUTED).pack(anchor="w", padx=20, pady=(8, 0))
-
-        # Add-to-sequence buttons row
-        add_row = tk.Frame(r, bg=BG)
-        add_row.pack(fill="x", padx=20, pady=(4, 0))
-
-        for pad in ["HEAD", "LEFT", "CENTRE", "RIGHT"]:
-            tk.Button(
-                add_row, text=f"+{pad}", font=(FONT, 8),
-                bg=PAD_BG, fg="#D88", activebackground=PAD_BORDER,
-                relief="flat", bd=0, padx=6, pady=3,
-                command=lambda p=pad.lower(): self._seq_add("pad", p),
-            ).pack(side="left", padx=1, expand=True, fill="x")
-
-        for arm in ["L ARM", "R ARM"]:
-            side = "left" if "L" in arm else "right"
-            tk.Button(
-                add_row, text=f"+{arm}", font=(FONT, 8),
-                bg=ARM_BG, fg="#88B8E8", activebackground=ARM_BORDER,
-                relief="flat", bd=0, padx=6, pady=3,
-                command=lambda s=side: self._seq_add("arm", s),
-            ).pack(side="left", padx=1, expand=True, fill="x")
-
-        # Sequence display
-        self._seq_frame = tk.Frame(r, bg=SEQ_BG, height=36)
-        self._seq_frame.pack(fill="x", padx=20, pady=(4, 0))
-        self._seq_label = tk.Label(
-            self._seq_frame, text="(empty — click +PAD buttons above to build)",
-            font=(FONT_M, 9), bg=SEQ_BG, fg=FG_MUTED, anchor="w",
-        )
-        self._seq_label.pack(fill="x", padx=8, pady=6)
-
-        # Interval + controls
-        ctrl_row = tk.Frame(r, bg=BG)
-        ctrl_row.pack(fill="x", padx=20, pady=(4, 0))
-
-        tk.Label(ctrl_row, text="Interval:", font=(FONT, 9),
-                 bg=BG, fg=FG_DIM).pack(side="left")
-
-        self._interval_var = tk.StringVar(value="500")
-        for ms_val, lbl in [("300", "Fast"), ("500", "Medium"), ("1000", "Slow")]:
-            tk.Radiobutton(
-                ctrl_row, text=lbl, variable=self._interval_var,
-                value=ms_val, font=(FONT, 9),
-                bg=BG, fg=FG_DIM, selectcolor=SURFACE2,
-                activebackground=BG, activeforeground=FG,
-                highlightthickness=0,
-            ).pack(side="left", padx=4)
-
-        tk.Frame(ctrl_row, bg=BG, width=20).pack(side="left", expand=True)
-
-        self._play_btn = tk.Button(
-            ctrl_row, text="PLAY", font=(FONT, 9, "bold"),
-            bg=GREEN, fg="#000", activebackground="#27AE60",
-            relief="flat", bd=0, padx=14, pady=3,
-            command=self._seq_play,
-        )
-        self._play_btn.pack(side="left", padx=2)
-
-        tk.Button(
-            ctrl_row, text="CLEAR", font=(FONT, 9, "bold"),
-            bg=SURFACE2, fg=FG_DIM, activebackground=BORDER,
-            relief="flat", bd=0, padx=10, pady=3,
-            command=self._seq_clear,
-        ).pack(side="left", padx=2)
-
         # ── Punch simulator ─────────────────────────────────────────────
-        sep_punch = tk.Frame(r, bg=BORDER, height=1)
-        sep_punch.pack(fill="x", padx=20, pady=(8, 0))
-
-        tk.Label(r, text="ROBOT ARM OUTPUT (simulates robot punching)", font=(FONT, 8),
-                 bg=BG, fg=FG_MUTED).pack(anchor="w", padx=20, pady=(8, 0))
+        tk.Frame(r, bg=BORDER, height=1).pack(fill="x", padx=16, pady=(10, 0))
+        tk.Label(r, text="ROBOT ARM PUNCHES", font=(FONT, 8, "bold"),
+                 bg=BG, fg=FG_MUTED).pack(anchor="w", padx=16, pady=(8, 0))
 
         punch_row = tk.Frame(r, bg=BG)
-        punch_row.pack(fill="x", padx=20, pady=(4, 0))
+        punch_row.pack(fill="x", padx=16, pady=(4, 0))
 
         punch_defs = [
-            ("Jab",      "jab",     PUNCH_JAB,   "L >"),
-            ("Cross",    "cross",   PUNCH_CROSS,  "R >"),
-            ("L Hook",   "l_hook",  PUNCH_HOOK,  "L ~"),
-            ("R Hook",   "r_hook",  PUNCH_HOOK,  "R ~"),
-            ("L Upper",  "l_upper", PUNCH_UPPER, "L ^"),
-            ("R Upper",  "r_upper", PUNCH_UPPER, "R ^"),
+            ("Jab",     "jab",     PUNCH_JAB),
+            ("Cross",   "cross",   PUNCH_CROSS),
+            ("L Hook",  "l_hook",  PUNCH_HOOK),
+            ("R Hook",  "r_hook",  PUNCH_HOOK),
+            ("L Upper", "l_upper", PUNCH_UPPER),
+            ("R Upper", "r_upper", PUNCH_UPPER),
         ]
         self._punch_btns: dict[str, tk.Button] = {}
-        for label, ptype, color, arm_lbl in punch_defs:
+        for label, ptype, color in punch_defs:
             btn = tk.Button(
-                punch_row, text=f"{arm_lbl}\n{label}", font=(FONT, 8, "bold"),
+                punch_row, text=label, font=(FONT, 9, "bold"),
                 bg=SURFACE2, fg=color,
                 activebackground=color, activeforeground="#000",
-                relief="flat", bd=0, pady=5,
+                relief="flat", bd=0, pady=8,
                 command=lambda pt=ptype, c=color: self._on_punch(pt, c),
             )
             btn.pack(side="left", expand=True, fill="x", padx=1)
             self._punch_btns[ptype] = btn
 
-        # Combo preset row
+        # Combo presets
         combo_row = tk.Frame(r, bg=BG)
-        combo_row.pack(fill="x", padx=20, pady=(4, 0))
+        combo_row.pack(fill="x", padx=16, pady=(4, 0))
 
         combos = [
-            ("1-2",       ["jab", "cross"]),
-            ("1-1-2",     ["jab", "jab", "cross"]),
-            ("1-2-3",     ["jab", "cross", "l_hook"]),
-            ("1-2-3-4",   ["jab", "cross", "l_hook", "r_hook"]),
-            ("1-2-5-6",   ["jab", "cross", "l_upper", "r_upper"]),
+            ("1-2",     ["jab", "cross"]),
+            ("1-1-2",   ["jab", "jab", "cross"]),
+            ("1-2-3",   ["jab", "cross", "l_hook"]),
+            ("1-2-3-4", ["jab", "cross", "l_hook", "r_hook"]),
+            ("1-2-5-6", ["jab", "cross", "l_upper", "r_upper"]),
         ]
         for label, seq in combos:
             tk.Button(
-                combo_row, text=label, font=(FONT, 8, "bold"),
-                bg="#1A1510", fg=PRIMARY,
+                combo_row, text=label, font=(FONT, 9, "bold"),
+                bg=SURFACE, fg=PRIMARY,
                 activebackground=PRIMARY, activeforeground="#000",
-                relief="flat", bd=0, pady=4, padx=8,
+                relief="flat", bd=0, pady=6, padx=8,
                 command=lambda s=seq: self._play_combo(s),
             ).pack(side="left", expand=True, fill="x", padx=1)
 
-        # ── Log area ────────────────────────────────────────────────────
-        sep2 = tk.Frame(r, bg=BORDER, height=1)
-        sep2.pack(fill="x", padx=20, pady=(8, 0))
+        # ── Sequence builder (compact) ──────────────────────────────────
+        tk.Frame(r, bg=BORDER, height=1).pack(fill="x", padx=16, pady=(10, 0))
+        tk.Label(r, text="CUSTOM SEQUENCE", font=(FONT, 8, "bold"),
+                 bg=BG, fg=FG_MUTED).pack(anchor="w", padx=16, pady=(8, 0))
 
-        tk.Label(r, text="EVENT LOG", font=(FONT, 8),
-                 bg=BG, fg=FG_MUTED).pack(anchor="w", padx=20, pady=(6, 0))
+        seq_ctrl = tk.Frame(r, bg=BG)
+        seq_ctrl.pack(fill="x", padx=16, pady=(4, 0))
+
+        for pad in ["HEAD", "LEFT", "CENTRE", "RIGHT"]:
+            tk.Button(
+                seq_ctrl, text=f"+{pad}", font=(FONT, 7),
+                bg=SURFACE2, fg=FG_DIM,
+                activebackground=SURFACE3, activeforeground=FG,
+                relief="flat", bd=0, padx=4, pady=4,
+                command=lambda p=pad.lower(): self._seq_add("pad", p),
+            ).pack(side="left", padx=1, expand=True, fill="x")
+
+        self._interval_var = tk.StringVar(value="500")
+        self._play_btn = tk.Button(
+            seq_ctrl, text="PLAY", font=(FONT, 8, "bold"),
+            bg=GREEN, fg="#000", activebackground="#3FB950",
+            relief="flat", bd=0, padx=10, pady=4,
+            command=self._seq_play,
+        )
+        self._play_btn.pack(side="left", padx=(6, 1))
+
+        tk.Button(
+            seq_ctrl, text="CLR", font=(FONT, 8, "bold"),
+            bg=SURFACE2, fg=FG_DIM, activebackground=BORDER_LT,
+            relief="flat", bd=0, padx=8, pady=4,
+            command=self._seq_clear,
+        ).pack(side="left", padx=1)
+
+        self._seq_frame = tk.Frame(r, bg=SEQ_BG, height=28)
+        self._seq_frame.pack(fill="x", padx=16, pady=(3, 0))
+        self._seq_label = tk.Label(
+            self._seq_frame, text="(empty)",
+            font=(FONT_M, 8), bg=SEQ_BG, fg=FG_MUTED, anchor="w",
+        )
+        self._seq_label.pack(fill="x", padx=8, pady=4)
+
+        # ── Event log ───────────────────────────────────────────────────
+        tk.Frame(r, bg=BORDER, height=1).pack(fill="x", padx=16, pady=(8, 0))
+        tk.Label(r, text="EVENT LOG", font=(FONT, 8, "bold"),
+                 bg=BG, fg=FG_MUTED).pack(anchor="w", padx=16, pady=(6, 0))
 
         self._log_text = tk.Text(
-            r, height=6, width=55, bg=SEQ_BG,
-            fg="#666", font=(FONT_M, 9),
+            r, height=5, width=52, bg=SURFACE,
+            fg=FG_DIM, font=(FONT_M, 8),
             state="disabled", wrap="word",
             borderwidth=0, highlightthickness=0,
         )
-        self._log_text.pack(padx=20, pady=(2, 14), fill="both", expand=True)
+        self._log_text.pack(padx=16, pady=(2, 12), fill="both", expand=True)
 
     # ── Incoming robot commands (from GUI drill cycling) ────────────────
     def _on_incoming_punch(self, punch_type: str) -> None:
@@ -426,7 +386,7 @@ class IMUSimulatorGUI:
             btn.after(_FLASH_MS, lambda: btn.configure(bg=SURFACE2, fg=color))
 
         if arm_side in self._arm_btns:
-            self._flash(self._arm_btns[arm_side], color, ARM_BG, "#6EA8DC")
+            self._flash(self._arm_btns[arm_side], color, ARM_BG, PUNCH_JAB)
 
         _PUNCH_LABELS = {
             "jab": "Jab", "cross": "Cross", "l_hook": "L Hook",
@@ -441,8 +401,8 @@ class IMUSimulatorGUI:
         btn = tk.Button(
             parent, text=label, width=8, height=3,
             font=(FONT, 10, "bold"),
-            bg=PAD_BG, fg="#E88",
-            activebackground="#5A2030", activeforeground="#FFF",
+            bg=PAD_BG, fg=RED,
+            activebackground=PAD_FLASH, activeforeground="#FFF",
             relief="flat", bd=0,
             command=lambda: self._on_pad(label.lower()),
         )
@@ -454,8 +414,8 @@ class IMUSimulatorGUI:
         btn = tk.Button(
             parent, text=label, width=4, height=10,
             font=(FONT, 14, "bold"),
-            bg=ARM_BG, fg="#6EA8DC",
-            activebackground="#2A5090", activeforeground="#FFF",
+            bg=ARM_BG, fg=PUNCH_JAB,
+            activebackground=ARM_FLASH, activeforeground="#FFF",
             relief="flat", bd=0,
         )
         side = "left" if label == "L" else "right"
@@ -472,7 +432,7 @@ class IMUSimulatorGUI:
             color = AMBER
         else:
             color = RED
-        self._accel_lbl.configure(text=f"{val:.1f}", fg=color)
+        self._accel_lbl.configure(text=f"{val:.0f} m/s\u00B2", fg=color)
 
     def _get_force_level(self) -> str:
         val = self._accel_var.get()
@@ -496,20 +456,19 @@ class IMUSimulatorGUI:
         level = self._get_force_level()
         force = self._get_force_normalized()
         self._node.publish_pad(pad, level)
-        # Also publish a ConfirmedPunch so the GUI detects it
         self._node.publish_punch("strike", level, force, pad_override=pad)
         colors = {"light": GREEN, "medium": AMBER, "hard": RED}
         if pad in self._pad_btns:
             self._flash(self._pad_btns[pad], colors[level],
-                        PAD_BG, "#E88")
+                        PAD_BG, RED)
         self._log(f"PAD  {pad:<7s}  accel={self._accel_var.get():.1f}  level={level}")
 
     def _on_arm(self, event: tk.Event, side: str) -> None:
         contact = not bool(event.state & 0x0001)
         self._node.publish_arm(side, contact)
-        color = "#3B82F6" if contact else "#666"
+        color = PUNCH_JAB if contact else FG_MUTED
         if side in self._arm_btns:
-            self._flash(self._arm_btns[side], color, ARM_BG, "#6EA8DC")
+            self._flash(self._arm_btns[side], color, ARM_BG, PUNCH_JAB)
         tag = "struck" if contact else "miss"
         self._log(f"ARM  {side:<7s}  {tag}")
 
@@ -529,7 +488,7 @@ class IMUSimulatorGUI:
 
         # Flash the arm (robot arm moving)
         if arm_side in self._arm_btns:
-            self._flash(self._arm_btns[arm_side], color, ARM_BG, "#6EA8DC")
+            self._flash(self._arm_btns[arm_side], color, ARM_BG, PUNCH_JAB)
 
         _PUNCH_NAMES = {
             "jab": "Jab", "cross": "Cross", "l_hook": "L Hook",
