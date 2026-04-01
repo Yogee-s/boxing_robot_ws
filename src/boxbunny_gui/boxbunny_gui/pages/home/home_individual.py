@@ -290,5 +290,10 @@ class HomeIndividualPage(QWidget):
         self._username = username
         self._name_label.setText(f"Welcome, {username}!")
 
+        # Load session history from DB for this user
+        if username and username != "Guest":
+            from boxbunny_gui.session_tracker import get_tracker
+            get_tracker().load_for_user(username)
+
     def on_leave(self) -> None:
         pass

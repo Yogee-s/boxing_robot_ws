@@ -381,10 +381,20 @@ class TrainingResultsPage(QWidget):
         self._combo_id = kwargs.get("combo_id")
         self._difficulty = kwargs.get("difficulty")
         self._username = kwargs.get("username", "")
+        total_punches = kwargs.get("total_punches", 0)
+        combos_done = kwargs.get("combos_completed", 0)
 
-        for tile in (self._stat_punches, self._stat_accuracy,
-                     self._stat_best, self._stat_fatigue):
-            tile.findChild(QLabel, "val").setText("--")
+        # Populate stat tiles with real session data
+        self._stat_punches.findChild(QLabel, "val").setText(str(total_punches))
+        self._stat_accuracy.findChild(QLabel, "val").setText(
+            f"{combos_done} combos"
+        )
+        rounds = self._config.get("Rounds", "1")
+        self._stat_best.findChild(QLabel, "val").setText(
+            f"{rounds} rounds"
+        )
+        work = self._config.get("Work Time", "--")
+        self._stat_fatigue.findChild(QLabel, "val").setText(work)
 
         # Show combo name in tag
         combo_name = self._config.get("combo", {}).get("name", "")
@@ -399,8 +409,8 @@ class TrainingResultsPage(QWidget):
         get_tracker().add_session(
             mode="Training",
             duration=self._config.get("Work Time", "--"),
-            punches="--",
-            score=f"{combo_name}",
+            punches=str(total_punches),
+            score=f"{combos_done} combos",
         )
         logger.info("TrainingResultsPage entered (combo=%s)", self._combo_id)
 

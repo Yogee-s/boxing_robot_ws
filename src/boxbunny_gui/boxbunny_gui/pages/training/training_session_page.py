@@ -118,23 +118,29 @@ class TrainingSessionPage(QWidget):
         root.addLayout(top)
 
         # ── Timer ────────────────────────────────────────────────────────
-        self._timer = TimerDisplay(font_size=Size.TEXT_TIMER, show_ring=True)
+        self._timer = TimerDisplay(font_size=Size.TEXT_TIMER_SM, show_ring=True)
         self._timer.finished.connect(self._on_timer_done)
         root.addWidget(self._timer, stretch=1)
 
-        root.addSpacing(4)
-
-        # ── Current punch cue (BIG) ─────────────────────────────────────
+        # ── Current punch cue (VERY BIG) ────────────────────────────────
         self._cue_lbl = QLabel("")
         self._cue_lbl.setAlignment(Qt.AlignCenter)
-        self._cue_lbl.setFixedHeight(60)
+        self._cue_lbl.setFixedHeight(70)
         self._cue_lbl.setStyleSheet(
-            f"font-size: 36px; font-weight: 800; color: {Color.PRIMARY};"
-            " letter-spacing: 2px;"
+            f"font-size: 48px; font-weight: 800; color: {Color.PRIMARY};"
+            " letter-spacing: 3px;"
         )
         root.addWidget(self._cue_lbl)
 
-        root.addSpacing(4)
+        # ── Next punch preview ───────────────────────────────────────────
+        self._next_lbl = QLabel("")
+        self._next_lbl.setAlignment(Qt.AlignCenter)
+        self._next_lbl.setStyleSheet(
+            f"font-size: 14px; font-weight: 600; color: {Color.TEXT_DISABLED};"
+        )
+        root.addWidget(self._next_lbl)
+
+        root.addSpacing(6)
 
         # ── Combo sequence with highlight ────────────────────────────────
         self._combo_seq_lbl = QLabel("")
@@ -145,7 +151,7 @@ class TrainingSessionPage(QWidget):
             " background-color: #131920;"
             " border: 1px solid #1E2832;"
             f" border-radius: {Size.RADIUS}px;"
-            " padding: 8px 16px;"
+            " padding: 10px 20px;"
         )
         root.addWidget(self._combo_seq_lbl)
 
@@ -274,22 +280,37 @@ class TrainingSessionPage(QWidget):
             self._bridge.publish_punch_command(token, self._robot_speed)
 
     def _update_cue(self) -> None:
-        """Update the current-punch cue and the sequence highlight."""
+        """Update the current-punch cue, next preview, and sequence bar."""
         if not self._combo_tokens:
             self._cue_lbl.setText("")
+            self._next_lbl.setText("")
             self._combo_seq_lbl.setVisible(False)
             return
 
         idx = self._drill_idx
+        total = len(self._combo_tokens)
         token = self._combo_tokens[idx]
         name = _PUNCH_NAMES.get(token, token.upper())
         color = _PUNCH_COLORS.get(token.rstrip("b"), Color.PRIMARY)
 
-        # Big cue label
+        # Big current punch cue
         self._cue_lbl.setText(name)
         self._cue_lbl.setStyleSheet(
-            f"font-size: 36px; font-weight: 800; color: {color};"
-            " letter-spacing: 2px;"
+            f"font-size: 48px; font-weight: 800; color: {color};"
+            " letter-spacing: 3px;"
+        )
+
+        # Next punch preview
+        next_idx = (idx + 1) % total
+        next_token = self._combo_tokens[next_idx]
+        next_name = _PUNCH_NAMES.get(next_token, next_token.upper())
+        step_text = f"Step {idx + 1}/{total}"
+        if idx + 1 >= total:
+            self._next_lbl.setText(f"{step_text}  —  combo complete, restarting")
+        else:
+            self._next_lbl.setText(f"{step_text}  —  next: {next_name}")
+        self._next_lbl.setStyleSheet(
+            f"font-size: 14px; font-weight: 600; color: {Color.TEXT_DISABLED};"
         )
 
         # Sequence bar with current punch highlighted
@@ -299,15 +320,15 @@ class TrainingSessionPage(QWidget):
             pcolor = _PUNCH_COLORS.get(t.rstrip("b"), Color.TEXT_SECONDARY)
             if i == idx:
                 parts.append(
-                    f'<span style="color:{pcolor}; font-size:16px;'
-                    f' font-weight:800;">{pname}</span>'
+                    f'<span style="color:{pcolor}; font-size:18px;'
+                    f' font-weight:800;">\u25B6 {pname}</span>'
                 )
             else:
                 parts.append(
                     f'<span style="color:{Color.TEXT_DISABLED};'
                     f' font-size:14px;">{pname}</span>'
                 )
-        self._combo_seq_lbl.setText("  &rarr;  ".join(parts))
+        self._combo_seq_lbl.setText("&nbsp; &rarr; &nbsp;".join(parts))
         self._combo_seq_lbl.setVisible(True)
 
     # ── Timer / round lifecycle ──────────────────────────────────────────
@@ -336,6 +357,8 @@ class TrainingSessionPage(QWidget):
                 combo_id=self._combo_id,
                 difficulty=self._difficulty,
                 username=self._username,
+                total_punches=self._punch_counter._count,
+                combos_completed=self._combos_completed,
             )
 
     def _on_stop(self) -> None:
@@ -351,6 +374,8 @@ class TrainingSessionPage(QWidget):
             combo_id=self._combo_id,
             difficulty=self._difficulty,
             username=self._username,
+            total_punches=self._punch_counter._count,
+            combos_completed=self._combos_completed,
         )
 
     def _start_ros_session(self) -> None:
@@ -388,13 +413,24 @@ class TrainingSessionPage(QWidget):
         )
 
     def _score_round(self) -> None:
-        if self._curriculum and self._combo_id:
+        if not self._curriculum or not self._combo_id:
+            return
+        # Score based on combos completed (1-5 scale)
+        # 0 combos = 1.0, 3+ combos = 4.0, 5+ = 5.0
+        combos = self._combos_completed
+        if combos >= 5:
+            score = 5.0
+        elif combos >= 3:
+            score = 4.0
+        elif combos >= 1:
             score = 3.0
-            self._curriculum.update_score(self._combo_id, score)
-            logger.info(
-                "Round %d scored: combo=%s score=%.1f",
-                self._current_round, self._combo_id, score,
-            )
+        else:
+            score = 1.5
+        self._curriculum.update_score(self._combo_id, score)
+        logger.info(
+            "Round %d scored: combo=%s combos_done=%d score=%.1f",
+            self._current_round, self._combo_id, combos, score,
+        )
 
     def _countdown_tick(self) -> None:
         if not self._session_active:
@@ -486,11 +522,21 @@ class TrainingSessionPage(QWidget):
                     f'<span style="color:{Color.TEXT_DISABLED};'
                     f' font-size:14px;">{pname}</span>'
                 )
-            self._combo_seq_lbl.setText("  &rarr;  ".join(parts))
+            self._combo_seq_lbl.setText("&nbsp; &rarr; &nbsp;".join(parts))
             self._combo_seq_lbl.setVisible(True)
+            self._cue_lbl.setText("GET READY")
+            self._cue_lbl.setStyleSheet(
+                f"font-size: 32px; font-weight: 800; color: {Color.TEXT_DISABLED};"
+                " letter-spacing: 3px;"
+            )
+            self._next_lbl.setText(
+                f"Combo: {name}  —  "
+                f"{len(self._combo_tokens)} punches per cycle"
+            )
         else:
             self._combo_seq_lbl.setVisible(False)
-        self._cue_lbl.setText("")
+            self._cue_lbl.setText("")
+            self._next_lbl.setText("Free Training — no combo sequence")
 
         self._work_time = work_time
         # Start the ROS session on the first round

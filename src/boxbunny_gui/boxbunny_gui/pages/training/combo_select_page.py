@@ -102,9 +102,10 @@ class _ComboRow(QWidget):
         mastered = attempts >= MIN_ATTEMPTS_FOR_MASTERY and mastery >= threshold
         pct = min(int((mastery / threshold) * 100), 100) if threshold > 0 else 0
 
+        # Highlight the "next" row with orange tint + left accent
         if is_next:
-            bg, border = "#1A1510", "#3D2E1A"
-            left = f"border-left: 3px solid {Color.PRIMARY};"
+            bg, border = "#1E1610", "#3D2E1A"
+            left = f"border-left: 4px solid {Color.PRIMARY};"
         else:
             bg, border = "#131920", "#1E2832"
             left = ""
@@ -117,25 +118,25 @@ class _ComboRow(QWidget):
         """)
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(12, 4, 12, 4)
+        lay.setContentsMargins(14, 4, 12, 4)
         lay.setSpacing(8)
 
+        # Arrow indicator for "next" row
         if is_next:
-            badge = QLabel("NEXT")
-            badge.setFixedWidth(40)
-            badge.setAlignment(Qt.AlignCenter)
-            badge.setStyleSheet(
-                f"background: {Color.PRIMARY}; color: #FFFFFF;"
-                " font-size: 9px; font-weight: 700;"
-                " border-radius: 4px; padding: 2px 4px;"
+            arrow = QLabel(Icon.PLAY)
+            arrow.setFixedWidth(16)
+            arrow.setStyleSheet(
+                f"color: {Color.PRIMARY}; font-size: 12px;"
             )
-            lay.addWidget(badge)
+            lay.addWidget(arrow)
 
         name_lbl = QLabel(combo.get("combo_name", ""))
+        name_color = Color.PRIMARY if is_next else Color.TEXT
         name_lbl.setStyleSheet(
-            f"font-size: 13px; font-weight: 600; color: {Color.TEXT};"
+            f"font-size: 14px; font-weight: {'700' if is_next else '600'};"
+            f" color: {name_color};"
         )
-        name_lbl.setFixedWidth(180)
+        name_lbl.setFixedWidth(170)
         lay.addWidget(name_lbl)
 
         # Punch dots
@@ -287,23 +288,29 @@ class ComboSelectPage(QWidget):
 
         root.addWidget(self._progress_card)
 
-        root.addSpacing(8)
+        root.addSpacing(10)
 
-        # ── Combo list (scrollable) ──────────────────────────────────────
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(
-            "QScrollArea { border: none; background: transparent; }"
-        )
-        self._list_widget = QWidget()
-        self._list_widget.setStyleSheet("background: transparent;")
-        self._list_layout = QVBoxLayout(self._list_widget)
-        self._list_layout.setSpacing(3)
-        self._list_layout.setContentsMargins(0, 0, 4, 0)
-        scroll.setWidget(self._list_widget)
-        root.addWidget(scroll)
+        # ── View combos button ───────────────────────────────────────────
+        self._btn_view = QPushButton("View All Combos")
+        self._btn_view.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_view.setFixedHeight(48)
+        self._btn_view.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 14px; font-weight: 600;
+                background-color: {Color.SURFACE};
+                color: {Color.TEXT_SECONDARY};
+                border: 1px solid {Color.BORDER_LIGHT};
+                border-radius: {Size.RADIUS}px;
+            }}
+            QPushButton:hover {{
+                color: {Color.TEXT}; border-color: {Color.PRIMARY};
+                background-color: {Color.SURFACE_LIGHT};
+            }}
+        """)
+        self._btn_view.clicked.connect(self._show_combo_popup)
+        root.addWidget(self._btn_view)
 
-        root.addSpacing(8)
+        root.addSpacing(10)
 
         # ── Train button ─────────────────────────────────────────────────
         self._btn_train = BigButton(
@@ -314,6 +321,14 @@ class ComboSelectPage(QWidget):
         root.addWidget(self._btn_train)
 
         root.addStretch(1)
+
+        # Hidden combo list data — populated on refresh, shown in popup
+        self._list_widget = QWidget()
+        self._list_widget.setStyleSheet("background: transparent;")
+        self._list_layout = QVBoxLayout(self._list_widget)
+        self._list_layout.setSpacing(3)
+        self._list_layout.setContentsMargins(0, 0, 4, 0)
+        self._combo_popup: QWidget | None = None
 
     def _make_diff_card(self, diff: dict) -> QPushButton:
         accent = diff["accent"]
@@ -369,27 +384,32 @@ class ComboSelectPage(QWidget):
             QPushButton {{
                 background-color: {Color.SURFACE};
                 border: 1px solid {Color.BORDER};
+                border-bottom: 2px solid {Color.PURPLE};
                 border-radius: {Size.RADIUS}px;
-                padding: 8px 16px;
+                padding: 10px 16px;
             }}
             QPushButton:hover {{
                 background-color: {Color.SURFACE_HOVER};
                 border-color: {Color.PURPLE};
+                border-bottom: 2px solid {Color.PURPLE};
             }}
         """)
-        lay = QHBoxLayout(btn)
-        lay.setContentsMargins(4, 0, 4, 0)
-        lay.setSpacing(10)
+        lay = QVBoxLayout(btn)
+        lay.setContentsMargins(0, 4, 0, 4)
+        lay.setSpacing(2)
+        lay.setAlignment(Qt.AlignCenter)
 
         name = QLabel("Self-Select")
+        name.setAlignment(Qt.AlignCenter)
         name.setStyleSheet(
             "background: transparent; border: none;"
-            f" font-size: 14px; font-weight: 600; color: {Color.TEXT};"
+            f" font-size: 16px; font-weight: 700; color: {Color.TEXT};"
         )
         name.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         lay.addWidget(name)
 
         desc = QLabel("Build your own custom punch sequence")
+        desc.setAlignment(Qt.AlignCenter)
         desc.setStyleSheet(
             "background: transparent; border: none;"
             f" font-size: 12px; color: {Color.TEXT_SECONDARY};"
@@ -397,10 +417,120 @@ class ComboSelectPage(QWidget):
         desc.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         lay.addWidget(desc)
 
-        lay.addStretch()
-
         btn.clicked.connect(self._on_self_select)
         return btn
+
+    # ── Combo popup overlay ────────────────────────────────────────────
+
+    def _show_combo_popup(self) -> None:
+        """Show a centred popup overlay with the combo list."""
+        win = self.window()
+        if win is None:
+            return
+
+        # Semi-transparent backdrop
+        self._combo_popup = QWidget(win)
+        self._combo_popup.setStyleSheet("background-color: rgba(0, 0, 0, 160);")
+        self._combo_popup.setGeometry(0, 0, win.width(), win.height())
+
+        # Inner panel
+        margin_x, margin_y = 50, 30
+        panel = QWidget(self._combo_popup)
+        panel.setGeometry(
+            margin_x, margin_y,
+            win.width() - margin_x * 2, win.height() - margin_y * 2,
+        )
+        panel.setStyleSheet(f"""
+            QWidget {{
+                background-color: {Color.BG};
+                border: 1px solid {Color.BORDER_LIGHT};
+                border-radius: {Size.RADIUS_LG}px;
+            }}
+        """)
+
+        lay = QVBoxLayout(panel)
+        lay.setContentsMargins(24, 16, 24, 18)
+        lay.setSpacing(10)
+
+        # Header
+        header = QHBoxLayout()
+        title = QLabel(f"{self._active_diff} Combos")
+        title.setStyleSheet(
+            f"font-size: 22px; font-weight: 700; color: {Color.PRIMARY};"
+            " border: none; background: transparent;"
+        )
+        header.addWidget(title)
+        header.addStretch()
+        close_btn = QPushButton(f"{Icon.CLOSE}  Close")
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.setFixedHeight(44)
+        close_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 14px; font-weight: 600;
+                background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
+                border: 1px solid {Color.BORDER_LIGHT}; border-radius: 8px;
+                padding: 0 16px;
+            }}
+            QPushButton:hover {{
+                color: {Color.TEXT}; border-color: {Color.PRIMARY};
+            }}
+        """)
+        close_btn.clicked.connect(self._close_combo_popup)
+        header.addWidget(close_btn)
+        lay.addLayout(header)
+
+        # Scrollable combo list
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(
+            "QScrollArea { border: none; background: transparent; }"
+        )
+        list_w = QWidget()
+        list_w.setStyleSheet("background: transparent;")
+        list_lay = QVBoxLayout(list_w)
+        list_lay.setSpacing(4)
+        list_lay.setContentsMargins(0, 0, 4, 0)
+
+        if self._curriculum:
+            diff = self._active_diff
+            threshold = MASTERY_THRESHOLDS.get(diff, 4.0)
+            next_id = self._next_combo["combo_id"] if self._next_combo else None
+
+            for start, end, group_name in GROUP_BOUNDARIES.get(diff, []):
+                all_combos = self._curriculum.get_combos_by_difficulty(diff)
+                group = [
+                    c for c in all_combos
+                    if start <= _combo_index(c["combo_id"]) <= end
+                ]
+                if not group:
+                    continue
+
+                group_hdr = QLabel(f"  {group_name}")
+                group_hdr.setStyleSheet(
+                    f"color: {Color.TEXT_SECONDARY}; font-size: 12px;"
+                    " font-weight: 700; letter-spacing: 0.5px;"
+                )
+                group_hdr.setFixedHeight(24)
+                list_lay.addWidget(group_hdr)
+
+                for combo in group:
+                    is_next = combo["combo_id"] == next_id
+                    row = _ComboRow(
+                        combo, threshold, is_next=is_next, parent=list_w,
+                    )
+                    list_lay.addWidget(row)
+
+        list_lay.addStretch()
+        scroll.setWidget(list_w)
+        lay.addWidget(scroll, stretch=1)
+
+        self._combo_popup.raise_()
+        self._combo_popup.show()
+
+    def _close_combo_popup(self) -> None:
+        if self._combo_popup is not None:
+            self._combo_popup.close()
+            self._combo_popup = None
 
     # ── Difficulty switching ──────────────────────────────────────────────
 
@@ -468,38 +598,12 @@ class ComboSelectPage(QWidget):
         self._populate_combos(diff, progress, threshold)
 
     def _populate_combos(self, diff: str, progress: Dict, threshold: float) -> None:
-        for row in self._combo_rows:
-            self._list_layout.removeWidget(row)
-            row.deleteLater()
-        self._combo_rows.clear()
-
-        all_combos = self._curriculum.get_combos_by_difficulty(diff)
-        next_id = self._next_combo["combo_id"] if self._next_combo else None
-
-        for start, end, group_name in GROUP_BOUNDARIES.get(diff, []):
-            group = [
-                c for c in all_combos
-                if start <= _combo_index(c["combo_id"]) <= end
-            ]
-            if not group:
-                continue
-
-            header = QLabel(f"  {group_name}")
-            header.setStyleSheet(
-                f"color: {Color.TEXT_SECONDARY}; font-size: 10px;"
-                " font-weight: 700; letter-spacing: 0.5px;"
-            )
-            header.setFixedHeight(18)
-            self._list_layout.addWidget(header)
-            self._combo_rows.append(header)
-
-            for combo in group:
-                is_next = combo["combo_id"] == next_id
-                row = _ComboRow(combo, threshold, is_next=is_next, parent=self)
-                self._list_layout.addWidget(row)
-                self._combo_rows.append(row)
-
-        self._list_layout.addStretch()
+        # Combo list is now shown in a popup — update the button text
+        total = progress.get("total_combos", 0)
+        mastered = progress.get("mastered_combos", 0)
+        self._btn_view.setText(
+            f"View All Combos  ({mastered}/{total} mastered)"
+        )
 
     # ── Actions ──────────────────────────────────────────────────────────
 
@@ -514,6 +618,15 @@ class ComboSelectPage(QWidget):
         self._next_combo = None
         if self._curriculum:
             self._next_combo = self._curriculum.get_next_combo(diff)
+            # Fallback: grab the first combo from this difficulty
+            if not self._next_combo:
+                all_combos = self._curriculum.get_combos_by_difficulty(diff)
+                if all_combos:
+                    self._next_combo = all_combos[0]
+                    logger.info(
+                        "No unmastered combo — falling back to first: %s",
+                        self._next_combo["combo_name"],
+                    )
 
         combo_data = {}
         if self._next_combo:
@@ -523,14 +636,16 @@ class ComboSelectPage(QWidget):
                 "seq": self._next_combo["combo_sequence"],
                 "diff": diff.lower(),
             }
+            logger.info("Selected combo: %s seq=%s", combo_data["name"], combo_data["seq"])
         else:
-            # No combo found — use difficulty name as label
+            # No combo found at all — use difficulty name as label
             combo_data = {
                 "id": None,
                 "name": f"{diff} Training",
                 "seq": "",
                 "diff": diff.lower(),
             }
+            logger.warning("No combo found for difficulty %s", diff)
 
         self._router.navigate(
             "training_config",
@@ -564,6 +679,10 @@ class ComboSelectPage(QWidget):
         else:
             self._user_level_idx = 0
 
+        # Guest mode: always start fresh (no username = guest)
+        # Logged-in: reuse curriculum if it exists
+        if not self._username:
+            self._curriculum = None
         if not self._curriculum:
             try:
                 self._curriculum = ComboCurriculum()
@@ -571,9 +690,10 @@ class ComboSelectPage(QWidget):
                 logger.exception("Failed to create curriculum")
                 self._curriculum = None
 
+        self._close_combo_popup()
         self._update_lock_state()
         self._refresh()
         logger.info("ComboSelectPage entered (difficulty=%s)", self._active_diff)
 
     def on_leave(self) -> None:
-        pass
+        self._close_combo_popup()

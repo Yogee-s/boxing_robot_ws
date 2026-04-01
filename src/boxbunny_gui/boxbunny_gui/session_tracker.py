@@ -47,13 +47,16 @@ class SessionTracker:
     def load_for_user(self, username: str) -> None:
         """Load sessions from database for a logged-in user."""
         try:
-            from boxbunny_gui.db_helper import get_user_by_username
+            import json
             import sqlite3
             from pathlib import Path
 
-            db_path = Path(__file__).resolve().parents[3] / "data" / "users" / username / "boxbunny.db"
+            db_path = (
+                Path(__file__).resolve().parents[3]
+                / "data" / "users" / username / "boxbunny.db"
+            )
             if not db_path.exists():
-                self._sessions = []
+                logger.debug("No DB for user %s at %s", username, db_path)
                 return
 
             conn = sqlite3.connect(str(db_path))
@@ -65,16 +68,39 @@ class SessionTracker:
 
             self._sessions = []
             for row in rows:
+                # Parse summary_json for punch count
+                summary = {}
+                try:
+                    summary = json.loads(row["summary_json"] or "{}")
+                except Exception:
+                    pass
+
+                total_punches = summary.get("total_punches", 0)
+                duration_min = summary.get(
+                    "duration_minutes",
+                    (row["work_time_sec"] * row["rounds_completed"]) / 60
+                    if row["rounds_completed"] else 0,
+                )
+                mode_raw = row["mode"] or "training"
+                mode_display = mode_raw.replace("_", " ").title()
+
                 self._sessions.append({
                     "date": row["started_at"][:10] if row["started_at"] else "--",
-                    "time": row["started_at"][11:16] if row["started_at"] and len(row["started_at"]) > 11 else "",
-                    "mode": row.get("mode", "Training"),
-                    "duration": f"{row.get('duration_seconds', 0) // 60}m",
-                    "punches": str(row.get("total_punches", 0)),
-                    "score": f"{row.get('score', 0)}%",
+                    "time": (
+                        row["started_at"][11:16]
+                        if row["started_at"] and len(row["started_at"]) > 11
+                        else ""
+                    ),
+                    "mode": mode_display,
+                    "duration": f"{int(duration_min)}m",
+                    "punches": str(total_punches),
+                    "score": f"{row['rounds_completed']}/{row['rounds_total']} rounds",
                 })
+            logger.info(
+                "Loaded %d sessions for user %s", len(self._sessions), username,
+            )
         except Exception as exc:
-            logger.debug("Could not load user sessions: %s", exc)
+            logger.warning("Could not load user sessions: %s", exc)
             self._sessions = []
 
 

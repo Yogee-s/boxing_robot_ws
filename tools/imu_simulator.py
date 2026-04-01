@@ -24,7 +24,9 @@ except ImportError:
     )
 
 try:
-    from boxbunny_msgs.msg import ArmStrike, ConfirmedPunch, IMUStatus, PadImpact
+    from boxbunny_msgs.msg import (
+        ArmStrike, ConfirmedPunch, IMUStatus, PadImpact, RobotCommand,
+    )
 except ImportError:
     raise SystemExit(
         "boxbunny_msgs not found. Build the workspace first:\n"
@@ -36,7 +38,14 @@ _TOPIC_PAD = "/boxbunny/imu/pad/impact"
 _TOPIC_ARM = "/boxbunny/imu/arm/strike"
 _TOPIC_STATUS = "/boxbunny/imu/status"
 _TOPIC_PUNCH = "/boxbunny/punch/confirmed"
+_TOPIC_ROBOT_CMD = "/boxbunny/robot/command"
 _FLASH_MS = 250
+
+# Punch code -> internal punch type name
+_CODE_TO_PUNCH = {
+    "1": "jab", "2": "cross", "3": "l_hook", "4": "r_hook",
+    "5": "l_upper", "6": "r_upper",
+}
 
 # Punch type definitions: name -> (arm, pad)
 _PUNCH_TYPES = {
@@ -87,7 +96,7 @@ log = logging.getLogger("imu_simulator")
 
 
 class IMUSimulatorNode(Node):
-    """Thin ROS 2 node that owns the three publishers."""
+    """Thin ROS 2 node with publishers and a robot-command subscriber."""
 
     def __init__(self) -> None:
         super().__init__("imu_simulator")
@@ -96,7 +105,20 @@ class IMUSimulatorNode(Node):
         self._pub_status = self.create_publisher(IMUStatus, _TOPIC_STATUS, 10)
         self._pub_punch = self.create_publisher(ConfirmedPunch, _TOPIC_PUNCH, 10)
         self.create_timer(1.0, self._publish_status)
+
+        # Subscribe to robot commands so the GUI drill cycling shows up
+        self.create_subscription(
+            RobotCommand, _TOPIC_ROBOT_CMD, self._on_robot_command, 10,
+        )
+        self._robot_cmd_callback = None  # set by GUI
         self.get_logger().info("IMU simulator node started")
+
+    def _on_robot_command(self, msg: RobotCommand) -> None:
+        """Forward incoming robot commands to the GUI for visual flash."""
+        if msg.command_type == "punch" and self._robot_cmd_callback:
+            punch_type = _CODE_TO_PUNCH.get(msg.punch_code, "")
+            if punch_type:
+                self._robot_cmd_callback(punch_type)
 
     def publish_pad(self, pad: str, level: str) -> None:
         msg = PadImpact()
@@ -159,6 +181,7 @@ class IMUSimulatorGUI:
         self._pad_btns: dict[str, tk.Button] = {}
         self._arm_btns: dict[str, tk.Button] = {}
         self._force_btns: dict[str, tk.Button] = {}
+        self._punch_btns: dict[str, tk.Button] = {}
         self._sequence: list[dict] = []
         self._seq_playing = False
 
@@ -167,6 +190,9 @@ class IMUSimulatorGUI:
         self._root.configure(bg=BG)
         self._root.resizable(False, False)
         self._build()
+
+        # Wire up incoming robot commands to flash punch buttons
+        node._robot_cmd_callback = self._on_incoming_punch
 
     # ── UI ───────────────────────────────────────────────────────────────
     def _build(self) -> None:
@@ -378,6 +404,36 @@ class IMUSimulatorGUI:
             borderwidth=0, highlightthickness=0,
         )
         self._log_text.pack(padx=20, pady=(2, 14), fill="both", expand=True)
+
+    # ── Incoming robot commands (from GUI drill cycling) ────────────────
+    def _on_incoming_punch(self, punch_type: str) -> None:
+        """Called from the ROS thread — schedule Tkinter update."""
+        self._root.after(0, lambda: self._flash_incoming(punch_type))
+
+    def _flash_incoming(self, punch_type: str) -> None:
+        """Flash the punch button and arm to show an incoming robot command."""
+        color_map = {
+            "jab": PUNCH_JAB, "cross": PUNCH_CROSS,
+            "l_hook": PUNCH_HOOK, "r_hook": PUNCH_HOOK,
+            "l_upper": PUNCH_UPPER, "r_upper": PUNCH_UPPER,
+        }
+        color = color_map.get(punch_type, PRIMARY)
+        arm_side, _ = _PUNCH_TYPES.get(punch_type, ("left", "centre"))
+
+        if punch_type in self._punch_btns:
+            btn = self._punch_btns[punch_type]
+            btn.configure(bg=color, fg="#000")
+            btn.after(_FLASH_MS, lambda: btn.configure(bg=SURFACE2, fg=color))
+
+        if arm_side in self._arm_btns:
+            self._flash(self._arm_btns[arm_side], color, ARM_BG, "#6EA8DC")
+
+        _PUNCH_LABELS = {
+            "jab": "Jab", "cross": "Cross", "l_hook": "L Hook",
+            "r_hook": "R Hook", "l_upper": "L Upper", "r_upper": "R Upper",
+        }
+        self._log(f"CMD>  {_PUNCH_LABELS.get(punch_type, punch_type):<8s}  "
+                  f"(from GUI drill)")
 
     # ── Factories ───────────────────────────────────────────────────────
     def _make_pad(self, parent: tk.Frame, label: str,
