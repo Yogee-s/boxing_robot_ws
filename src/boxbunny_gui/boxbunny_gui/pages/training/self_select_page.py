@@ -35,7 +35,10 @@ _PUNCHES = [
     ("5", "L Upper", Color.L_UPPERCUT),
     ("6", "R Upper", Color.R_UPPERCUT),
 ]
-_DEFENSE = [("slip", "Slip"), ("block", "Block")]
+_DEFENSE = [
+    ("slip", "Slip-L"), ("slipr", "Slip-R"),
+    ("block", "Block-L"), ("blockr", "Block-R"),
+]
 _MAX_SEQUENCES = 5
 _MAX_COMBO_LEN = 10
 

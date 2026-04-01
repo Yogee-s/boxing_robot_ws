@@ -361,9 +361,24 @@ class TrainingResultsPage(QWidget):
         if self._bridge is None:
             self._coach_lbl.setText("AI Coach unavailable in offline mode.")
             return
+        import json
+        combo_name = self._config.get("combo", {}).get("name", "Free Training")
+        context = {
+            "combo": combo_name,
+            "difficulty": self._difficulty or "beginner",
+            "total_punches": self._total_punches,
+            "combos_completed": self._combos_done,
+            "rounds": self._config.get("Rounds", "1"),
+            "work_time": self._config.get("Work Time", "90s"),
+        }
         self._bridge.call_generate_llm(
-            prompt="Summarize this boxing training session in 1-2 sentences.",
-            context_json="{}",
+            prompt=(
+                f"Summarize this boxing training session in 2 sentences. "
+                f"Combo: {combo_name}, "
+                f"Punches: {self._total_punches}, "
+                f"Combos completed: {self._combos_done}."
+            ),
+            context_json=json.dumps(context),
             system_prompt_key="coach_summary",
             callback=self._on_llm_response,
         )
@@ -381,8 +396,10 @@ class TrainingResultsPage(QWidget):
         self._combo_id = kwargs.get("combo_id")
         self._difficulty = kwargs.get("difficulty")
         self._username = kwargs.get("username", "")
-        total_punches = kwargs.get("total_punches", 0)
-        combos_done = kwargs.get("combos_completed", 0)
+        self._total_punches = kwargs.get("total_punches", 0)
+        self._combos_done = kwargs.get("combos_completed", 0)
+        total_punches = self._total_punches
+        combos_done = self._combos_done
 
         # Populate stat tiles with real session data
         self._stat_punches.findChild(QLabel, "val").setText(str(total_punches))

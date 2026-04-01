@@ -285,9 +285,15 @@ class SparringResultsPage(QWidget):
         if self._bridge is None:
             self._ai_lbl.setText("AI Coach unavailable in offline mode.")
             return
+        import json
+        style = self._config.get("style", "Sparring")
+        context = {
+            "style": style,
+            "difficulty": self._config.get("difficulty", "medium"),
+        }
         self._bridge.call_generate_llm(
-            prompt="Summarize this sparring session in 1-2 sentences.",
-            context_json="{}",
+            prompt=f"Summarize this sparring session against {style} style in 2 sentences.",
+            context_json=json.dumps(context),
             system_prompt_key="coach_summary",
             callback=self._on_llm,
         )

@@ -38,10 +38,14 @@ logger = logging.getLogger(__name__)
 _PUNCH_COLORS = {
     "1": Color.JAB, "2": Color.CROSS, "3": Color.L_HOOK,
     "4": Color.R_HOOK, "5": Color.L_UPPERCUT, "6": Color.R_UPPERCUT,
+    "slip": Color.BLOCK, "slipr": Color.BLOCK,
+    "block": Color.BLOCK, "blockr": Color.BLOCK,
 }
 _PUNCH_NAMES = {
     "1": "Jab", "2": "Cross", "3": "L Hook", "4": "R Hook",
     "5": "L Upper", "6": "R Upper",
+    "slip": "Slip-L", "slipr": "Slip-R",
+    "block": "Block-L", "blockr": "Block-R",
 }
 
 _KW = f"color:{Color.PRIMARY_LIGHT}; font-weight:600"

@@ -104,6 +104,10 @@ class _RosWorker(QObject):
         self._robot_cmd_pub = n.create_publisher(
             RobotCommand, Topics.ROBOT_COMMAND, 10,
         )
+        # Pre-create service clients so they're ready when needed
+        self._cli_start = n.create_client(StartSession, Services.START_SESSION)
+        self._cli_end = n.create_client(EndSession, Services.END_SESSION)
+        self._cli_llm = n.create_client(GenerateLlm, Services.GENERATE_LLM)
 
     def publish_robot_command(
         self, punch_code: str, speed: str = "medium",
@@ -232,18 +236,25 @@ class GuiBridge(QObject):
 
     # ── Service client wrappers ─────────────────────────────────────────
 
+    @staticmethod
+    def _safe_callback(future, extractor, fallback, callback) -> None:
+        """Extract result from a future with error handling."""
+        try:
+            result = future.result()
+            callback(*extractor(result))
+        except Exception as exc:
+            logger.warning("Service call failed: %s", exc)
+            callback(*fallback)
+
     def call_start_session(
         self, mode: str, difficulty: str, config_json: str, username: str,
         callback: Callable[[bool, str, str], None],
     ) -> None:
-        """Call StartSession service asynchronously.
-
-        *callback* receives (success, session_id, message) on the ROS thread.
-        """
+        """Call StartSession service asynchronously."""
         if not self._is_ready():
             callback(False, "", "ROS offline")
             return
-        cli = self._worker.node.create_client(StartSession, Services.START_SESSION)
+        cli = self._worker._cli_start
         req = StartSession.Request()
         req.mode = mode
         req.difficulty = difficulty
@@ -251,7 +262,12 @@ class GuiBridge(QObject):
         req.username = username
         future = cli.call_async(req)
         future.add_done_callback(
-            lambda f: callback(f.result().success, f.result().session_id, f.result().message)
+            lambda f: self._safe_callback(
+                f,
+                lambda r: (r.success, r.session_id, r.message),
+                (False, "", "Service call failed"),
+                callback,
+            )
         )
 
     def call_end_session(
@@ -262,12 +278,17 @@ class GuiBridge(QObject):
         if not self._is_ready():
             callback(False, "", "ROS offline")
             return
-        cli = self._worker.node.create_client(EndSession, Services.END_SESSION)
+        cli = self._worker._cli_end
         req = EndSession.Request()
         req.session_id = session_id
         future = cli.call_async(req)
         future.add_done_callback(
-            lambda f: callback(f.result().success, f.result().summary_json, f.result().message)
+            lambda f: self._safe_callback(
+                f,
+                lambda r: (r.success, r.summary_json, r.message),
+                (False, "", "Service call failed"),
+                callback,
+            )
         )
 
     def call_generate_llm(
@@ -278,17 +299,18 @@ class GuiBridge(QObject):
         if not self._is_ready():
             callback(False, "", 0.0)
             return
-        cli = self._worker.node.create_client(GenerateLlm, Services.GENERATE_LLM)
+        cli = self._worker._cli_llm
         req = GenerateLlm.Request()
         req.prompt = prompt
         req.context_json = context_json
         req.system_prompt_key = system_prompt_key
         future = cli.call_async(req)
         future.add_done_callback(
-            lambda f: callback(
-                f.result().success,
-                f.result().response,
-                f.result().generation_time_sec,
+            lambda f: self._safe_callback(
+                f,
+                lambda r: (r.success, r.response, r.generation_time_sec),
+                (False, "AI Coach unavailable.", 0.0),
+                callback,
             )
         )
 

@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 _PUNCH_NAMES = {
     "1": "Jab", "2": "Cross", "3": "L Hook", "4": "R Hook",
     "5": "L Upper", "6": "R Upper",
+    "slip": "Slip-L", "slipr": "Slip-R",
+    "block": "Block-L", "blockr": "Block-R",
 }
 
 _PARAMS: Dict[str, Dict] = {

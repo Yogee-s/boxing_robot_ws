@@ -449,6 +449,15 @@ class SettingsPage(QWidget):
         )
         url_row.addWidget(url_val)
         net.content_layout.addLayout(url_row)
+
+        # Phone login QR button
+        phone_btn = QPushButton("Phone Login / Dashboard")
+        phone_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        phone_btn.setFixedHeight(48)
+        phone_btn.setStyleSheet(self._action_btn_style())
+        phone_btn.clicked.connect(self._on_phone_login)
+        net.content_layout.addWidget(phone_btn)
+
         sections.addWidget(net)
 
         # System
@@ -548,6 +557,21 @@ class SettingsPage(QWidget):
         except Exception as exc:
             logger.warning("Password change failed: %s", exc)
             self._set_status("Failed to update password")
+
+    def _on_phone_login(self) -> None:
+        """Open the QR code popup for phone dashboard login."""
+        try:
+            from boxbunny_gui.pages.auth.startup_page import _QrPopup
+            popup = _QrPopup(self._panel)
+            result = popup.exec()
+            if result and popup.login_info:
+                username = popup.login_info.get("username", "")
+                if username and self._router:
+                    self._router.navigate(
+                        "home", username=username,
+                    )
+        except Exception as exc:
+            logger.warning("Phone login popup failed: %s", exc)
 
     def on_enter(self, **kwargs: Any) -> None:
         self._username = kwargs.get("username", "")

@@ -6,6 +6,7 @@ highlight, round counter, punch counter, and stop button.
 from __future__ import annotations
 
 import logging
+import random
 import re
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -33,7 +34,8 @@ _PUNCH_NAMES: Dict[str, str] = {
     "5": "L UPPER", "6": "R UPPER",
     "1b": "BODY JAB", "2b": "BODY CROSS",
     "3b": "BODY HOOK", "4b": "BODY R HOOK",
-    "slip": "SLIP", "block": "BLOCK",
+    "slip": "SLIP-L", "slipr": "SLIP-R",
+    "block": "BLOCK-L", "blockr": "BLOCK-R",
 }
 
 _PUNCH_COLORS: Dict[str, str] = {
@@ -41,8 +43,22 @@ _PUNCH_COLORS: Dict[str, str] = {
     "4": Color.R_HOOK, "5": Color.L_UPPERCUT, "6": Color.R_UPPERCUT,
     "1b": Color.JAB, "2b": Color.CROSS, "3b": Color.L_HOOK,
     "4b": Color.R_HOOK,
-    "slip": Color.BLOCK, "block": Color.BLOCK,
+    "slip": Color.BLOCK, "slipr": Color.BLOCK,
+    "block": Color.BLOCK, "blockr": Color.BLOCK,
 }
+
+# Defense token → robot punch code mapping
+# Slip-L: robot throws jab (1) for user to slip
+# Slip-R: robot throws cross (2) for user to slip
+# Block-L: robot throws a random left punch (1, 3, or 5)
+# Block-R: robot throws a random right punch (2, 4, or 6)
+_DEFENSE_PUNCH_MAP: Dict[str, list] = {
+    "slip": ["1"],           # Jab
+    "slipr": ["2"],          # Cross
+    "block": ["1", "3", "5"],  # Any left punch
+    "blockr": ["2", "4", "6"],  # Any right punch
+}
+_DEFENSIVE_TOKENS = set(_DEFENSE_PUNCH_MAP.keys())
 
 
 def _parse_speed_ms(speed_str: str) -> int:
@@ -73,6 +89,7 @@ class TrainingSessionPage(QWidget):
         self._difficulty: Optional[str] = None
         self._username: str = ""
         self._session_active: bool = False
+        self._paused: bool = False
         self._session_id: str = ""
 
         # Drill cycling state
@@ -200,12 +217,34 @@ class TrainingSessionPage(QWidget):
 
         root.addSpacing(10)
 
-        # Stop button — centered
-        stop_row = QHBoxLayout()
-        stop_row.addStretch()
+        # Pause + Stop buttons — centered
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+
+        self._btn_pause = QPushButton("PAUSE")
+        self._btn_pause.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_pause.setFixedSize(140, 48)
+        self._btn_pause.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {Color.SURFACE};
+                color: {Color.TEXT};
+                font-size: 15px; font-weight: 700;
+                border: 1px solid {Color.BORDER_LIGHT};
+                border-radius: {Size.RADIUS}px;
+            }}
+            QPushButton:hover {{
+                border-color: {Color.WARNING};
+                background-color: {Color.SURFACE_HOVER};
+            }}
+        """)
+        self._btn_pause.clicked.connect(self._on_pause_resume)
+        btn_row.addWidget(self._btn_pause)
+
+        btn_row.addSpacing(12)
+
         self._btn_stop = QPushButton(f"{Icon.STOP}  STOP")
         self._btn_stop.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_stop.setFixedSize(180, 48)
+        self._btn_stop.setFixedSize(140, 48)
         self._btn_stop.setStyleSheet(f"""
             QPushButton {{
                 background-color: {Color.DANGER}; color: white;
@@ -215,9 +254,10 @@ class TrainingSessionPage(QWidget):
             QPushButton:hover {{ background-color: {Color.DANGER_DARK}; }}
         """)
         self._btn_stop.clicked.connect(self._on_stop)
-        stop_row.addWidget(self._btn_stop)
-        stop_row.addStretch()
-        root.addLayout(stop_row)
+        btn_row.addWidget(self._btn_stop)
+
+        btn_row.addStretch()
+        root.addLayout(btn_row)
 
     # ── Bridge signals ───────────────────────────────────────────────────
 
@@ -274,10 +314,16 @@ class TrainingSessionPage(QWidget):
 
         self._update_cue()
 
-        # Publish the punch command to the robot / IMU simulator
+        # Publish punch command to robot
         token = self._combo_tokens[self._drill_idx]
         if self._bridge is not None:
-            self._bridge.publish_punch_command(token, self._robot_speed)
+            if token in _DEFENSE_PUNCH_MAP:
+                # Defense: robot throws a punch for user to defend against
+                choices = _DEFENSE_PUNCH_MAP[token]
+                punch_code = random.choice(choices)
+                self._bridge.publish_punch_command(punch_code, self._robot_speed)
+            else:
+                self._bridge.publish_punch_command(token, self._robot_speed)
 
     def _update_cue(self) -> None:
         """Update the current-punch cue, next preview, and sequence bar."""
@@ -360,6 +406,49 @@ class TrainingSessionPage(QWidget):
                 total_punches=self._punch_counter._count,
                 combos_completed=self._combos_completed,
             )
+
+    def _on_pause_resume(self) -> None:
+        if not self._session_active:
+            return
+        if self._paused:
+            # Resume
+            self._paused = False
+            self._timer.resume()
+            self._drill_timer.start()
+            self._btn_pause.setText("PAUSE")
+            self._btn_pause.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {Color.SURFACE};
+                    color: {Color.TEXT};
+                    font-size: 15px; font-weight: 700;
+                    border: 1px solid {Color.BORDER_LIGHT};
+                    border-radius: {Size.RADIUS}px;
+                }}
+                QPushButton:hover {{
+                    border-color: {Color.WARNING};
+                    background-color: {Color.SURFACE_HOVER};
+                }}
+            """)
+            logger.info("Training resumed")
+        else:
+            # Pause
+            self._paused = True
+            self._timer.pause()
+            self._drill_timer.stop()
+            self._btn_pause.setText("RESUME")
+            self._btn_pause.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {Color.WARNING};
+                    color: #000000;
+                    font-size: 15px; font-weight: 700;
+                    border: none;
+                    border-radius: {Size.RADIUS}px;
+                }}
+                QPushButton:hover {{
+                    background-color: {Color.WARNING_DARK};
+                }}
+            """)
+            logger.info("Training paused")
 
     def _on_stop(self) -> None:
         self._session_active = False
@@ -466,10 +555,15 @@ class TrainingSessionPage(QWidget):
             self._drill_timer.start()
 
             # Publish the first punch immediately
+            first = self._combo_tokens[0]
             if self._bridge is not None:
-                self._bridge.publish_punch_command(
-                    self._combo_tokens[0], self._robot_speed,
-                )
+                if first in _DEFENSE_PUNCH_MAP:
+                    self._bridge.publish_punch_command(
+                        random.choice(_DEFENSE_PUNCH_MAP[first]),
+                        self._robot_speed,
+                    )
+                else:
+                    self._bridge.publish_punch_command(first, self._robot_speed)
 
             logger.info(
                 "Drill cycling started: %s at %dms intervals (speed=%s)",
@@ -501,7 +595,9 @@ class TrainingSessionPage(QWidget):
         self._combos_completed = 0
 
         self._session_active = True
+        self._paused = False
         self._session_id = ""
+        self._btn_pause.setText("PAUSE")
         self._round_lbl.setText(
             f"Round {self._current_round}/{self._total_rounds}"
         )
