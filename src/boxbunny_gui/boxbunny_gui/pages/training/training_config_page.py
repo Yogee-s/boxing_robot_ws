@@ -122,7 +122,7 @@ class TrainingConfigPage(QWidget):
         btn_back.clicked.connect(lambda: self._router.back())
         top.addWidget(btn_back)
         self._title = QLabel("Training Setup")
-        self._title.setFont(font(Size.TEXT_SUBHEADER, bold=True))
+        self._title.setStyleSheet(f"font-size: 20px; font-weight: 700; color: {Color.TEXT};")
         top.addWidget(self._title)
         top.addStretch()
         self._diff_badge = QLabel("TRAINING")
@@ -217,7 +217,7 @@ class TrainingConfigPage(QWidget):
         self._btn_start = BigButton(
             f"{Icon.PLAY}  Start Training", stylesheet=PRIMARY_BTN
         )
-        self._btn_start.setFixedHeight(54)
+        self._btn_start.setFixedHeight(60)
         self._btn_start.clicked.connect(self._on_start)
         root.addWidget(self._btn_start)
 

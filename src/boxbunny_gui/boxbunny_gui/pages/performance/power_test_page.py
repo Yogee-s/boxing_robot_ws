@@ -66,7 +66,7 @@ class PowerTestPage(QWidget):
         btn_back.clicked.connect(self._on_back)
         top.addWidget(btn_back)
         self._title = QLabel("Power Test")
-        self._title.setFont(font(Size.TEXT_SUBHEADER, bold=True))
+        self._title.setStyleSheet(f"font-size: 20px; font-weight: 700; color: {Color.TEXT};")
         top.addWidget(self._title)
         top.addStretch()
         self._root.addLayout(top)

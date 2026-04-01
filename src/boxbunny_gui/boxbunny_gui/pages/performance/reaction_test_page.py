@@ -78,7 +78,7 @@ class ReactionTestPage(QWidget):
         btn_back.clicked.connect(self._abort)
         top.addWidget(btn_back)
         self._title = QLabel("Reaction Time")
-        self._title.setFont(font(Size.TEXT_SUBHEADER, bold=True))
+        self._title.setStyleSheet(f"font-size: 20px; font-weight: 700; color: {Color.TEXT};")
         top.addWidget(self._title)
         top.addStretch()
         self._trial_lbl = QLabel(f"Trial 0/{_TOTAL_TRIALS}")

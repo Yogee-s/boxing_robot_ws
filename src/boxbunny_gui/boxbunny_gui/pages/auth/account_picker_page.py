@@ -237,7 +237,7 @@ class AccountPickerPage(QWidget):
         top.addWidget(self._btn_back)
 
         title = QLabel("Select Account")
-        title.setFont(font(Size.TEXT_SUBHEADER, bold=True))
+        title.setStyleSheet(f"font-size: 20px; font-weight: 700; color: {Color.TEXT};")
         top.addWidget(title)
         top.addStretch()
 

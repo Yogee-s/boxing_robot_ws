@@ -167,7 +167,7 @@ class PatternLockPage(QWidget):
 
         # User name with subtle icon
         self._name_lbl = QLabel()
-        self._name_lbl.setFont(font(Size.TEXT_SUBHEADER, bold=True))
+        self._name_lbl.setStyleSheet(f"font-size: 20px; font-weight: 700; color: {Color.TEXT};")
         self._name_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(self._name_lbl)
 

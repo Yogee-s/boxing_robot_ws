@@ -358,7 +358,7 @@ class SelfSelectPage(QWidget):
         self._btn_continue = BigButton(
             f"{Icon.PLAY}  Continue to Config", stylesheet=PRIMARY_BTN
         )
-        self._btn_continue.setFixedHeight(50)
+        self._btn_continue.setFixedHeight(60)
         self._btn_continue.clicked.connect(self._on_continue)
         root.addWidget(self._btn_continue)
 

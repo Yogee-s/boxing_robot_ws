@@ -247,7 +247,9 @@ class SparringConfigPage(QWidget):
         btn_back.clicked.connect(lambda: self._router.back())
         top.addWidget(btn_back)
         title = QLabel("Sparring Setup")
-        title.setFont(font(Size.TEXT_SUBHEADER, bold=True))
+        title.setStyleSheet(
+            f"font-size: 20px; font-weight: 700; color: {Color.TEXT};"
+        )
         top.addWidget(title)
         top.addStretch()
         mode_badge = QLabel("SPARRING")
@@ -342,7 +344,7 @@ class SparringConfigPage(QWidget):
         btn_start = BigButton(
             f"{Icon.PLAY}  Start Sparring", stylesheet=PRIMARY_BTN
         )
-        btn_start.setFixedHeight(52)
+        btn_start.setFixedHeight(60)
         btn_start.clicked.connect(self._on_start)
         root.addWidget(btn_start)
 

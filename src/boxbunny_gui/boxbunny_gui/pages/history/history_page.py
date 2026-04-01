@@ -155,7 +155,7 @@ class HistoryPage(QWidget):
         btn_back.clicked.connect(lambda: self._router.back())
         top.addWidget(btn_back)
         title = QLabel("History")
-        title.setFont(font(Size.TEXT_SUBHEADER, bold=True))
+        title.setStyleSheet(f"font-size: 20px; font-weight: 700; color: {Color.TEXT};")
         top.addWidget(title)
         top.addStretch()
 

@@ -308,7 +308,7 @@ class ComboSelectPage(QWidget):
         self._btn_train = BigButton(
             f"{Icon.PLAY}  Start Training", stylesheet=PRIMARY_BTN
         )
-        self._btn_train.setFixedHeight(52)
+        self._btn_train.setFixedHeight(60)
         self._btn_train.clicked.connect(self._on_train_next)
         root.addWidget(self._btn_train)
 

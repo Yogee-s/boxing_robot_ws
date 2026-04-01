@@ -1,7 +1,4 @@
-"""Guest home page — shown after skill assessment.
-
-Matches the individual home page styling with warm-tinted cards.
-"""
+"""Guest home page — shown after skill assessment."""
 from __future__ import annotations
 
 import logging
@@ -9,7 +6,7 @@ from typing import Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QGridLayout, QHBoxLayout, QLabel, QPushButton,
+    QHBoxLayout, QLabel, QPushButton,
     QVBoxLayout, QWidget,
 )
 
@@ -17,34 +14,38 @@ from boxbunny_gui.theme import Color, Icon, Size, subtle_btn_style
 
 logger = logging.getLogger(__name__)
 
-_H = f"color:{Color.PRIMARY_LIGHT}; font-weight:600"
+_KW = f"color:{Color.PRIMARY_LIGHT}; font-weight:600"
 _MODES = [
     {
         "name": "Techniques",
-        "desc": f'Practice <span style="{_H}">punch combinations</span> with '
-                f'<span style="{_H}">guided drills</span>',
+        "desc": f'Practice <span style="{_KW}">punch combinations</span> with '
+                f'<span style="{_KW}">guided drills</span>',
         "accent": Color.PRIMARY,
+        "tint": ("#1C1610", "#2E221A"),
         "route": "training_select",
     },
     {
         "name": "Sparring",
-        "desc": f'<span style="{_H}">Fight</span> against the '
-                f'<span style="{_H}">robot AI</span>',
+        "desc": f'<span style="{_KW}">Fight</span> against the '
+                f'<span style="{_KW}">robot AI</span>',
         "accent": Color.DANGER,
+        "tint": ("#1C1214", "#2E1A1E"),
         "route": "sparring_select",
     },
     {
         "name": "Free Training",
-        "desc": f'<span style="{_H}">Open session</span>, no structure',
+        "desc": f'<span style="{_KW}">Open session</span>, no structure',
         "accent": Color.INFO,
+        "tint": ("#111820", "#1A2530"),
         "route": "training_session",
     },
     {
         "name": "Performance",
-        "desc": f'Test your <span style="{_H}">power</span>, '
-                f'<span style="{_H}">stamina</span> and '
-                f'<span style="{_H}">speed</span>',
+        "desc": f'Test your <span style="{_KW}">power</span>, '
+                f'<span style="{_KW}">stamina</span> and '
+                f'<span style="{_KW}">speed</span>',
         "accent": Color.PURPLE,
+        "tint": ("#181420", "#221C30"),
         "route": "performance",
     },
 ]
@@ -52,21 +53,14 @@ _MODES = [
 
 def _mode_card(mode: dict) -> QPushButton:
     accent = mode["accent"]
+    bg, border = mode.get("tint", (Color.SURFACE, Color.BORDER))
     btn = QPushButton()
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
-    btn.setFixedHeight(140)
-    _TINTS = {
-        Color.PRIMARY: ("#1C1610", "#2E221A"),
-        Color.DANGER:  ("#1C1214", "#2E1A1E"),
-        Color.INFO:    ("#111820", "#1A2530"),
-        Color.PURPLE:  ("#181420", "#221C30"),
-        Color.WARNING: ("#1C1810", "#2E261A"),
-    }
-    bg_t, border_t = _TINTS.get(accent, ("#141920", "#1E2530"))
+    btn.setFixedHeight(120)
     btn.setStyleSheet(f"""
         QPushButton {{
-            background-color: {bg_t};
-            border: 1px solid {border_t};
+            background-color: {bg};
+            border: 1px solid {border};
             border-left: 3px solid {accent};
             border-radius: {Size.RADIUS}px;
             text-align: left;
@@ -78,39 +72,33 @@ def _mode_card(mode: dict) -> QPushButton:
         }}
     """)
 
-    lay = QHBoxLayout(btn)
-    lay.setContentsMargins(18, 14, 16, 14)
-    lay.setSpacing(0)
-
-    text_col = QVBoxLayout()
-    text_col.setSpacing(4)
-    text_col.setContentsMargins(0, 0, 0, 0)
+    lay = QVBoxLayout(btn)
+    lay.setContentsMargins(18, 16, 18, 16)
+    lay.setSpacing(8)
 
     title = QLabel(mode["name"])
     title.setStyleSheet(
         "background: transparent; border: none;"
-        f" font-size: 20px; font-weight: 700; color: {Color.TEXT};"
+        f" font-size: 24px; font-weight: 700; color: {Color.TEXT};"
     )
     title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-    text_col.addWidget(title)
+    lay.addWidget(title)
+
+    lay.addStretch()
 
     desc = QLabel(mode["desc"])
     desc.setTextFormat(Qt.TextFormat.RichText)
     desc.setStyleSheet(
         "background: transparent; border: none;"
-        f" font-size: 13px; color: {Color.TEXT_SECONDARY};"
+        f" font-size: 14px; color: {Color.TEXT_SECONDARY};"
     )
     desc.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-    text_col.addWidget(desc)
-
-    lay.addLayout(text_col, stretch=1)
+    lay.addWidget(desc)
 
     return btn
 
 
 class HomeGuestPage(QWidget):
-    """Menu for guest users — 2x2 card grid with welcome header."""
-
     def __init__(self, router=None, **kwargs):
         super().__init__()
         self._router = router
@@ -125,7 +113,7 @@ class HomeGuestPage(QWidget):
 
         title = QLabel("Welcome")
         title.setStyleSheet(
-            f"font-size: 22px; font-weight: 700; color: {Color.TEXT};"
+            f"font-size: 28px; font-weight: 700; color: {Color.PRIMARY};"
         )
         top.addWidget(title)
         top.addStretch()
@@ -154,20 +142,29 @@ class HomeGuestPage(QWidget):
 
         root.addStretch(1)
 
-        # ── 2x2 Mode grid ───────────────────────────────────────────────
-        grid = QGridLayout()
-        grid.setSpacing(10)
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(1, 1)
+        # ── 2x2 card grid — tall cards, narrower ────────────────────────
+        grid = QHBoxLayout()
+        grid.setSpacing(12)
+
+        col1 = QVBoxLayout()
+        col1.setSpacing(12)
+        col2 = QVBoxLayout()
+        col2.setSpacing(12)
 
         for i, mode in enumerate(_MODES):
             btn = _mode_card(mode)
             btn.clicked.connect(
                 lambda _c=False, r=mode["route"]: self._nav(r)
             )
-            grid.addWidget(btn, i // 2, i % 2)
+            if i % 2 == 0:
+                col1.addWidget(btn)
+            else:
+                col2.addWidget(btn)
 
+        grid.addLayout(col1)
+        grid.addLayout(col2)
         root.addLayout(grid)
+
         root.addStretch(1)
 
         # ── Bottom ───────────────────────────────────────────────────────
