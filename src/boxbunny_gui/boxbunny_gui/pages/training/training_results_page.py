@@ -94,45 +94,39 @@ class TrainingResultsPage(QWidget):
         self._curriculum: Optional[ComboCurriculum] = None
         self._combo_id: Optional[str] = None
         self._difficulty: Optional[str] = None
+        self._username: str = ""
         self._build_ui()
 
     def _build_ui(self) -> None:
-        scroll = QScrollArea(self)
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(
-            "QScrollArea { border: none; background: transparent; }"
-        )
-        wrapper = QWidget()
-        wrapper.setStyleSheet("background: transparent;")
-        root = QVBoxLayout(wrapper)
-        root.setContentsMargins(32, 16, 32, 22)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(32, 14, 32, 18)
         root.setSpacing(0)
 
-        # ── Title ────────────────────────────────────────────────────────
+        root.addStretch(1)
+
+        # ── Title bar ────────────────────────────────────────────────────
+        title_row = QHBoxLayout()
         title = QLabel("Session Complete")
-        title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet(
-            f"font-size: 24px; font-weight: 700; color: {Color.TEXT};"
-            " background-color: #1A1510;"
-            " border: 1px solid #3D2E1A;"
-            f" border-radius: {Size.RADIUS}px;"
-            " padding: 12px 24px;"
+            f"font-size: 22px; font-weight: 700; color: {Color.PRIMARY};"
         )
-        root.addWidget(title)
-
-        root.addSpacing(14)
-
-        # ── Stats ────────────────────────────────────────────────────────
-        stats_lbl = QLabel("Performance")
-        stats_lbl.setStyleSheet(
-            f"font-size: 13px; font-weight: 700; color: {Color.TEXT_SECONDARY};"
-            " letter-spacing: 0.5px;"
+        title_row.addWidget(title)
+        title_row.addStretch()
+        self._combo_tag = QLabel("")
+        self._combo_tag.setStyleSheet(
+            f"font-size: 12px; font-weight: 700; color: {Color.TEXT_SECONDARY};"
+            f" background-color: {Color.SURFACE};"
+            f" border: 1px solid {Color.BORDER};"
+            " border-radius: 8px; padding: 4px 12px;"
         )
-        root.addWidget(stats_lbl)
-        root.addSpacing(6)
+        title_row.addWidget(self._combo_tag)
+        root.addLayout(title_row)
 
+        root.addSpacing(12)
+
+        # ── Stats (2x2) ─────────────────────────────────────────────────
         stats = QGridLayout()
-        stats.setSpacing(8)
+        stats.setSpacing(10)
         self._stat_punches = _stat_tile("Total Punches", "0", Color.PRIMARY)
         self._stat_accuracy = _stat_tile("Accuracy", "0%", Color.INFO)
         self._stat_best = _stat_tile("Best Round", "--", Color.SUCCESS)
@@ -143,16 +137,15 @@ class TrainingResultsPage(QWidget):
         stats.addWidget(self._stat_fatigue, 1, 1)
         root.addLayout(stats)
 
-        root.addSpacing(14)
+        root.addSpacing(10)
 
         # ── Mastery progress ─────────────────────────────────────────────
         self._mastery_card = QWidget()
         self._mastery_card.setObjectName("mastery")
         self._mastery_card.setStyleSheet(f"""
             QWidget#mastery {{
-                background-color: #1A1510;
-                border: 1px solid #3D2E1A;
-                border-left: 3px solid {Color.PRIMARY};
+                background-color: {Color.SURFACE};
+                border: 1px solid {Color.BORDER};
                 border-radius: {Size.RADIUS}px;
             }}
             QWidget#mastery QLabel {{
@@ -166,23 +159,23 @@ class TrainingResultsPage(QWidget):
         mc_lay.setContentsMargins(16, 12, 16, 12)
         mc_lay.setSpacing(6)
 
+        mc_top = QHBoxLayout()
         mc_header = QLabel("COMBO MASTERY")
         mc_header.setStyleSheet(
             f"font-size: 10px; font-weight: 700; color: {Color.TEXT_DISABLED};"
             " letter-spacing: 0.8px;"
         )
-        mc_lay.addWidget(mc_header)
-
-        mc_top = QHBoxLayout()
+        mc_top.addWidget(mc_header)
+        mc_top.addStretch()
         self._mastery_name_lbl = QLabel("")
         self._mastery_name_lbl.setStyleSheet(
-            f"font-size: 15px; font-weight: 600; color: {Color.TEXT};"
+            f"font-size: 14px; font-weight: 600; color: {Color.TEXT};"
         )
         mc_top.addWidget(self._mastery_name_lbl)
         mc_top.addStretch()
         self._mastery_pct_lbl = QLabel("")
         self._mastery_pct_lbl.setStyleSheet(
-            f"font-size: 15px; font-weight: 700; color: {Color.PRIMARY};"
+            f"font-size: 14px; font-weight: 700; color: {Color.PRIMARY};"
         )
         mc_top.addWidget(self._mastery_pct_lbl)
         mc_lay.addLayout(mc_top)
@@ -196,7 +189,7 @@ class TrainingResultsPage(QWidget):
 
         self._mastery_detail_lbl = QLabel("")
         self._mastery_detail_lbl.setStyleSheet(
-            f"font-size: 12px; color: {Color.TEXT_SECONDARY};"
+            f"font-size: 11px; color: {Color.TEXT_SECONDARY};"
         )
         mc_lay.addWidget(self._mastery_detail_lbl)
 
@@ -210,16 +203,15 @@ class TrainingResultsPage(QWidget):
 
         root.addWidget(self._mastery_card)
 
-        root.addSpacing(14)
+        root.addSpacing(10)
 
         # ── AI Coach ─────────────────────────────────────────────────────
         ai_box = QWidget()
         ai_box.setObjectName("aibox")
         ai_box.setStyleSheet(f"""
             QWidget#aibox {{
-                background-color: #101820;
-                border: 1px solid #1A2E40;
-                border-left: 3px solid {Color.INFO};
+                background-color: {Color.SURFACE};
+                border: 1px solid {Color.BORDER};
                 border-radius: {Size.RADIUS}px;
             }}
             QWidget#aibox QLabel {{
@@ -239,22 +231,22 @@ class TrainingResultsPage(QWidget):
 
         self._coach_lbl = QLabel("AI analysis loading...")
         self._coach_lbl.setStyleSheet(
-            f"font-size: 13px; color: {Color.TEXT};"
+            f"font-size: 14px; color: {Color.TEXT};"
         )
         self._coach_lbl.setWordWrap(True)
-        self._coach_lbl.setMinimumHeight(32)
+        self._coach_lbl.setMinimumHeight(40)
         ai_lay.addWidget(self._coach_lbl)
         root.addWidget(ai_box)
 
-        root.addSpacing(14)
+        root.addStretch(1)
 
         # ── Action buttons ───────────────────────────────────────────────
         bottom = QHBoxLayout()
         bottom.setSpacing(12)
 
-        btn_home = QPushButton("Home")
+        btn_home = QPushButton(f"{Icon.BACK}  Home")
         btn_home.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_home.setFixedSize(150, 48)
+        btn_home.setFixedHeight(52)
         btn_home.setStyleSheet(f"""
             QPushButton {{
                 font-size: 15px; font-weight: 600;
@@ -262,20 +254,19 @@ class TrainingResultsPage(QWidget):
                 color: {Color.TEXT};
                 border: 1px solid {Color.BORDER_LIGHT};
                 border-radius: {Size.RADIUS}px;
+                padding: 0 24px;
             }}
             QPushButton:hover {{
                 border-color: {Color.PRIMARY};
                 background-color: {Color.SURFACE_HOVER};
             }}
         """)
-        btn_home.clicked.connect(
-            lambda: self._router.navigate("home_guest")
-        )
+        btn_home.clicked.connect(self._go_home)
         bottom.addWidget(btn_home)
 
         self._btn_combos = QPushButton("Combos")
         self._btn_combos.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_combos.setFixedSize(150, 48)
+        self._btn_combos.setFixedHeight(52)
         self._btn_combos.setStyleSheet(f"""
             QPushButton {{
                 font-size: 15px; font-weight: 600;
@@ -283,6 +274,7 @@ class TrainingResultsPage(QWidget):
                 color: {Color.TEXT};
                 border: 1px solid {Color.BORDER_LIGHT};
                 border-radius: {Size.RADIUS}px;
+                padding: 0 24px;
             }}
             QPushButton:hover {{
                 border-color: {Color.INFO};
@@ -298,15 +290,16 @@ class TrainingResultsPage(QWidget):
         self._btn_again = BigButton(
             f"{Icon.PLAY} Train Again", stylesheet=PRIMARY_BTN
         )
-        self._btn_again.setFixedHeight(48)
+        self._btn_again.setFixedHeight(52)
         self._btn_again.clicked.connect(self._on_train_again)
         bottom.addWidget(self._btn_again)
         root.addLayout(bottom)
 
-        scroll.setWidget(wrapper)
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(scroll)
+    def _go_home(self) -> None:
+        if self._username:
+            self._router.navigate("home", username=self._username)
+        else:
+            self._router.navigate("home_guest")
 
     def _update_mastery(self) -> None:
         if not self._curriculum or not self._combo_id:
@@ -352,6 +345,7 @@ class TrainingResultsPage(QWidget):
         self._router.navigate(
             "training_select",
             level=self._difficulty or "Beginner",
+            username=self._username,
         )
 
     def _on_train_again(self) -> None:
@@ -360,6 +354,7 @@ class TrainingResultsPage(QWidget):
             combo=self._config.get("combo", {}),
             difficulty=self._difficulty,
             curriculum=self._curriculum,
+            username=self._username,
         )
 
     def _request_llm_summary(self) -> None:
@@ -385,10 +380,15 @@ class TrainingResultsPage(QWidget):
         self._curriculum = kwargs.get("curriculum")
         self._combo_id = kwargs.get("combo_id")
         self._difficulty = kwargs.get("difficulty")
+        self._username = kwargs.get("username", "")
 
         for tile in (self._stat_punches, self._stat_accuracy,
                      self._stat_best, self._stat_fatigue):
             tile.findChild(QLabel, "val").setText("--")
+
+        # Show combo name in tag
+        combo_name = self._config.get("combo", {}).get("name", "")
+        self._combo_tag.setText(combo_name if combo_name else "Free Training")
 
         self._update_mastery()
         self._request_llm_summary()

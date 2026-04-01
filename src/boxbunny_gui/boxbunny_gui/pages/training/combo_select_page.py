@@ -186,6 +186,7 @@ class ComboSelectPage(QWidget):
         self._user_level_idx: int = 0
         self._next_combo: Optional[Dict[str, Any]] = None
         self._combo_rows: list[QWidget] = []
+        self._username: str = ""
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -537,6 +538,7 @@ class ComboSelectPage(QWidget):
             combo=combo_data,
             difficulty=diff,
             curriculum=self._curriculum,
+            username=self._username,
         )
 
     def _on_train_next(self) -> None:
@@ -550,6 +552,7 @@ class ComboSelectPage(QWidget):
     # ── Lifecycle ────────────────────────────────────────────────────────
 
     def on_enter(self, **kwargs: Any) -> None:
+        self._username = kwargs.get("username", "")
         level = kwargs.get("level", "Beginner")
         if level and level.title() in _LEVEL_HIERARCHY:
             self._active_diff = level.title()

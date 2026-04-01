@@ -31,6 +31,10 @@ class TrainingRestPage(QWidget):
         self._config: Dict[str, Any] = {}
         self._round_num: int = 1
         self._total_rounds: int = 3
+        self._username: str = ""
+        self._curriculum = None
+        self._combo_id = None
+        self._difficulty = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -69,7 +73,7 @@ class TrainingRestPage(QWidget):
         bottom.addStretch()
         self._btn_skip = QPushButton(f"Skip Rest  {Icon.NEXT}")
         self._btn_skip.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_skip.setFixedSize(180, 44)
+        self._btn_skip.setFixedSize(200, 52)
         self._btn_skip.setStyleSheet(f"""
             QPushButton {{
                 font-size: 14px; font-weight: 600;
@@ -105,6 +109,7 @@ class TrainingRestPage(QWidget):
             curriculum=self._curriculum,
             combo_id=self._combo_id,
             difficulty=self._difficulty,
+            username=self._username,
         )
 
     def _parse_seconds(self, val: str) -> int:
@@ -117,6 +122,7 @@ class TrainingRestPage(QWidget):
         self._curriculum = kwargs.get("curriculum")
         self._combo_id = kwargs.get("combo_id")
         self._difficulty = kwargs.get("difficulty")
+        self._username = kwargs.get("username", "")
         rest_time = self._parse_seconds(self._config.get("Rest Time", "30s"))
         self._timer.start(rest_time)
         self._next_round_lbl.setText(

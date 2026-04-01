@@ -70,7 +70,7 @@ class PunchCounter(QWidget):
 
     def _set_pulse(self, v: float) -> None:
         self._pulse_val = v
-        pt = int(56 * v)
+        pt = max(1, int(56 * v))
         self._number.setStyleSheet(
             f"color: {Color.PRIMARY}; font-size: {pt}px; font-weight: bold;"
             " background: transparent;"

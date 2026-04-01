@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, font, GHOST_BTN, SURFACE_BTN
+from boxbunny_gui.theme import Color, Size, font, GHOST_BTN, SURFACE_BTN, back_link_style
 from boxbunny_gui.widgets import BigButton
 
 if TYPE_CHECKING:
@@ -193,17 +193,31 @@ class SettingsPage(QWidget):
         super().__init__(parent)
         self._router = router
         self._bridge = bridge
+        self._username: str = ""
+
+        # Panel lives as a free-positioned child (no layout on self)
+        # so we can animate its position for the slide-down effect.
+        self._panel = QWidget(self)
+        self._slide_anim = QPropertyAnimation(self._panel, b"pos")
+        self._slide_anim.setDuration(350)
+        self._slide_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
         self._build_ui()
 
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._panel.resize(self.size())
+
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
+        root = QVBoxLayout(self._panel)
         root.setContentsMargins(24, 16, 24, 22)
         root.setSpacing(14)
 
-        # Top bar
+        # Top bar — consistent with other pages
         top = QHBoxLayout()
-        btn_back = BigButton("Back", stylesheet=GHOST_BTN)
-        btn_back.setFixedWidth(100)
+        btn_back = QPushButton(f"\u2190  Back")
+        btn_back.setStyleSheet(back_link_style())
+        btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_back.clicked.connect(lambda: self._router.back())
         top.addWidget(btn_back)
         title = QLabel("Settings")
@@ -550,6 +564,14 @@ class SettingsPage(QWidget):
         self._pat_panel.setMaximumHeight(0)
         self._pat_toggle_btn.setText("Set / Change Pattern")
         self._pw_status.setText("")
+
+        # Slide-down entrance animation
+        h = self.height() or Size.SCREEN_H
+        self._panel.move(0, -h)
+        self._slide_anim.stop()
+        self._slide_anim.setStartValue(QPoint(0, -h))
+        self._slide_anim.setEndValue(QPoint(0, 0))
+        self._slide_anim.start()
         logger.debug("SettingsPage entered (user=%s)", self._username)
 
     def on_leave(self) -> None:

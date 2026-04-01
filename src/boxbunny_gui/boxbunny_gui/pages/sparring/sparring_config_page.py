@@ -252,6 +252,7 @@ class SparringConfigPage(QWidget):
         self._style_cards: list[_StyleCard] = []
         self._tiles: Dict[str, _ParamTile] = {}
         self._step = 1  # 1 = style selection, 2 = parameters
+        self._username: str = ""
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -458,9 +459,12 @@ class SparringConfigPage(QWidget):
         config["style"] = self._selected_style
         config["difficulty"] = self._diff_tile.value
         logger.info("Starting sparring: %s", config)
-        self._router.navigate("sparring_session", config=config)
+        self._router.navigate(
+            "sparring_session", config=config, username=self._username,
+        )
 
     def on_enter(self, **kwargs: Any) -> None:
+        self._username = kwargs.get("username", "")
         self._step = 1
         self._desc_section.setMaximumHeight(200)
         self._params_section.setMaximumHeight(0)

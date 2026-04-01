@@ -392,7 +392,7 @@ class StartupPage(QWidget):
         root.addStretch(2)
 
         # ── Quick Start ──────────────────────────────────────────────────
-        start_btn = _GlowButton("Quick Start  \u2192")
+        start_btn = _GlowButton("Quick Start")
         start_btn.setFixedSize(500, 76)
         start_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         start_btn.setStyleSheet(hero_btn_style(size=24))

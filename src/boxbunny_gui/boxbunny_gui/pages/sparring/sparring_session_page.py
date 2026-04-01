@@ -72,6 +72,8 @@ class SparringSessionPage(QWidget):
         self._config: Dict[str, Any] = {}
         self._hits_taken: int = 0
         self._total_attacks: int = 0
+        self._username: str = ""
+        self._session_active: bool = False
         self._build_ui()
         self._connect_bridge()
 
@@ -147,7 +149,7 @@ class SparringSessionPage(QWidget):
         bottom.addStretch()
         self._btn_stop = QPushButton(f"{Icon.STOP}  STOP")
         self._btn_stop.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_stop.setFixedSize(160, 44)
+        self._btn_stop.setFixedSize(180, 48)
         self._btn_stop.setStyleSheet(f"""
             QPushButton {{
                 background-color: {Color.DANGER}; color: white;
@@ -168,9 +170,13 @@ class SparringSessionPage(QWidget):
         self._bridge.defense_event.connect(self._on_defense)
 
     def _on_punch(self, data: Dict[str, Any]) -> None:
+        if not self._session_active:
+            return
         self._punch_counter.increment()
 
     def _on_defense(self, data: Dict[str, Any]) -> None:
+        if not self._session_active:
+            return
         self._total_attacks += 1
         if data.get("struck", False):
             self._hits_taken += 1
@@ -184,14 +190,26 @@ class SparringSessionPage(QWidget):
         self._def_lbl.setText(f"{rate}%")
 
     def _on_timer_done(self) -> None:
-        self._router.replace("sparring_results", config=self._config)
+        if not self._session_active:
+            return
+        self._session_active = False
+        self._router.replace(
+            "sparring_results", config=self._config,
+            username=self._username,
+        )
 
     def _on_stop(self) -> None:
+        self._session_active = False
         self._timer.pause()
         logger.info("Sparring stopped by user")
-        self._router.replace("sparring_results", config=self._config)
+        self._router.replace(
+            "sparring_results", config=self._config,
+            username=self._username,
+        )
 
     def _countdown_tick(self) -> None:
+        if not self._session_active:
+            return
         if self._countdown_remaining > 0:
             self._timer.set_overlay(str(self._countdown_remaining))
             self._countdown_remaining -= 1
@@ -210,10 +228,12 @@ class SparringSessionPage(QWidget):
 
     def on_enter(self, **kwargs: Any) -> None:
         self._config = kwargs.get("config", {})
+        self._username = kwargs.get("username", "")
         rounds = self._config.get("Rounds", "3")
         work_time = self._parse_seconds(
             self._config.get("Duration", self._config.get("Work", "90s"))
         )
+        self._session_active = True
         self._round_lbl.setText(f"Round 1/{rounds}")
         self._hits_taken = 0
         self._total_attacks = 0
@@ -230,4 +250,5 @@ class SparringSessionPage(QWidget):
         logger.debug("SparringSessionPage entered")
 
     def on_leave(self) -> None:
+        self._session_active = False
         self._timer.pause()

@@ -300,36 +300,36 @@ class _ResultWidget(QWidget):
         root.setContentsMargins(60, 20, 60, 22)
         root.setSpacing(0)
 
-        root.addStretch(2)
+        root.addStretch(1)
 
         # Title + suggestion — centered block
         title = QLabel("Your Proficiency Result")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet(
-            f"font-size: 24px; font-weight: 700; color: {Color.TEXT};"
+            f"font-size: 22px; font-weight: 700; color: {Color.TEXT};"
         )
         root.addWidget(title)
-        root.addSpacing(4)
 
         sub = QLabel("Based on your answers, we suggest:")
         sub.setAlignment(Qt.AlignCenter)
-        sub.setStyleSheet(f"font-size: 13px; color: {Color.TEXT_SECONDARY};")
+        sub.setStyleSheet(f"font-size: 14px; color: {Color.TEXT_SECONDARY};")
         root.addWidget(sub)
-        root.addSpacing(6)
+
+        root.addSpacing(12)
 
         self._suggestion_lbl = QLabel("Beginner")
         self._suggestion_lbl.setAlignment(Qt.AlignCenter)
         self._suggestion_lbl.setStyleSheet(
-            f"font-size: 36px; font-weight: 700; color: {Color.PRIMARY};"
+            f"font-size: 48px; font-weight: 700; color: {Color.PRIMARY};"
         )
         root.addWidget(self._suggestion_lbl)
 
-        root.addStretch(1)
+        root.addSpacing(12)
 
         # Level override
         choose = QLabel("You can still choose your own level:")
         choose.setAlignment(Qt.AlignCenter)
-        choose.setStyleSheet(f"font-size: 13px; color: {Color.TEXT_SECONDARY};")
+        choose.setStyleSheet(f"font-size: 14px; color: {Color.TEXT_SECONDARY};")
         root.addWidget(choose)
         root.addSpacing(10)
 
@@ -355,15 +355,15 @@ class _ResultWidget(QWidget):
         self._desc_lbl.setAlignment(Qt.AlignCenter)
         self._desc_lbl.setWordWrap(True)
         self._desc_lbl.setStyleSheet(
-            f"font-size: 13px; color: {Color.TEXT};"
+            f"font-size: 16px; color: {Color.TEXT};"
             " background-color: #1A1510;"
             " border: 1px solid #3D2E1A;"
             f" border-radius: {Size.RADIUS}px;"
-            " padding: 14px 24px;"
+            " padding: 16px 28px;"
         )
         root.addWidget(self._desc_lbl)
 
-        root.addStretch(2)
+        root.addStretch(1)
 
         # Bottom row — back left, confirm right
         bottom = QHBoxLayout()
@@ -407,7 +407,7 @@ class _ResultWidget(QWidget):
         color = _LEVEL_COLORS.get(suggested, Color.PRIMARY)
         self._suggestion_lbl.setText(suggested)
         self._suggestion_lbl.setStyleSheet(
-            f"font-size: 38px; font-weight: 700; color: {color};"
+            f"font-size: 48px; font-weight: 700; color: {color};"
         )
         self._refresh()
 
@@ -421,7 +421,7 @@ class _ResultWidget(QWidget):
         self._desc_lbl.setTextFormat(Qt.TextFormat.RichText)
         desc = _LEVEL_DESCRIPTIONS.get(self._chosen, "")
         self._desc_lbl.setText(
-            f'<span style="color:{Color.TEXT}; font-size:13px;">{desc}</span>'
+            f'<span style="color:{Color.TEXT}; font-size:16px;">{desc}</span>'
         )
 
     def _on_confirm(self) -> None:

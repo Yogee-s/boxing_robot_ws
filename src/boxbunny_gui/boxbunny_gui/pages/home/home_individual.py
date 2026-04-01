@@ -1,6 +1,6 @@
 """Home page for logged-in users.
 
-Premium dark dashboard with clean mode cards and welcome section.
+Premium dark dashboard with rich mode cards and welcome section.
 """
 from __future__ import annotations
 
@@ -14,7 +14,11 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from boxbunny_gui.theme import Color, Icon, Size
+from boxbunny_gui.theme import (
+    Color, Icon, Size,
+    top_bar_btn_style, close_btn_style,
+)
+from boxbunny_gui.widgets import HoldTooltipCard
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +26,7 @@ _H = f"color:{Color.PRIMARY_LIGHT}; font-weight:600"
 _MODES = [
     {
         "name": "Techniques",
+        "tag": "Combo Drills",
         "desc": f'Practice <span style="{_H}">punch combinations</span> with '
                 f'<span style="{_H}">guided drills</span>',
         "accent": Color.PRIMARY,
@@ -29,6 +34,7 @@ _MODES = [
     },
     {
         "name": "Sparring",
+        "tag": "vs Robot AI",
         "desc": f'<span style="{_H}">Fight</span> against the '
                 f'<span style="{_H}">robot AI</span>',
         "accent": Color.DANGER,
@@ -36,12 +42,14 @@ _MODES = [
     },
     {
         "name": "Free Training",
+        "tag": "Open Session",
         "desc": f'<span style="{_H}">Open session</span>, no structure',
         "accent": Color.INFO,
         "route": "training_session",
     },
     {
         "name": "Performance",
+        "tag": "Power / Speed",
         "desc": f'Test your <span style="{_H}">power</span>, '
                 f'<span style="{_H}">stamina</span> and '
                 f'<span style="{_H}">speed</span>',
@@ -87,62 +95,57 @@ class _MiniAvatar(QWidget):
 
 # ── Mode card ────────────────────────────────────────────────────────────
 
-def _mode_card(mode: dict, height: int = 100) -> QPushButton:
-    """Mode card with subtle accent tint."""
+_CARD_TINTS = {
+    Color.PRIMARY: ("#1A1510", "#2A2018"),
+    Color.DANGER:  ("#1A1214", "#2A1C1E"),
+    Color.INFO:    ("#101820", "#1A2430"),
+    Color.PURPLE:  ("#161220", "#201C30"),
+}
+
+
+def _mode_card(mode: dict) -> HoldTooltipCard:
+    """Tinted mode card — each card has a unique colour."""
     accent = mode["accent"]
-    btn = QPushButton()
+    bg, bg_hover = _CARD_TINTS.get(accent, (Color.SURFACE, Color.SURFACE_LIGHT))
+
+    btn = HoldTooltipCard(desc_html=mode["desc"])
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
-    btn.setFixedHeight(height)
-    # Muted tint per accent
-    _TINTS = {
-        Color.PRIMARY: ("#1C1610", "#2E221A"),
-        Color.DANGER:  ("#1C1214", "#2E1A1E"),
-        Color.INFO:    ("#111820", "#1A2530"),
-        Color.PURPLE:  ("#181420", "#221C30"),
-        Color.WARNING: ("#1C1810", "#2E261A"),
-    }
-    bg_t, border_t = _TINTS.get(accent, ("#141920", "#1E2530"))
+    btn.setFixedHeight(120)
     btn.setStyleSheet(f"""
         QPushButton {{
-            background-color: {bg_t};
-            border: 1px solid {border_t};
-            border-left: 3px solid {accent};
+            background-color: {bg};
+            border: 1px solid {Color.BORDER};
             border-radius: {Size.RADIUS}px;
-            text-align: left;
         }}
         QPushButton:hover {{
-            background-color: {Color.SURFACE_HOVER};
+            background-color: {bg_hover};
             border: 1px solid {accent};
-            border-left: 3px solid {accent};
         }}
     """)
 
-    lay = QHBoxLayout(btn)
-    lay.setContentsMargins(18, 14, 16, 14)
-    lay.setSpacing(0)
-
-    text_col = QVBoxLayout()
-    text_col.setSpacing(4)
-    text_col.setContentsMargins(0, 0, 0, 0)
+    lay = QVBoxLayout(btn)
+    lay.setContentsMargins(12, 8, 12, 8)
+    lay.setSpacing(4)
+    lay.setAlignment(Qt.AlignCenter)
 
     title = QLabel(mode["name"])
+    title.setAlignment(Qt.AlignCenter)
     title.setStyleSheet(
         "background: transparent; border: none;"
-        f" font-size: 17px; font-weight: 700; color: {Color.TEXT};"
+        f" font-size: 26px; font-weight: 700; color: {Color.TEXT};"
     )
     title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-    text_col.addWidget(title)
+    lay.addWidget(title)
 
-    desc = QLabel(mode["desc"])
-    desc.setTextFormat(Qt.TextFormat.RichText)
-    desc.setStyleSheet(
+    tag = QLabel(mode["tag"])
+    tag.setAlignment(Qt.AlignCenter)
+    tag.setStyleSheet(
         "background: transparent; border: none;"
-        f" font-size: 12px; color: {Color.TEXT_SECONDARY};"
+        f" font-size: 14px; font-weight: 600; color: {Color.TEXT_SECONDARY};"
+        " letter-spacing: 0.5px;"
     )
-    desc.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-    text_col.addWidget(desc)
-
-    lay.addLayout(text_col, stretch=1)
+    tag.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    lay.addWidget(tag)
 
     return btn
 
@@ -158,7 +161,7 @@ class HomeIndividualPage(QWidget):
         self._username = "Guest"
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 14, 32, 22)
+        root.setContentsMargins(32, 18, 32, 18)
         root.setSpacing(0)
 
         # ── Top bar ──────────────────────────────────────────────────────
@@ -176,73 +179,73 @@ class HomeIndividualPage(QWidget):
         top.addStretch()
 
         settings_btn = QPushButton("Settings")
-        settings_btn.setStyleSheet(f"""
-            QPushButton {{
-                font-size: 13px; font-weight: 600; padding: 6px 16px;
-                background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
-                border: 1px solid {Color.BORDER_LIGHT}; border-radius: 8px;
-            }}
-            QPushButton:hover {{
-                color: {Color.TEXT}; border-color: {Color.PRIMARY};
-                background-color: {Color.SURFACE_LIGHT};
-            }}
-        """)
+        settings_btn.setStyleSheet(top_bar_btn_style())
         settings_btn.setFixedHeight(44)
         settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         settings_btn.clicked.connect(lambda: self._nav("settings"))
         top.addWidget(settings_btn)
 
         close_btn = QPushButton("Close")
-        close_btn.setStyleSheet(f"""
-            QPushButton {{
-                font-size: 13px; font-weight: 600; padding: 6px 14px;
-                background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
-                border: 1px solid {Color.BORDER_LIGHT}; border-radius: 8px;
-            }}
-            QPushButton:hover {{
-                background-color: {Color.DANGER}; color: white;
-                border-color: {Color.DANGER};
-            }}
-        """)
+        close_btn.setStyleSheet(close_btn_style())
         close_btn.setFixedHeight(44)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.clicked.connect(lambda: self.window().close())
         top.addWidget(close_btn)
         root.addLayout(top)
 
-        root.addSpacing(12)
+        # ── Section label ────────────────────────────────────────────────
+        root.addSpacing(4)
+        section_row = QHBoxLayout()
+        section_lbl = QLabel("SELECT MODE")
+        section_lbl.setStyleSheet(
+            f"font-size: 11px; font-weight: 700; color: {Color.TEXT_DISABLED};"
+            " letter-spacing: 2px;"
+        )
+        section_row.addWidget(section_lbl)
 
-        # ── Mode grid ────────────────────────────────────────────────────
+        divider = QWidget()
+        divider.setFixedHeight(1)
+        divider.setStyleSheet(f"background-color: {Color.BORDER};")
+        section_row.addWidget(divider, stretch=1)
+        root.addLayout(section_row)
+
+        # Push cards to vertical centre
+        root.addStretch(1)
+
+        # ── Mode grid (2x2) — with side margins to keep cards from edges
         grid = QGridLayout()
-        grid.setSpacing(10)
+        grid.setContentsMargins(80, 0, 80, 0)
+        grid.setSpacing(14)
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
 
         for i, mode in enumerate(_MODES):
-            btn = _mode_card(mode, height=100)
+            btn = _mode_card(mode)
             btn.clicked.connect(
                 lambda _c=False, r=mode["route"]: self._nav(r)
             )
             grid.addWidget(btn, i // 2, i % 2)
 
-        root.addLayout(grid, stretch=1)
+        root.addLayout(grid)
 
-        root.addSpacing(4)
+        root.addStretch(1)
 
         # ── Bottom ───────────────────────────────────────────────────────
         bottom = QHBoxLayout()
+        bottom.setSpacing(12)
 
         logout = QPushButton("Log Out")
         logout.setCursor(Qt.CursorShape.PointingHandCursor)
-        logout.setFixedSize(100, 28)
+        logout.setFixedSize(120, 44)
         logout.setStyleSheet(f"""
             QPushButton {{
-                font-size: 12px; font-weight: 600;
-                background-color: transparent; color: {Color.TEXT_DISABLED};
-                border: 1px solid {Color.BORDER}; border-radius: 8px;
+                font-size: 13px; font-weight: 600;
+                background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
+                border: 1px solid {Color.BORDER_LIGHT}; border-radius: 8px;
             }}
             QPushButton:hover {{
                 color: {Color.DANGER}; border-color: {Color.DANGER};
+                background-color: {Color.SURFACE_LIGHT};
             }}
         """)
         logout.clicked.connect(lambda: self._nav("auth"))
@@ -250,15 +253,22 @@ class HomeIndividualPage(QWidget):
 
         bottom.addStretch()
 
+        hint = QLabel("Hold card for details")
+        hint.setStyleSheet(
+            f"font-size: 16px; font-weight: 600; color: {Color.PRIMARY_LIGHT};"
+        )
+        bottom.addWidget(hint)
+
+        bottom.addStretch()
+
         history_btn = QPushButton("History")
         history_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        history_btn.setFixedSize(180, 56)
+        history_btn.setFixedSize(160, 48)
         history_btn.setStyleSheet(f"""
             QPushButton {{
-                font-size: 18px; font-weight: 700;
+                font-size: 15px; font-weight: 700;
                 background-color: transparent; color: {Color.PRIMARY_LIGHT};
-                border: 1px solid {Color.PRIMARY_LIGHT}; border-radius: 10px;
-                padding: 8px 20px;
+                border: 2px solid {Color.PRIMARY_LIGHT}; border-radius: 10px;
             }}
             QPushButton:hover {{
                 color: #FFFFFF; border-color: {Color.PRIMARY};

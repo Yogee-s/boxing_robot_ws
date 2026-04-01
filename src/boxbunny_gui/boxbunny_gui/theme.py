@@ -111,7 +111,7 @@ class Size:
 
 def font(size: int = 16, bold: bool = False) -> QFont:
     """Create a QFont with the BoxBunny standard font."""
-    f = QFont("Inter", size)
+    f = QFont("Inter", max(1, size))
     if bold:
         f.setBold(True)
     return f

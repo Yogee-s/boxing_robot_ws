@@ -67,7 +67,7 @@ def _stat_tile(title: str, value: str, accent: str) -> QWidget:
 
 
 class _PadCard(QWidget):
-    """Compact card: pad name, peak value, 3 checkboxes."""
+    """Pad card with coloured top border, peak value, and 3 checkboxes."""
 
     def __init__(self, pad: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -78,10 +78,8 @@ class _PadCard(QWidget):
         self.setObjectName(f"pc_{pad}")
         self.setStyleSheet(f"""
             QWidget#pc_{pad} {{
-                background-color: #131920;
-                border: 1px solid #1E2832;
-                border-top: 3px solid {self._color};
-                border-radius: {Size.RADIUS}px;
+                background-color: transparent;
+                border: none;
             }}
             QWidget#pc_{pad} QLabel {{ background: transparent; border: none; }}
         """)
@@ -270,27 +268,33 @@ class PowerTestPage(QWidget):
         self._active_widget = QWidget()
         active_lay = QVBoxLayout(self._active_widget)
         active_lay.setSpacing(0)
-        active_lay.setContentsMargins(0, 0, 0, 0)
+        active_lay.setContentsMargins(20, 0, 20, 0)
 
         active_lay.addStretch(1)
 
-        active_title = QLabel("Throw 3 power punches to each pad!")
+        active_title = QLabel("Throw 3 power punches to each pad")
         active_title.setAlignment(Qt.AlignCenter)
         active_title.setStyleSheet(
-            f"font-size: 20px; font-weight: 700; color: {Color.TEXT};"
+            f"font-size: 26px; font-weight: 700; color: {Color.TEXT};"
         )
         active_lay.addWidget(active_title)
 
-        active_lay.addSpacing(20)
+        active_sub = QLabel("Hit as hard as you can!")
+        active_sub.setAlignment(Qt.AlignCenter)
+        active_sub.setStyleSheet(
+            f"font-size: 18px; font-weight: 600; color: {Color.PRIMARY_LIGHT};"
+        )
+        active_lay.addWidget(active_sub)
 
-        # 3 pad cards — each in its own dark card
+        active_lay.addSpacing(32)
+
+        # 3 pad cards — each inside a tinted wrapper card
         cols = QHBoxLayout()
-        cols.setSpacing(12)
+        cols.setSpacing(14)
         for pad in _PADS:
             color = _PAD_COLORS.get(pad, Color.TEXT)
             wrapper = QWidget()
             wrapper.setObjectName(f"pw_{pad}")
-            wrapper.setFixedHeight(250)
             wrapper.setStyleSheet(f"""
                 QWidget#pw_{pad} {{
                     background-color: #131920;
@@ -303,7 +307,7 @@ class PowerTestPage(QWidget):
                 }}
             """)
             w_lay = QVBoxLayout(wrapper)
-            w_lay.setContentsMargins(10, 12, 10, 12)
+            w_lay.setContentsMargins(6, 8, 6, 8)
             card = _PadCard(pad, wrapper)
             w_lay.addWidget(card)
             cols.addWidget(wrapper)
@@ -403,26 +407,22 @@ class PowerTestPage(QWidget):
             return
         force = data.get("force", 0.0)
         accel = force * 60.0
-        pad = data.get("pad", "centre")
+        pad = data.get("pad", "")
 
-        # Find the matching pad card, or first incomplete one
+        # Only update the card that matches the punch pad — no fallback
         target = None
         for card in self._pad_cards:
             if card.pad == pad and not card.is_complete:
                 target = card
                 break
-        # Fallback: first incomplete pad
-        if target is None:
-            for card in self._pad_cards:
-                if not card.is_complete:
-                    target = card
-                    break
 
-        if target:
-            target.record_punch(accel)
-            # Check if all pads complete
-            if all(c.is_complete for c in self._pad_cards):
-                QTimer.singleShot(800, self._show_results)
+        if target is None:
+            # Ignore punches from unrecognised or already-complete pads
+            return
+
+        target.record_punch(accel)
+        if all(c.is_complete for c in self._pad_cards):
+            QTimer.singleShot(800, self._show_results)
 
     def _show_results(self) -> None:
         peaks = [c.peak for c in self._pad_cards]

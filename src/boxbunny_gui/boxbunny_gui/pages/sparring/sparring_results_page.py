@@ -133,6 +133,7 @@ class SparringResultsPage(QWidget):
         self._router = router
         self._bridge = bridge
         self._config: Dict[str, Any] = {}
+        self._username: str = ""
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -244,9 +245,9 @@ class SparringResultsPage(QWidget):
         bottom = QHBoxLayout()
         bottom.setSpacing(12)
 
-        btn_home = QPushButton("Home")
+        btn_home = QPushButton(f"{Icon.BACK}  Home")
         btn_home.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_home.setFixedSize(150, 48)
+        btn_home.setFixedSize(150, 52)
         btn_home.setStyleSheet(f"""
             QPushButton {{
                 font-size: 15px; font-weight: 600;
@@ -260,7 +261,7 @@ class SparringResultsPage(QWidget):
                 background-color: {Color.SURFACE_HOVER};
             }}
         """)
-        btn_home.clicked.connect(lambda: self._router.navigate("home_guest"))
+        btn_home.clicked.connect(self._go_home)
         bottom.addWidget(btn_home)
 
         bottom.addStretch()
@@ -270,7 +271,9 @@ class SparringResultsPage(QWidget):
         )
         btn_again.setFixedHeight(48)
         btn_again.clicked.connect(
-            lambda: self._router.navigate("sparring_select")
+            lambda: self._router.navigate(
+                "sparring_select", username=self._username,
+            )
         )
         bottom.addWidget(btn_again)
         root.addLayout(bottom)
@@ -279,6 +282,12 @@ class SparringResultsPage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll)
+
+    def _go_home(self) -> None:
+        if self._username:
+            self._router.navigate("home", username=self._username)
+        else:
+            self._router.navigate("home_guest")
 
     def _populate_bars(self, dist: Dict[str, int]) -> None:
         while self._dist_layout.count():
@@ -310,6 +319,7 @@ class SparringResultsPage(QWidget):
 
     def on_enter(self, **kwargs: Any) -> None:
         self._config = kwargs.get("config", {})
+        self._username = kwargs.get("username", "")
         self._populate_bars(
             {"Jab": 0, "Cross": 0, "Hook": 0, "Uppercut": 0}
         )

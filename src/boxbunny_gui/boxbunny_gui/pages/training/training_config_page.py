@@ -107,6 +107,7 @@ class TrainingConfigPage(QWidget):
         self._tiles: Dict[str, _ParamTile] = {}
         self._curriculum = None
         self._difficulty: str = ""
+        self._username: str = ""
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -230,12 +231,14 @@ class TrainingConfigPage(QWidget):
             curriculum=self._curriculum,
             combo_id=self._combo.get("id"),
             difficulty=self._difficulty,
+            username=self._username,
         )
 
     def on_enter(self, **kwargs: Any) -> None:
         self._combo = kwargs.get("combo", {})
         self._curriculum = kwargs.get("curriculum")
         self._difficulty = kwargs.get("difficulty", "")
+        self._username = kwargs.get("username", "")
 
         combo_name = self._combo.get("name", "")
         if combo_name:

@@ -26,6 +26,7 @@ try:
         DrillProgress,
         IMUStatus,
         NavCommand,
+        RobotCommand,
         SessionState,
     )
     from boxbunny_msgs.srv import EndSession, GenerateLlm, StartSession
@@ -99,6 +100,22 @@ class _RosWorker(QObject):
         n.create_subscription(CoachTip, Topics.COACH_TIP, self._on_coach_tip, 10)
         n.create_subscription(NavCommand, Topics.IMU_NAV_EVENT, self._on_nav, 10)
         n.create_subscription(IMUStatus, Topics.IMU_STATUS, self._on_imu_status, 10)
+        # Publisher for robot punch commands
+        self._robot_cmd_pub = n.create_publisher(
+            RobotCommand, Topics.ROBOT_COMMAND, 10,
+        )
+
+    def publish_robot_command(
+        self, punch_code: str, speed: str = "medium",
+    ) -> None:
+        """Publish a RobotCommand to execute a punch."""
+        if self._robot_cmd_pub is None:
+            return
+        msg = RobotCommand()
+        msg.command_type = "punch"
+        msg.punch_code = punch_code
+        msg.speed = speed
+        self._robot_cmd_pub.publish(msg)
 
     # ── Callbacks ───────────────────────────────────────────────────────
 
@@ -274,6 +291,14 @@ class GuiBridge(QObject):
                 f.result().generation_time_sec,
             )
         )
+
+    def publish_punch_command(
+        self, punch_code: str, speed: str = "medium",
+    ) -> None:
+        """Publish a robot punch command (thread-safe via worker)."""
+        if not self._is_ready():
+            return
+        self._worker.publish_robot_command(punch_code, speed)
 
     # ── Helpers ─────────────────────────────────────────────────────────
 

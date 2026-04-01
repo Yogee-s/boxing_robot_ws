@@ -132,7 +132,9 @@ class SignupPage(QWidget):
         back_btn = QPushButton("\u2190  Back")
         back_btn.setStyleSheet(back_link_style())
         back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        back_btn.clicked.connect(lambda: self._nav("auth"))
+        back_btn.clicked.connect(
+            lambda: self._router.back() if self._router else None
+        )
         top.addWidget(back_btn)
 
         title = QLabel("Create Account")
