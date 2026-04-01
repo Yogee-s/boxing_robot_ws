@@ -160,6 +160,10 @@ class BoxBunnyApp:
         if command == "back":
             current = self._router.current_page
             if current in ("home", "home_guest"):
+                # Get username from the current page's stored kwargs
+                kwargs = self._router._page_kwargs.get(current, {})
+                username = kwargs.get("username", "")
+                self._preset_overlay.set_username(username)
                 self._preset_overlay.toggle()
             return
 
