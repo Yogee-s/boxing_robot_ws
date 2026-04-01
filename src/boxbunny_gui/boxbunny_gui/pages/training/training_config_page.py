@@ -111,7 +111,7 @@ class TrainingConfigPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 12, 32, 14)
+        root.setContentsMargins(32, 12, 32, 24)
         root.setSpacing(0)
 
         # ── Top bar ──────────────────────────────────────────────────────

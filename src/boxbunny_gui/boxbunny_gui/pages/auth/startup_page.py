@@ -352,7 +352,7 @@ class StartupPage(QWidget):
 
         root = QVBoxLayout(self)
         root.setSpacing(0)
-        root.setContentsMargins(24, 10, 24, 10)
+        root.setContentsMargins(24, 10, 24, 22)
 
         # ── Top bar: close button flush to top-right ─────────────────────
         top = QHBoxLayout()

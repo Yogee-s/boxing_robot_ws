@@ -105,7 +105,7 @@ class TrainingResultsPage(QWidget):
         wrapper = QWidget()
         wrapper.setStyleSheet("background: transparent;")
         root = QVBoxLayout(wrapper)
-        root.setContentsMargins(32, 16, 32, 14)
+        root.setContentsMargins(32, 16, 32, 22)
         root.setSpacing(0)
 
         # ── Title ────────────────────────────────────────────────────────

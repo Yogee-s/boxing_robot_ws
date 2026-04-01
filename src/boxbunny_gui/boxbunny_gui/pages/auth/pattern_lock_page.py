@@ -162,7 +162,7 @@ class PatternLockPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(40, 16, 40, 12)
+        root.setContentsMargins(40, 16, 40, 22)
         root.setSpacing(0)
 
         root.addStretch(1)

@@ -55,7 +55,7 @@ class PowerTestPage(QWidget):
 
     def _build_ui(self) -> None:
         self._root = QVBoxLayout(self)
-        self._root.setContentsMargins(30, Size.SPACING_SM, 30, Size.SPACING_SM)
+        self._root.setContentsMargins(30, Size.SPACING_SM, 30, 22)
         self._root.setSpacing(Size.SPACING_SM)
 
         # Top bar

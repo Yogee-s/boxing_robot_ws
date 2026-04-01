@@ -54,7 +54,7 @@ class SelfSelectPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 10, 32, 10)
+        root.setContentsMargins(32, 10, 32, 22)
         root.setSpacing(0)
 
         # Top bar

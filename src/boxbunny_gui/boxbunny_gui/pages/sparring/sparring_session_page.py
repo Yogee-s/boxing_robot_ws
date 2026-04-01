@@ -77,7 +77,7 @@ class SparringSessionPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(28, 10, 28, 12)
+        root.setContentsMargins(28, 10, 28, 22)
         root.setSpacing(0)
 
         # ── Top: round + mode ────────────────────────────────────────────

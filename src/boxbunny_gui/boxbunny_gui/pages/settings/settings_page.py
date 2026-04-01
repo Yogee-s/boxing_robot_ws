@@ -197,7 +197,7 @@ class SettingsPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 16, 24, 12)
+        root.setContentsMargins(24, 16, 24, 22)
         root.setSpacing(14)
 
         # Top bar

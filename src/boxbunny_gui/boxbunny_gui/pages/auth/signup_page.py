@@ -125,7 +125,7 @@ class SignupPage(QWidget):
 
         root = QVBoxLayout(self)
         root.setSpacing(0)
-        root.setContentsMargins(60, 12, 60, 12)
+        root.setContentsMargins(60, 12, 60, 22)
 
         # ── Top bar ──────────────────────────────────────────────────────
         top = QHBoxLayout()

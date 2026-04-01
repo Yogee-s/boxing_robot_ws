@@ -127,7 +127,7 @@ class _QuestionsWidget(QWidget):
         self._btn_groups: Dict[str, list] = {}
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 14, 32, 10)
+        root.setContentsMargins(32, 14, 32, 22)
         root.setSpacing(0)
 
         # Push content to vertical center
@@ -296,7 +296,7 @@ class _ResultWidget(QWidget):
         self._level_btns: Dict[str, QPushButton] = {}
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(60, 20, 60, 16)
+        root.setContentsMargins(60, 20, 60, 22)
         root.setSpacing(0)
 
         root.addStretch(2)

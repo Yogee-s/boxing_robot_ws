@@ -92,7 +92,7 @@ class StaminaTestPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(30, Size.SPACING_SM, 30, Size.SPACING_SM)
+        root.setContentsMargins(30, Size.SPACING_SM, 30, 22)
         root.setSpacing(Size.SPACING_SM)
 
         # Top bar

@@ -35,7 +35,7 @@ class TrainingRestPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 16, 32, 16)
+        root.setContentsMargins(32, 16, 32, 22)
         root.setSpacing(0)
 
         root.addStretch(1)

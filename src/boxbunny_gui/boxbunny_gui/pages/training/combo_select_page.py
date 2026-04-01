@@ -190,7 +190,7 @@ class ComboSelectPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 10, 32, 10)
+        root.setContentsMargins(32, 10, 32, 22)
         root.setSpacing(0)
 
         # ── Top bar ──────────────────────────────────────────────────────
@@ -234,7 +234,7 @@ class ComboSelectPage(QWidget):
 
         # Self-Select — full width below
         self._self_select_btn = self._make_self_select_card()
-        self._self_select_btn.setFixedHeight(44)
+        self._self_select_btn.setFixedHeight(56)
         root.addWidget(self._self_select_btn)
 
         root.addSpacing(10)
@@ -306,7 +306,7 @@ class ComboSelectPage(QWidget):
 
         # ── Train button ─────────────────────────────────────────────────
         self._btn_train = BigButton(
-            f"{Icon.PLAY}  Start Training", stylesheet=PRIMARY_BTN
+            f"{Icon.PLAY}  Continue to Training Setup", stylesheet=PRIMARY_BTN
         )
         self._btn_train.setFixedHeight(70)
         self._btn_train.clicked.connect(self._on_train_next)
@@ -451,7 +451,7 @@ class ComboSelectPage(QWidget):
 
         if self._next_combo:
             self._btn_train.setText(
-                f"{Icon.PLAY}  Start: {self._next_combo['combo_name']}"
+                f"{Icon.PLAY}  Continue: {self._next_combo['combo_name']}"
             )
             self._btn_train.setEnabled(True)
         elif progress["can_level_up"]:

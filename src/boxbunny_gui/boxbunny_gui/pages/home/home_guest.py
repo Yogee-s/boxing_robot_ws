@@ -104,7 +104,7 @@ class HomeGuestPage(QWidget):
         self._router = router
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 14, 32, 10)
+        root.setContentsMargins(32, 14, 32, 22)
         root.setSpacing(0)
 
         # ── Top bar ──────────────────────────────────────────────────────
