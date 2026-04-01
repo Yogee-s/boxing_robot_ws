@@ -157,9 +157,10 @@ def _mode_card(mode: dict) -> HoldTooltipCard:
 class HomeIndividualPage(QWidget):
     """Main menu for authenticated users."""
 
-    def __init__(self, router=None, **kwargs):
+    def __init__(self, router=None, preset_overlay=None, **kwargs):
         super().__init__()
         self._router = router
+        self._preset_overlay = preset_overlay
         self._username = "Guest"
 
         root = QVBoxLayout(self)
@@ -179,6 +180,21 @@ class HomeIndividualPage(QWidget):
         )
         top.addWidget(self._name_label)
         top.addStretch()
+
+        quick_btn = QPushButton("Quick Start")
+        quick_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 13px; font-weight: 700;
+                background-color: {Color.PRIMARY}; color: #FFFFFF;
+                border: none; border-radius: 8px;
+                padding: 0 16px;
+            }}
+            QPushButton:hover {{ background-color: {Color.PRIMARY_DARK}; }}
+        """)
+        quick_btn.setFixedHeight(44)
+        quick_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        quick_btn.clicked.connect(self._open_presets)
+        top.addWidget(quick_btn)
 
         settings_btn = QPushButton("Settings")
         settings_btn.setStyleSheet(top_bar_btn_style())
@@ -281,6 +297,11 @@ class HomeIndividualPage(QWidget):
         bottom.addWidget(history_btn)
 
         root.addLayout(bottom)
+
+    def _open_presets(self):
+        if self._preset_overlay:
+            self._preset_overlay.set_username(self._username)
+            self._preset_overlay.slide_in()
 
     def _nav(self, page: str):
         if self._router:

@@ -442,6 +442,10 @@ class SparringConfigPage(QWidget):
         self._params_anim.setEndValue(120)
         self._params_anim.start()
 
+    def imu_start(self) -> None:
+        """Called by centre pad IMU."""
+        self._on_action()
+
     def _on_action(self) -> None:
         if self._step == 1:
             self._show_step2()

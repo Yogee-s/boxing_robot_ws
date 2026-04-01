@@ -96,6 +96,13 @@ class BoxBunnyApp:
         self._dev_overlay.set_developer_mode(False)
         self._dev_overlay.raise_()
 
+        # ── Preset quick-launch overlay ─────────────────────────────────
+        from boxbunny_gui.widgets.preset_overlay import PresetOverlay
+        self._preset_overlay = PresetOverlay(
+            on_select=self._on_preset_selected,
+            parent=self._window,
+        )
+
         # ── Wire signals ────────────────────────────────────────────────
         self._connect_signals()
 
@@ -126,13 +133,65 @@ class BoxBunnyApp:
 
     def _connect_signals(self) -> None:
         """Wire bridge signals to subsystem handlers."""
-        self._bridge.nav_command.connect(self._imu_nav.handle_command)
+        # IMU nav commands — intercept for preset overlay
+        self._bridge.nav_command.connect(self._on_nav_command)
         self._bridge.session_state_changed.connect(
             self._imu_nav.on_session_state_changed
         )
         self._imu_nav.go_back.connect(self._router.back)
         # Dev overlay: flash pads on punches, show CV predictions
         self._bridge.punch_confirmed.connect(self._on_punch_for_dev)
+
+    def _on_nav_command(self, command: str) -> None:
+        """Route IMU nav commands — preset overlay intercepts when visible."""
+        # If preset overlay is open, all commands go to it
+        if self._preset_overlay.is_visible:
+            if command == "back":
+                self._preset_overlay.slide_out()
+            elif command == "prev":
+                self._preset_overlay.navigate_left()
+            elif command == "next":
+                self._preset_overlay.navigate_right()
+            elif command == "enter":
+                self._preset_overlay.confirm()
+            return
+
+        # Head pad — only toggle presets on home pages
+        if command == "back":
+            current = self._router.current_page
+            if current in ("home", "home_guest"):
+                self._preset_overlay.toggle()
+            return
+
+        # Centre pad — trigger start button on config/test pages
+        if command == "enter":
+            current = self._router.current_page
+            page = self._router._pages.get(current)
+            if page and hasattr(page, "imu_start"):
+                page.imu_start()
+            return
+
+        # Other IMU commands ignored outside preset overlay
+
+    def _on_preset_selected(self, preset: dict) -> None:
+        """Called when user confirms a preset — route to the right page."""
+        route = preset.get("route", "training_session")
+        username = self._preset_overlay._username
+
+        if route in ("power_test", "stamina_test", "reaction_test"):
+            # Performance tests — navigate directly
+            self._router.navigate(route, username=username)
+        else:
+            # Training session — pass config
+            config = dict(preset.get("config", {}))
+            config["combo"] = preset.get("combo", {})
+            self._router.navigate(
+                route,
+                config=config,
+                combo_id=preset.get("combo", {}).get("id"),
+                difficulty=preset.get("difficulty", "Beginner"),
+                username=username,
+            )
 
     def _on_punch_for_dev(self, data: dict) -> None:
         """Forward punch data to the dev overlay."""
@@ -160,6 +219,7 @@ class BoxBunnyApp:
             "sound": self._sound,
             "imu_nav": self._imu_nav,
             "dev_overlay": self._dev_overlay,
+            "preset_overlay": self._preset_overlay,
         }
 
         # Register all pages — each gets its actual class from the page_map

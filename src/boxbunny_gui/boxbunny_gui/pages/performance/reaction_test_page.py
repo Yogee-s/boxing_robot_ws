@@ -193,6 +193,11 @@ class ReactionTestPage(QWidget):
                 border-radius: {Size.RADIUS_SM}px;
             """)
 
+    def imu_start(self) -> None:
+        """Called by centre pad IMU to begin the test."""
+        if self._btn_start.isVisible():
+            self._begin_test()
+
     def _begin_test(self) -> None:
         self._trial = 0
         self._times.clear()

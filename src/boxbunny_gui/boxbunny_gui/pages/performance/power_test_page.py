@@ -381,6 +381,11 @@ class PowerTestPage(QWidget):
         self._active_widget.setVisible(state == _STATE_ACTIVE)
         self._results_widget.setVisible(state == _STATE_RESULTS)
 
+    def imu_start(self) -> None:
+        """Called by centre pad IMU to begin the test."""
+        if self._state == _STATE_INSTRUCTIONS:
+            self._start_countdown()
+
     def _start_countdown(self) -> None:
         self._set_state(_STATE_COUNTDOWN)
         self._countdown.set_overlay("Get Ready")

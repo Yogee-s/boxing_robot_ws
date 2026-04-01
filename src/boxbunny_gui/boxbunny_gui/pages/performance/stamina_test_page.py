@@ -346,6 +346,11 @@ class StaminaTestPage(QWidget):
 
     # ── Countdown ─────────────────────────────────────────────────────
 
+    def imu_start(self) -> None:
+        """Called by centre pad IMU to begin the test."""
+        if self._state == _STATE_READY:
+            self._start_countdown()
+
     def _toggle(self) -> None:
         if self._state == _STATE_READY:
             self._start_countdown()

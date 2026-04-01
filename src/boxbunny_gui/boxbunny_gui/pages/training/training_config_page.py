@@ -224,6 +224,10 @@ class TrainingConfigPage(QWidget):
         self._btn_start.clicked.connect(self._on_start)
         root.addWidget(self._btn_start)
 
+    def imu_start(self) -> None:
+        """Called by centre pad IMU to start training."""
+        self._on_start()
+
     def _on_start(self) -> None:
         config = {k: t.value for k, t in self._tiles.items()}
         config["combo"] = self._combo
