@@ -522,6 +522,14 @@ class ComboSelectPage(QWidget):
                 "seq": self._next_combo["combo_sequence"],
                 "diff": diff.lower(),
             }
+        else:
+            # No combo found — use difficulty name as label
+            combo_data = {
+                "id": None,
+                "name": f"{diff} Training",
+                "seq": "",
+                "diff": diff.lower(),
+            }
 
         self._router.navigate(
             "training_config",

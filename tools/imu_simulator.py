@@ -24,7 +24,7 @@ except ImportError:
     )
 
 try:
-    from boxbunny_msgs.msg import ArmStrike, IMUStatus, PadImpact
+    from boxbunny_msgs.msg import ArmStrike, ConfirmedPunch, IMUStatus, PadImpact
 except ImportError:
     raise SystemExit(
         "boxbunny_msgs not found. Build the workspace first:\n"
@@ -35,7 +35,24 @@ except ImportError:
 _TOPIC_PAD = "/boxbunny/imu/pad/impact"
 _TOPIC_ARM = "/boxbunny/imu/arm/strike"
 _TOPIC_STATUS = "/boxbunny/imu/status"
+_TOPIC_PUNCH = "/boxbunny/punch/confirmed"
 _FLASH_MS = 250
+
+# Punch type definitions: name -> (arm, pad)
+_PUNCH_TYPES = {
+    "jab":       ("left",  "centre"),
+    "cross":     ("right", "centre"),
+    "l_hook":    ("left",  "left"),
+    "r_hook":    ("right", "right"),
+    "l_upper":   ("left",  "centre"),
+    "r_upper":   ("right", "centre"),
+}
+
+# Punch colours for the simulator
+PUNCH_JAB    = "#58A6FF"
+PUNCH_CROSS  = "#FF5C5C"
+PUNCH_HOOK   = "#56D364"
+PUNCH_UPPER  = "#BC8CFF"
 
 # ── Theme ────────────────────────────────────────────────────────────────
 BG       = "#0D0D0D"
@@ -77,6 +94,7 @@ class IMUSimulatorNode(Node):
         self._pub_pad = self.create_publisher(PadImpact, _TOPIC_PAD, 10)
         self._pub_arm = self.create_publisher(ArmStrike, _TOPIC_ARM, 10)
         self._pub_status = self.create_publisher(IMUStatus, _TOPIC_STATUS, 10)
+        self._pub_punch = self.create_publisher(ConfirmedPunch, _TOPIC_PUNCH, 10)
         self.create_timer(1.0, self._publish_status)
         self.get_logger().info("IMU simulator node started")
 
@@ -87,6 +105,26 @@ class IMUSimulatorNode(Node):
         msg.level = level
         self._pub_pad.publish(msg)
         self.get_logger().info(f"PadImpact pad={pad} level={level}")
+
+    def publish_punch(self, punch_type: str, level: str,
+                      force_normalized: float = 0.5) -> None:
+        arm, pad = _PUNCH_TYPES.get(punch_type, ("left", "centre"))
+        msg = ConfirmedPunch()
+        msg.timestamp = time.time()
+        msg.punch_type = punch_type
+        msg.pad = pad
+        msg.level = level
+        msg.force_normalized = force_normalized
+        msg.cv_confidence = 0.95
+        msg.imu_confirmed = True
+        msg.cv_confirmed = True
+        self._pub_punch.publish(msg)
+        # Also publish the pad impact and arm strike
+        self.publish_pad(pad, level)
+        self.publish_arm(arm, True)
+        self.get_logger().info(
+            f"Punch {punch_type} level={level} force={force_normalized:.2f}"
+        )
 
     def publish_arm(self, arm: str, contact: bool) -> None:
         msg = ArmStrike()
@@ -142,29 +180,43 @@ class IMUSimulatorGUI:
         tk.Label(top, text="IMU Simulator", font=(FONT, 10),
                  bg=SURFACE, fg=FG_DIM).pack(side="left", padx=8)
 
-        # ── Force buttons ───────────────────────────────────────────────
-        tk.Label(r, text="IMPACT FORCE", font=(FONT, 8),
+        # ── Acceleration slider ─────────────────────────────────────────
+        tk.Label(r, text="ACCELERATION (m/s\u00B2)", font=(FONT, 8),
                  bg=BG, fg=FG_MUTED).pack(anchor="w", padx=20, pady=(12, 0))
 
-        frow = tk.Frame(r, bg=BG)
-        frow.pack(fill="x", padx=20, pady=(4, 0))
+        accel_row = tk.Frame(r, bg=BG)
+        accel_row.pack(fill="x", padx=20, pady=(4, 0))
 
-        for lvl, color, lbl in [
-            ("light", GREEN, "LIGHT"),
-            ("medium", AMBER, "MEDIUM"),
-            ("hard", RED, "HARD"),
+        self._accel_var = tk.DoubleVar(value=30.0)
+        self._accel_slider = tk.Scale(
+            accel_row, from_=0, to=60, orient="horizontal",
+            variable=self._accel_var, resolution=0.5,
+            bg=BG, fg=FG, troughcolor=SURFACE2,
+            highlightthickness=0, font=(FONT, 9),
+            length=300,
+        )
+        self._accel_slider.pack(side="left", fill="x", expand=True)
+
+        self._accel_lbl = tk.Label(
+            accel_row, text="30.0", font=(FONT, 12, "bold"),
+            bg=BG, fg=AMBER, width=6,
+        )
+        self._accel_lbl.pack(side="left", padx=(8, 0))
+        self._accel_var.trace_add("write", self._update_accel_label)
+
+        # Quick preset buttons
+        preset_row = tk.Frame(r, bg=BG)
+        preset_row.pack(fill="x", padx=20, pady=(2, 0))
+        for val, lbl, color in [
+            (10, "Light", GREEN), (30, "Medium", AMBER), (50, "Hard", RED),
         ]:
-            selected = lvl == "medium"
-            btn = tk.Button(
-                frow, text=lbl, font=(FONT, 9, "bold"),
-                bg=color if selected else SURFACE2,
-                fg="#000" if selected else color,
+            tk.Button(
+                preset_row, text=f"{lbl} ({val})", font=(FONT, 8),
+                bg=SURFACE2, fg=color,
                 activebackground=color, activeforeground="#000",
-                relief="flat", bd=0, pady=6,
-                command=lambda l=lvl: self._set_force(l),
-            )
-            btn.pack(side="left", expand=True, fill="x", padx=1)
-            self._force_btns[lvl] = btn
+                relief="flat", bd=0, pady=3,
+                command=lambda v=val: self._accel_var.set(v),
+            ).pack(side="left", expand=True, fill="x", padx=1)
 
         # ── Robot body ──────────────────────────────────────────────────
         body = tk.Frame(r, bg=BG)
@@ -185,8 +237,8 @@ class IMUSimulatorGUI:
         self._arm_btns["right"] = self._make_arm(body, "R", 0, 2)
 
         # Hint
-        tk.Label(r, text="click = strike   shift+click = miss",
-                 font=(FONT, 8), bg=BG, fg=FG_MUTED).pack(pady=(0, 6))
+        tk.Label(r, text="STRIKE DETECTION: click pad = user hit detected    click arm = user strike",
+                 font=(FONT, 7), bg=BG, fg=FG_MUTED).pack(pady=(0, 6))
 
         # ── Sequence builder ────────────────────────────────────────────
         sep = tk.Frame(r, bg=BORDER, height=1)
@@ -259,6 +311,56 @@ class IMUSimulatorGUI:
             command=self._seq_clear,
         ).pack(side="left", padx=2)
 
+        # ── Punch simulator ─────────────────────────────────────────────
+        sep_punch = tk.Frame(r, bg=BORDER, height=1)
+        sep_punch.pack(fill="x", padx=20, pady=(8, 0))
+
+        tk.Label(r, text="ROBOT ARM OUTPUT (simulates robot punching)", font=(FONT, 8),
+                 bg=BG, fg=FG_MUTED).pack(anchor="w", padx=20, pady=(8, 0))
+
+        punch_row = tk.Frame(r, bg=BG)
+        punch_row.pack(fill="x", padx=20, pady=(4, 0))
+
+        punch_defs = [
+            ("Jab",      "jab",     PUNCH_JAB,   "L >"),
+            ("Cross",    "cross",   PUNCH_CROSS,  "R >"),
+            ("L Hook",   "l_hook",  PUNCH_HOOK,  "L ~"),
+            ("R Hook",   "r_hook",  PUNCH_HOOK,  "R ~"),
+            ("L Upper",  "l_upper", PUNCH_UPPER, "L ^"),
+            ("R Upper",  "r_upper", PUNCH_UPPER, "R ^"),
+        ]
+        self._punch_btns: dict[str, tk.Button] = {}
+        for label, ptype, color, arm_lbl in punch_defs:
+            btn = tk.Button(
+                punch_row, text=f"{arm_lbl}\n{label}", font=(FONT, 8, "bold"),
+                bg=SURFACE2, fg=color,
+                activebackground=color, activeforeground="#000",
+                relief="flat", bd=0, pady=5,
+                command=lambda pt=ptype, c=color: self._on_punch(pt, c),
+            )
+            btn.pack(side="left", expand=True, fill="x", padx=1)
+            self._punch_btns[ptype] = btn
+
+        # Combo preset row
+        combo_row = tk.Frame(r, bg=BG)
+        combo_row.pack(fill="x", padx=20, pady=(4, 0))
+
+        combos = [
+            ("1-2",       ["jab", "cross"]),
+            ("1-1-2",     ["jab", "jab", "cross"]),
+            ("1-2-3",     ["jab", "cross", "l_hook"]),
+            ("1-2-3-4",   ["jab", "cross", "l_hook", "r_hook"]),
+            ("1-2-5-6",   ["jab", "cross", "l_upper", "r_upper"]),
+        ]
+        for label, seq in combos:
+            tk.Button(
+                combo_row, text=label, font=(FONT, 8, "bold"),
+                bg="#1A1510", fg=PRIMARY,
+                activebackground=PRIMARY, activeforeground="#000",
+                relief="flat", bd=0, pady=4, padx=8,
+                command=lambda s=seq: self._play_combo(s),
+            ).pack(side="left", expand=True, fill="x", padx=1)
+
         # ── Log area ────────────────────────────────────────────────────
         sep2 = tk.Frame(r, bg=BORDER, height=1)
         sep2.pack(fill="x", padx=20, pady=(8, 0))
@@ -302,15 +404,27 @@ class IMUSimulatorGUI:
         btn.grid(row=row, column=col, padx=3, pady=2, sticky="ns")
         return btn
 
-    # ── Force selector ──────────────────────────────────────────────────
-    def _set_force(self, level: str) -> None:
-        self._force = level
-        colors = {"light": GREEN, "medium": AMBER, "hard": RED}
-        for lvl, btn in self._force_btns.items():
-            if lvl == level:
-                btn.configure(bg=colors[lvl], fg="#000")
-            else:
-                btn.configure(bg=SURFACE2, fg=colors[lvl])
+    # ── Acceleration helpers ────────────────────────────────────────────
+    def _update_accel_label(self, *_args) -> None:
+        val = self._accel_var.get()
+        if val < 20:
+            color = GREEN
+        elif val < 40:
+            color = AMBER
+        else:
+            color = RED
+        self._accel_lbl.configure(text=f"{val:.1f}", fg=color)
+
+    def _get_force_level(self) -> str:
+        val = self._accel_var.get()
+        if val < 20:
+            return "light"
+        if val < 40:
+            return "medium"
+        return "hard"
+
+    def _get_force_normalized(self) -> float:
+        return min(1.0, self._accel_var.get() / 60.0)
 
     # ── Flash ───────────────────────────────────────────────────────────
     def _flash(self, btn: tk.Button, color: str, rest_bg: str,
@@ -320,12 +434,16 @@ class IMUSimulatorGUI:
 
     # ── Pad / Arm handlers ──────────────────────────────────────────────
     def _on_pad(self, pad: str) -> None:
-        self._node.publish_pad(pad, self._force)
+        level = self._get_force_level()
+        force = self._get_force_normalized()
+        self._node.publish_pad(pad, level)
+        # Also publish a ConfirmedPunch so the GUI detects it
+        self._node.publish_punch("strike", level, force)
         colors = {"light": GREEN, "medium": AMBER, "hard": RED}
         if pad in self._pad_btns:
-            self._flash(self._pad_btns[pad], colors[self._force],
+            self._flash(self._pad_btns[pad], colors[level],
                         PAD_BG, "#E88")
-        self._log(f"PAD  {pad:<7s}  force={self._force}")
+        self._log(f"PAD  {pad:<7s}  accel={self._accel_var.get():.1f}  level={level}")
 
     def _on_arm(self, event: tk.Event, side: str) -> None:
         contact = not bool(event.state & 0x0001)
@@ -335,6 +453,49 @@ class IMUSimulatorGUI:
             self._flash(self._arm_btns[side], color, ARM_BG, "#6EA8DC")
         tag = "struck" if contact else "miss"
         self._log(f"ARM  {side:<7s}  {tag}")
+
+    # ── Punch simulator ─────────────────────────────────────────────────
+    def _on_punch(self, punch_type: str, color: str) -> None:
+        """Simulate robot arm throwing a punch — only flashes arm, not pads."""
+        level = self._get_force_level()
+        force = self._get_force_normalized()
+        self._node.publish_punch(punch_type, level, force)
+        arm_side, _ = _PUNCH_TYPES.get(punch_type, ("left", "centre"))
+
+        # Flash the punch button
+        if punch_type in self._punch_btns:
+            btn = self._punch_btns[punch_type]
+            btn.configure(bg=color, fg="#000")
+            btn.after(_FLASH_MS, lambda: btn.configure(bg=SURFACE2, fg=color))
+
+        # Flash the arm (robot arm moving)
+        if arm_side in self._arm_btns:
+            self._flash(self._arm_btns[arm_side], color, ARM_BG, "#6EA8DC")
+
+        _PUNCH_NAMES = {
+            "jab": "Jab", "cross": "Cross", "l_hook": "L Hook",
+            "r_hook": "R Hook", "l_upper": "L Upper", "r_upper": "R Upper",
+        }
+        self._log(f"ARM>  {_PUNCH_NAMES.get(punch_type, punch_type):<8s}  "
+                  f"arm={arm_side}  accel={self._accel_var.get():.1f}")
+
+    def _play_combo(self, sequence: list) -> None:
+        """Play a combo sequence with animated delays."""
+        interval = int(self._interval_var.get())
+
+        def play_step(idx: int) -> None:
+            if idx >= len(sequence):
+                return
+            ptype = sequence[idx]
+            color_map = {
+                "jab": PUNCH_JAB, "cross": PUNCH_CROSS,
+                "l_hook": PUNCH_HOOK, "r_hook": PUNCH_HOOK,
+                "l_upper": PUNCH_UPPER, "r_upper": PUNCH_UPPER,
+            }
+            self._on_punch(ptype, color_map.get(ptype, PRIMARY))
+            self._root.after(interval, lambda: play_step(idx + 1))
+
+        play_step(0)
 
     # ── Sequence builder ────────────────────────────────────────────────
     def _seq_add(self, kind: str, target: str) -> None:

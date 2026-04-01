@@ -48,13 +48,6 @@ _MODES = [
         "accent": Color.PURPLE,
         "route": "performance",
     },
-    {
-        "name": "History",
-        "desc": f'Past <span style="{_H}">sessions</span> and '
-                f'<span style="{_H}">progress</span>',
-        "accent": Color.WARNING,
-        "route": "history",
-    },
 ]
 
 
@@ -177,7 +170,7 @@ class HomeIndividualPage(QWidget):
 
         self._name_label = QLabel("Welcome back!")
         self._name_label.setStyleSheet(
-            f"font-size: 20px; font-weight: 700; color: {Color.TEXT};"
+            f"font-size: 28px; font-weight: 700; color: {Color.PRIMARY};"
         )
         top.addWidget(self._name_label)
         top.addStretch()
@@ -226,15 +219,11 @@ class HomeIndividualPage(QWidget):
         grid.setColumnStretch(1, 1)
 
         for i, mode in enumerate(_MODES):
-            is_last = i == len(_MODES) - 1
-            btn = _mode_card(mode, height=60 if is_last else 100)
+            btn = _mode_card(mode, height=100)
             btn.clicked.connect(
                 lambda _c=False, r=mode["route"]: self._nav(r)
             )
-            if i < 4:
-                grid.addWidget(btn, i // 2, i % 2)
-            else:
-                grid.addWidget(btn, 2, 0, 1, 2)
+            grid.addWidget(btn, i // 2, i % 2)
 
         root.addLayout(grid, stretch=1)
 
@@ -242,7 +231,6 @@ class HomeIndividualPage(QWidget):
 
         # ── Bottom ───────────────────────────────────────────────────────
         bottom = QHBoxLayout()
-        bottom.addStretch()
 
         logout = QPushButton("Log Out")
         logout.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -259,7 +247,27 @@ class HomeIndividualPage(QWidget):
         """)
         logout.clicked.connect(lambda: self._nav("auth"))
         bottom.addWidget(logout)
+
         bottom.addStretch()
+
+        history_btn = QPushButton("History")
+        history_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        history_btn.setFixedSize(180, 56)
+        history_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 18px; font-weight: 700;
+                background-color: transparent; color: {Color.PRIMARY_LIGHT};
+                border: 1px solid {Color.PRIMARY_LIGHT}; border-radius: 10px;
+                padding: 8px 20px;
+            }}
+            QPushButton:hover {{
+                color: #FFFFFF; border-color: {Color.PRIMARY};
+                background-color: {Color.PRIMARY};
+            }}
+        """)
+        history_btn.clicked.connect(lambda: self._nav("history"))
+        bottom.addWidget(history_btn)
+
         root.addLayout(bottom)
 
     def _nav(self, page: str):

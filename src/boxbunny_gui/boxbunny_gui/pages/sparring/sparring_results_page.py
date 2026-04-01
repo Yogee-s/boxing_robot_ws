@@ -260,7 +260,7 @@ class SparringResultsPage(QWidget):
                 background-color: {Color.SURFACE_HOVER};
             }}
         """)
-        btn_home.clicked.connect(lambda: self._router.navigate("home"))
+        btn_home.clicked.connect(lambda: self._router.navigate("home_guest"))
         bottom.addWidget(btn_home)
 
         bottom.addStretch()

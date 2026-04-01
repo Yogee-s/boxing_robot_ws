@@ -72,22 +72,25 @@ class PerformanceMenuPage(QWidget):
 
         root.addStretch(1)
 
-        # Title — centered and prominent
+        # Title
         title = QLabel("Performance Tests")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet(
-            f"font-size: 26px; font-weight: 700; color: {Color.TEXT};"
+            f"font-size: 36px; font-weight: 700; color: {Color.TEXT};"
         )
         root.addWidget(title)
 
         sub = QLabel("Select a test to measure your boxing performance")
         sub.setAlignment(Qt.AlignCenter)
-        sub.setStyleSheet(f"font-size: 13px; color: {Color.TEXT_SECONDARY};")
+        sub.setStyleSheet(f"font-size: 16px; color: {Color.TEXT_SECONDARY};")
         root.addWidget(sub)
 
-        root.addSpacing(16)
+        root.addSpacing(20)
 
-        # Test cards
+        # 3 cards in a horizontal row — centered, compact
+        cards_row = QHBoxLayout()
+        cards_row.setSpacing(14)
+
         for test in _TESTS:
             accent = test["accent"]
             bg = test.get("bg", Color.SURFACE)
@@ -95,67 +98,41 @@ class PerformanceMenuPage(QWidget):
 
             card = QPushButton()
             card.setCursor(Qt.CursorShape.PointingHandCursor)
-            card.setFixedHeight(100)
+            card.setFixedHeight(120)
             card.setStyleSheet(f"""
                 QPushButton {{
                     background-color: {bg};
                     border: 1px solid {border};
-                    border-left: 3px solid {accent};
+                    border-bottom: 3px solid {accent};
                     border-radius: {Size.RADIUS}px;
-                    text-align: left;
                 }}
                 QPushButton:hover {{
                     background-color: {Color.SURFACE_HOVER};
                     border: 1px solid {accent};
-                    border-left: 3px solid {accent};
-                }}
-                QPushButton:pressed {{
-                    background-color: {accent};
-                    border-color: {accent};
-                    border-left: 3px solid {accent};
+                    border-bottom: 3px solid {accent};
                 }}
             """)
 
-            lay = QHBoxLayout(card)
-            lay.setContentsMargins(18, 14, 16, 14)
+            lay = QVBoxLayout(card)
+            lay.setContentsMargins(14, 16, 14, 16)
             lay.setSpacing(0)
-
-            text_col = QVBoxLayout()
-            text_col.setSpacing(4)
+            lay.setAlignment(Qt.AlignCenter)
 
             name_lbl = QLabel(test["name"])
+            name_lbl.setAlignment(Qt.AlignCenter)
             name_lbl.setStyleSheet(
                 "background: transparent; border: none;"
-                f" font-size: 17px; font-weight: 700; color: {Color.TEXT};"
+                f" font-size: 24px; font-weight: 700; color: {Color.TEXT};"
             )
             name_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-            text_col.addWidget(name_lbl)
-
-            desc_lbl = QLabel(test["desc"])
-            desc_lbl.setTextFormat(Qt.TextFormat.RichText)
-            desc_lbl.setStyleSheet(
-                "background: transparent; border: none;"
-                f" font-size: 12px; color: {Color.TEXT_SECONDARY};"
-            )
-            desc_lbl.setWordWrap(True)
-            desc_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-            text_col.addWidget(desc_lbl)
-
-            lay.addLayout(text_col, stretch=1)
-
-            arrow = QLabel(Icon.NEXT)
-            arrow.setStyleSheet(
-                f"color: {accent}; font-size: 16px;"
-                " background: transparent; border: none;"
-            )
-            arrow.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-            lay.addWidget(arrow)
+            lay.addWidget(name_lbl)
 
             card.clicked.connect(
                 lambda _c=False, r=test["route"]: self._router.navigate(r)
             )
-            root.addWidget(card)
-            root.addSpacing(10)
+            cards_row.addWidget(card)
+
+        root.addLayout(cards_row)
 
         root.addStretch(2)
 
