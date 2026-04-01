@@ -125,7 +125,7 @@ class ReactionTestPage(QWidget):
 
         # Start button
         self._btn_start = BigButton("Start", stylesheet=PRIMARY_BTN)
-        self._btn_start.setFixedHeight(60)
+        self._btn_start.setFixedHeight(70)
         self._btn_start.clicked.connect(self._begin_test)
         root.addWidget(self._btn_start)
 
@@ -167,7 +167,7 @@ class ReactionTestPage(QWidget):
         res_lay.addLayout(stats)
 
         btn_done = BigButton("Done", stylesheet=PRIMARY_BTN)
-        btn_done.setFixedHeight(60)
+        btn_done.setFixedHeight(70)
         btn_done.clicked.connect(
             lambda: self._router.navigate("performance")
         )

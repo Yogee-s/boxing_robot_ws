@@ -158,7 +158,7 @@ class SignupPage(QWidget):
         self._pat_toggle = QPushButton("Pattern")
         self._pw_toggle = QPushButton("Password")
         for btn in (self._pat_toggle, self._pw_toggle):
-            btn.setFixedSize(130, 36)
+            btn.setFixedSize(150, 46)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._pat_toggle.clicked.connect(lambda: self._set_auth_mode(True))
         self._pw_toggle.clicked.connect(lambda: self._set_auth_mode(False))

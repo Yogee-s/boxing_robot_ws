@@ -1,14 +1,14 @@
 """Self-Select sequence builder — build custom punch sequences.
 
 Numpad with punch buttons (1-6) + defense moves. Up to 5 sequence slots.
-Matches the old GUI's SelfSelectSequencePage functionality.
+Delete shifts sequences up. Backspace goes to previous slot when empty.
 """
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any, List
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QPoint
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
@@ -17,8 +17,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from PySide6.QtGui import QCursor
 
-from boxbunny_gui.theme import Color, Icon, Size, font, back_link_style, PRIMARY_BTN
+from boxbunny_gui.theme import Color, Icon, Size, back_link_style, PRIMARY_BTN
 from boxbunny_gui.widgets import BigButton
 
 if TYPE_CHECKING:
@@ -34,153 +35,9 @@ _PUNCHES = [
     ("5", "L Upper", Color.L_UPPERCUT),
     ("6", "R Upper", Color.R_UPPERCUT),
 ]
-
-_DEFENSE = [
-    ("slip", "Slip"),
-    ("block", "Block"),
-]
-
+_DEFENSE = [("slip", "Slip"), ("block", "Block")]
 _MAX_SEQUENCES = 5
 _MAX_COMBO_LEN = 10
-
-
-class _SequenceSlot(QWidget):
-    """Editable sequence slot showing the current combo."""
-
-    def __init__(self, index: int, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._index = index
-        self._tokens: List[str] = []
-        self.setFixedHeight(40)
-        self.setStyleSheet(f"""
-            QWidget {{
-                background-color: {Color.SURFACE};
-                border: 1px solid {Color.BORDER};
-                border-radius: {Size.RADIUS_SM}px;
-            }}
-        """)
-
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(10, 4, 10, 4)
-        lay.setSpacing(6)
-
-        self._num_lbl = QLabel(f"{index + 1})")
-        self._num_lbl.setFixedWidth(24)
-        self._num_lbl.setStyleSheet(
-            f"font-size: 13px; font-weight: 700; color: {Color.TEXT_DISABLED};"
-            " background: transparent; border: none;"
-        )
-        lay.addWidget(self._num_lbl)
-
-        self._seq_lbl = QLabel("(empty)")
-        self._seq_lbl.setStyleSheet(
-            f"font-size: 13px; color: {Color.TEXT_DISABLED};"
-            " background: transparent; border: none;"
-        )
-        lay.addWidget(self._seq_lbl, stretch=1)
-
-        clear_btn = QPushButton(Icon.CLOSE)
-        clear_btn.setFixedSize(24, 24)
-        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        clear_btn.setStyleSheet(f"""
-            QPushButton {{
-                font-size: 12px; background: transparent;
-                color: {Color.TEXT_DISABLED}; border: none;
-            }}
-            QPushButton:hover {{ color: {Color.DANGER}; }}
-        """)
-        clear_btn.clicked.connect(self.clear)
-        lay.addWidget(clear_btn)
-
-    def add_token(self, token: str) -> None:
-        if len(self._tokens) < _MAX_COMBO_LEN:
-            self._tokens.append(token)
-            self._refresh()
-
-    def backspace(self) -> None:
-        if self._tokens:
-            self._tokens.pop()
-            self._refresh()
-
-    def clear(self) -> None:
-        self._tokens.clear()
-        self._refresh()
-
-    def _refresh(self) -> None:
-        if self._tokens:
-            display = "-".join(self._tokens)
-            self._seq_lbl.setText(display)
-            self._seq_lbl.setStyleSheet(
-                f"font-size: 13px; font-weight: 600; color: {Color.TEXT};"
-                " background: transparent; border: none;"
-            )
-        else:
-            self._seq_lbl.setText("(empty)")
-            self._seq_lbl.setStyleSheet(
-                f"font-size: 13px; color: {Color.TEXT_DISABLED};"
-                " background: transparent; border: none;"
-            )
-
-    @property
-    def sequence(self) -> str:
-        return "-".join(self._tokens) if self._tokens else ""
-
-    @property
-    def is_empty(self) -> bool:
-        return len(self._tokens) == 0
-
-    def set_active(self, active: bool) -> None:
-        if active:
-            bg = "#1A1510"
-            border = Color.PRIMARY
-            num_color = Color.PRIMARY
-            seq_color = Color.TEXT if self._tokens else Color.PRIMARY_LIGHT
-        else:
-            bg = Color.SURFACE
-            border = Color.BORDER
-            num_color = Color.TEXT_DISABLED
-            seq_color = Color.TEXT if self._tokens else Color.TEXT_DISABLED
-
-        self._num_lbl.setStyleSheet(
-            f"font-size: 13px; font-weight: 700; color: {num_color};"
-            " background: transparent; border: none;"
-        )
-        self._seq_lbl.setStyleSheet(
-            f"font-size: 13px; font-weight: 600; color: {seq_color};"
-            " background: transparent; border: none;"
-        )
-        self.setStyleSheet(f"""
-            QWidget {{
-                background-color: {bg};
-                border: 1px solid {border};
-                border-left: 3px solid {border};
-                border-radius: {Size.RADIUS_SM}px;
-            }}
-        """)
-
-
-def _punch_btn(code: str, name: str, color: str) -> QPushButton:
-    btn = QPushButton(f"{code}\n{name}")
-    btn.setCursor(Qt.CursorShape.PointingHandCursor)
-    btn.setFixedHeight(56)
-    btn.setStyleSheet(f"""
-        QPushButton {{
-            background-color: {Color.SURFACE};
-            color: {Color.TEXT}; border: 1px solid {Color.BORDER};
-            border-bottom: 3px solid {color};
-            border-radius: {Size.RADIUS}px;
-            font-size: 13px; font-weight: 600; padding: 4px;
-        }}
-        QPushButton:hover {{
-            background-color: {Color.SURFACE_HOVER};
-            border-color: {color};
-            border-bottom: 3px solid {color};
-        }}
-        QPushButton:pressed {{
-            background-color: {color}; color: #FFFFFF;
-        }}
-    """)
-    return btn
 
 
 class SelfSelectPage(QWidget):
@@ -189,8 +46,10 @@ class SelfSelectPage(QWidget):
     def __init__(self, router: PageRouter, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._router = router
-        self._active_slot: int = 0
-        self._slots: list[_SequenceSlot] = []
+        self._active: int = 0
+        # Store sequences as lists of token strings
+        self._sequences: List[List[str]] = [[] for _ in range(_MAX_SEQUENCES)]
+        self._slot_widgets: list[dict] = []
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -215,11 +74,11 @@ class SelfSelectPage(QWidget):
 
         root.addStretch(1)
 
-        # Two-column layout: slots left, numpad right
+        # Two columns
         body = QHBoxLayout()
-        body.setSpacing(20)
+        body.setSpacing(24)
 
-        # ── Left: sequence slots ─────────────────────────────────────────
+        # ── Left: slots ──────────────────────────────────────────────────
         left = QVBoxLayout()
         left.setSpacing(6)
 
@@ -230,67 +89,102 @@ class SelfSelectPage(QWidget):
         )
         left.addWidget(slots_lbl)
 
+        self._drag_idx: int = -1
+        self._drag_start_y: int = 0
+        self._row_height = 46
+
         for i in range(_MAX_SEQUENCES):
-            slot = _SequenceSlot(i, self)
-            # Select button per slot
-            select_btn = QPushButton()
-            select_btn.setFixedSize(24, 24)
-            select_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            select_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background: transparent; border: none;
-                    font-size: 11px; color: {Color.TEXT_DISABLED};
-                }}
-                QPushButton:hover {{ color: {Color.PRIMARY}; }}
-            """)
-            select_btn.setText(f"{i + 1}")
-            select_btn.clicked.connect(
-                lambda _c=False, idx=i: self._set_active_slot(idx)
+            row_w = QWidget()
+            row_w.setFixedHeight(self._row_height)
+            row_lay = QHBoxLayout(row_w)
+            row_lay.setContentsMargins(0, 0, 0, 0)
+            row_lay.setSpacing(6)
+
+            # Drag handle — 3 horizontal lines icon
+            drag_lbl = QLabel("\u2261")
+            drag_lbl.setFixedSize(28, 36)
+            drag_lbl.setAlignment(Qt.AlignCenter)
+            drag_lbl.setCursor(Qt.CursorShape.OpenHandCursor)
+            drag_lbl.setStyleSheet(
+                f"font-size: 20px; color: {Color.TEXT_DISABLED};"
+                " background: transparent; border: none;"
             )
-            # Insert select button into the slot's layout
-            slot.layout().insertWidget(0, select_btn)
-            left.addWidget(slot)
-            self._slots.append(slot)
+            drag_lbl.setObjectName(f"drag_{i}")
+            row_lay.addWidget(drag_lbl)
 
-        # Control buttons row
-        ctrl_row = QHBoxLayout()
-        ctrl_row.setSpacing(8)
+            # Number button
+            num_btn = QPushButton(str(i + 1))
+            num_btn.setFixedSize(32, 32)
+            num_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            num_btn.clicked.connect(lambda _c=False, idx=i: self._select(idx))
+            row_lay.addWidget(num_btn)
 
-        backspace_btn = QPushButton(f"{Icon.BACK}  Backspace")
-        backspace_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        backspace_btn.setFixedHeight(34)
-        backspace_btn.setStyleSheet(f"""
+            # Sequence text
+            seq_lbl = QLabel("(empty)")
+            seq_lbl.setStyleSheet(
+                f"font-size: 14px; color: {Color.TEXT_DISABLED};"
+            )
+            row_lay.addWidget(seq_lbl, stretch=1)
+
+            # Delete button
+            del_btn = QPushButton(Icon.CLOSE)
+            del_btn.setFixedSize(28, 28)
+            del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            del_btn.setStyleSheet(f"""
+                QPushButton {{
+                    font-size: 12px; background: transparent;
+                    color: {Color.TEXT_DISABLED}; border: none;
+                    border-radius: 14px;
+                }}
+                QPushButton:hover {{ color: {Color.DANGER}; background: {Color.SURFACE_HOVER}; }}
+            """)
+            del_btn.clicked.connect(lambda _c=False, idx=i: self._delete_slot(idx))
+            row_lay.addWidget(del_btn)
+
+            left.addWidget(row_w)
+            self._slot_widgets.append({
+                "widget": row_w, "num": num_btn, "label": seq_lbl,
+                "delete": del_btn, "drag": drag_lbl,
+            })
+
+        # Controls
+        ctrl = QHBoxLayout()
+        ctrl.setSpacing(8)
+
+        back_btn = QPushButton(f"{Icon.BACK}  Backspace")
+        back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        back_btn.setFixedHeight(44)
+        back_btn.setStyleSheet(f"""
             QPushButton {{
-                font-size: 12px; font-weight: 600;
+                font-size: 13px; font-weight: 600;
                 background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
                 border: 1px solid {Color.BORDER}; border-radius: {Size.RADIUS}px;
             }}
             QPushButton:hover {{ color: {Color.TEXT}; border-color: {Color.PRIMARY}; }}
         """)
-        backspace_btn.clicked.connect(self._backspace)
-        ctrl_row.addWidget(backspace_btn)
+        back_btn.clicked.connect(self._backspace)
+        ctrl.addWidget(back_btn)
 
-        next_btn = QPushButton(f"Next Slot  {Icon.NEXT}")
+        next_btn = QPushButton(f"Next  {Icon.NEXT}")
         next_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        next_btn.setFixedHeight(34)
+        next_btn.setFixedHeight(44)
         next_btn.setStyleSheet(f"""
             QPushButton {{
-                font-size: 12px; font-weight: 600;
+                font-size: 13px; font-weight: 600;
                 background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
                 border: 1px solid {Color.BORDER}; border-radius: {Size.RADIUS}px;
             }}
             QPushButton:hover {{ color: {Color.TEXT}; border-color: {Color.PRIMARY}; }}
         """)
         next_btn.clicked.connect(self._next_slot)
-        ctrl_row.addWidget(next_btn)
+        ctrl.addWidget(next_btn)
 
-        left.addLayout(ctrl_row)
-
+        left.addLayout(ctrl)
         body.addLayout(left, stretch=1)
 
-        # ── Right: punch numpad ──────────────────────────────────────────
+        # ── Right: numpad ────────────────────────────────────────────────
         right = QVBoxLayout()
-        right.setSpacing(6)
+        right.setSpacing(8)
 
         punches_lbl = QLabel("Punches")
         punches_lbl.setStyleSheet(
@@ -299,20 +193,33 @@ class SelfSelectPage(QWidget):
         )
         right.addWidget(punches_lbl)
 
-        # 2x3 grid for punches
-        punch_grid = QGridLayout()
-        punch_grid.setSpacing(8)
+        grid = QGridLayout()
+        grid.setSpacing(8)
         for i, (code, name, color) in enumerate(_PUNCHES):
-            btn = _punch_btn(code, name, color)
-            btn.clicked.connect(
-                lambda _c=False, c=code: self._add_token(c)
-            )
-            punch_grid.addWidget(btn, i // 3, i % 3)
-        right.addLayout(punch_grid)
+            btn = QPushButton(f"{code}\n({name})")
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setFixedHeight(80)
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {Color.SURFACE}; color: {Color.TEXT};
+                    border: 1px solid {Color.BORDER};
+                    border-bottom: 3px solid {color};
+                    border-radius: {Size.RADIUS}px;
+                    font-size: 17px; font-weight: 600; padding: 8px 6px 6px 6px;
+                }}
+                QPushButton:hover {{
+                    background-color: {Color.SURFACE_HOVER};
+                    border-color: {color}; border-bottom: 3px solid {color};
+                }}
+                QPushButton:pressed {{
+                    background-color: {color}; color: #FFFFFF;
+                }}
+            """)
+            btn.clicked.connect(lambda _c=False, c=code: self._add_token(c))
+            grid.addWidget(btn, i // 3, i % 3)
+        right.addLayout(grid)
 
-        right.addSpacing(6)
-
-        # Defense buttons
+        # Defense
         def_lbl = QLabel("Defense")
         def_lbl.setStyleSheet(
             f"font-size: 13px; font-weight: 700; color: {Color.TEXT_SECONDARY};"
@@ -325,65 +232,181 @@ class SelfSelectPage(QWidget):
         for code, name in _DEFENSE:
             btn = QPushButton(name)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setFixedHeight(40)
+            btn.setFixedHeight(56)
             btn.setStyleSheet(f"""
                 QPushButton {{
-                    background-color: {Color.SURFACE};
-                    color: {Color.TEXT_SECONDARY};
-                    border: 1px solid {Color.BORDER};
-                    border-radius: {Size.RADIUS}px;
-                    font-size: 13px; font-weight: 600;
+                    background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
+                    border: 1px solid {Color.BORDER}; border-radius: {Size.RADIUS}px;
+                    font-size: 16px; font-weight: 600;
                 }}
                 QPushButton:hover {{
                     background-color: {Color.SURFACE_HOVER};
-                    border-color: {Color.TEXT_SECONDARY};
-                    color: {Color.TEXT};
+                    border-color: {Color.TEXT_SECONDARY}; color: {Color.TEXT};
                 }}
             """)
-            btn.clicked.connect(
-                lambda _c=False, c=code: self._add_token(c)
-            )
+            btn.clicked.connect(lambda _c=False, c=code: self._add_token(c))
             def_row.addWidget(btn)
         right.addLayout(def_row)
 
-        right.addStretch()
-
         body.addLayout(right, stretch=1)
-
         root.addLayout(body)
 
         root.addStretch(1)
 
-        # ── Continue button ──────────────────────────────────────────────
+        # Continue
         self._btn_continue = BigButton(
             f"{Icon.PLAY}  Continue to Config", stylesheet=PRIMARY_BTN
         )
-        self._btn_continue.setFixedHeight(60)
+        self._btn_continue.setFixedHeight(70)
         self._btn_continue.clicked.connect(self._on_continue)
         root.addWidget(self._btn_continue)
 
-    def _set_active_slot(self, idx: int) -> None:
-        self._active_slot = idx
-        for i, slot in enumerate(self._slots):
-            slot.set_active(i == idx)
+    # ── Slot management ──────────────────────────────────────────────────
 
-    def _add_token(self, token: str) -> None:
-        self._slots[self._active_slot].add_token(token)
-
-    def _backspace(self) -> None:
-        self._slots[self._active_slot].backspace()
+    def _select(self, idx: int) -> None:
+        self._active = idx
+        self._refresh_all()
 
     def _next_slot(self) -> None:
-        nxt = (self._active_slot + 1) % _MAX_SEQUENCES
-        self._set_active_slot(nxt)
+        self._active = (self._active + 1) % _MAX_SEQUENCES
+        self._refresh_all()
+
+    def _add_token(self, token: str) -> None:
+        seq = self._sequences[self._active]
+        if len(seq) < _MAX_COMBO_LEN:
+            seq.append(token)
+            self._refresh_all()
+
+    def _backspace(self) -> None:
+        seq = self._sequences[self._active]
+        if seq:
+            seq.pop()
+        elif self._active > 0:
+            # Empty slot — go to previous
+            self._active -= 1
+            if self._sequences[self._active]:
+                self._sequences[self._active].pop()
+        self._refresh_all()
+
+    # ── Drag reordering via mouse events on the whole page ──────────────
+
+    def mousePressEvent(self, event) -> None:
+        # Check if press is on a drag handle
+        pos = event.position().toPoint()
+        for i, sw in enumerate(self._slot_widgets):
+            drag = sw["drag"]
+            # Map position to the drag label's coordinate space
+            local = drag.mapFrom(self, pos)
+            if drag.rect().contains(local):
+                self._drag_idx = i
+                self._drag_start_y = pos.y()
+                self._select(i)
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._drag_idx < 0:
+            return
+        pos = event.position().toPoint()
+        dy = pos.y() - self._drag_start_y
+        # Swap when dragged more than half a row height
+        if dy > self._row_height * 0.6 and self._drag_idx < _MAX_SEQUENCES - 1:
+            j = self._drag_idx
+            self._sequences[j], self._sequences[j + 1] = (
+                self._sequences[j + 1], self._sequences[j]
+            )
+            self._drag_idx = j + 1
+            self._active = j + 1
+            self._drag_start_y = pos.y()
+            self._refresh_all()
+        elif dy < -self._row_height * 0.6 and self._drag_idx > 0:
+            j = self._drag_idx
+            self._sequences[j], self._sequences[j - 1] = (
+                self._sequences[j - 1], self._sequences[j]
+            )
+            self._drag_idx = j - 1
+            self._active = j - 1
+            self._drag_start_y = pos.y()
+            self._refresh_all()
+
+    def mouseReleaseEvent(self, event) -> None:
+        if self._drag_idx >= 0:
+            self._drag_idx = -1
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+        super().mouseReleaseEvent(event)
+
+    def _delete_slot(self, idx: int) -> None:
+        """Delete slot and shift everything below up."""
+        del self._sequences[idx]
+        self._sequences.append([])  # Add empty at end
+        if self._active >= idx and self._active > 0:
+            self._active = max(0, self._active - 1)
+        self._refresh_all()
+
+    def _refresh_all(self) -> None:
+        """Update all slot visuals from the data."""
+        for i in range(_MAX_SEQUENCES):
+            sw = self._slot_widgets[i]
+            seq = self._sequences[i]
+            is_active = (i == self._active)
+            has_data = len(seq) > 0
+
+            # Number button
+            if is_active:
+                sw["num"].setStyleSheet(f"""
+                    QPushButton {{
+                        font-size: 14px; font-weight: 700; color: #FFFFFF;
+                        background-color: {Color.PRIMARY}; border: none;
+                        border-radius: 16px;
+                    }}
+                """)
+            else:
+                sw["num"].setStyleSheet(f"""
+                    QPushButton {{
+                        font-size: 14px; font-weight: 700; color: {Color.TEXT_DISABLED};
+                        background-color: transparent;
+                        border: 1px solid {Color.BORDER}; border-radius: 16px;
+                    }}
+                    QPushButton:hover {{ color: {Color.PRIMARY}; border-color: {Color.PRIMARY}; }}
+                """)
+
+            # Sequence label
+            if has_data:
+                sw["label"].setText("-".join(seq))
+                color = Color.TEXT if is_active else Color.TEXT_SECONDARY
+                sw["label"].setStyleSheet(
+                    f"font-size: 14px; font-weight: 600; color: {color};"
+                )
+            else:
+                sw["label"].setText("(empty)")
+                color = Color.PRIMARY_LIGHT if is_active else Color.TEXT_DISABLED
+                sw["label"].setStyleSheet(
+                    f"font-size: 14px; color: {color};"
+                )
+
+            # Row background — active gets warm tint, inactive plain
+            if is_active:
+                sw["widget"].setStyleSheet(f"""
+                    QWidget {{
+                        background-color: #1A1510;
+                        border: none;
+                        border-radius: {Size.RADIUS_SM}px;
+                    }}
+                """)
+            else:
+                sw["widget"].setStyleSheet(f"""
+                    QWidget {{
+                        background-color: transparent;
+                        border: none;
+                        border-radius: {Size.RADIUS_SM}px;
+                    }}
+                """)
 
     def _on_continue(self) -> None:
-        # Collect all non-empty sequences
-        sequences = [s.sequence for s in self._slots if not s.is_empty]
+        sequences = ["-".join(s) for s in self._sequences if s]
         if not sequences:
             return
-
-        # Use first sequence as the combo
         combo_data = {
             "name": "Custom Sequence",
             "seq": sequences[0],
@@ -397,10 +420,12 @@ class SelfSelectPage(QWidget):
         )
 
     def on_enter(self, **kwargs: Any) -> None:
-        self._active_slot = 0
-        for slot in self._slots:
-            slot.clear()
-        self._set_active_slot(0)
+        # Only reset if explicitly told to (fresh entry from combo select)
+        # Coming back from config via router.back() preserves sequences
+        if kwargs.get("reset", False) or not any(self._sequences):
+            self._active = 0
+            self._sequences = [[] for _ in range(_MAX_SEQUENCES)]
+        self._refresh_all()
         logger.debug("SelfSelectPage entered")
 
     def on_leave(self) -> None:

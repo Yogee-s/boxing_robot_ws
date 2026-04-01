@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, List, Optional
 
-from PySide6.QtCore import Qt, QPoint, QRectF, QTimer
+from PySide6.QtCore import Qt, QPoint, QRectF, QTimer, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QPainter, QPen, QColor
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -162,16 +162,20 @@ class PatternLockPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(40, 24, 40, 16)
+        root.setContentsMargins(40, 16, 40, 12)
         root.setSpacing(0)
 
-        # User name with subtle icon
+        root.addStretch(1)
+
+        # User name
         self._name_lbl = QLabel()
-        self._name_lbl.setStyleSheet(f"font-size: 20px; font-weight: 700; color: {Color.TEXT};")
+        self._name_lbl.setStyleSheet(
+            f"font-size: 24px; font-weight: 700; color: {Color.TEXT};"
+        )
         self._name_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(self._name_lbl)
 
-        root.addSpacing(6)
+        root.addSpacing(4)
 
         # Status label
         self._status_lbl = QLabel("Draw your pattern")
@@ -181,7 +185,7 @@ class PatternLockPage(QWidget):
         self._status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(self._status_lbl, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        root.addStretch(2)
+        root.addSpacing(12)
 
         # ── Pattern mode ─────────────────────────────────────────────────
         self._pattern_widget = QWidget()
@@ -233,21 +237,33 @@ class PatternLockPage(QWidget):
         pw_submit.clicked.connect(self._check_password)
         pw_lay.addWidget(pw_submit, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        self._password_widget.setVisible(False)
+        self._password_widget.setMaximumHeight(0)
         root.addWidget(self._password_widget, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        root.addStretch(2)
+        # Animations for smooth mode switching
+        self._pat_anim = QPropertyAnimation(self._pattern_widget, b"maximumHeight")
+        self._pat_anim.setDuration(250)
+        self._pat_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        self._pw_anim = QPropertyAnimation(self._password_widget, b"maximumHeight")
+        self._pw_anim.setDuration(250)
+        self._pw_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        self._pat_full_h = 300  # pattern grid + hint
+        self._pw_full_h = 120   # password field + unlock button
+
+        root.addSpacing(12)
 
         # ── Toggle + bottom row ──────────────────────────────────────────
         self._toggle_btn = QPushButton("Use password instead")
         self._toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._toggle_btn.setFixedHeight(48)
         self._toggle_btn.setStyleSheet(f"""
             QPushButton {{
-                font-size: 13px; font-weight: 600;
+                font-size: 15px; font-weight: 600;
                 color: {Color.TEXT_SECONDARY};
                 background-color: {Color.SURFACE}; border: 1px solid {Color.BORDER};
-                border-radius: 8px; padding: 7px 18px;
-                min-height: 0; min-width: 0;
+                border-radius: 10px; padding: 10px 24px;
             }}
             QPushButton:hover {{
                 color: {Color.PRIMARY}; border-color: {Color.PRIMARY};
@@ -256,11 +272,12 @@ class PatternLockPage(QWidget):
         self._toggle_btn.clicked.connect(self._toggle_mode)
         root.addWidget(self._toggle_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        root.addSpacing(10)
+        root.addStretch(1)
 
         bottom = QHBoxLayout()
         self._btn_back = BigButton("Back", stylesheet=GHOST_BTN)
-        self._btn_back.setFixedWidth(100)
+        self._btn_back.setFixedWidth(120)
+        self._btn_back.setFixedHeight(48)
         self._btn_back.clicked.connect(lambda: self._router.back())
         bottom.addWidget(self._btn_back)
         bottom.addStretch()
@@ -268,14 +285,29 @@ class PatternLockPage(QWidget):
 
     def _toggle_mode(self) -> None:
         self._use_password = not self._use_password
-        self._pattern_widget.setVisible(not self._use_password)
-        self._password_widget.setVisible(self._use_password)
+        self._pat_anim.stop()
+        self._pw_anim.stop()
+
         if self._use_password:
+            # Collapse pattern, expand password
+            self._pat_anim.setStartValue(self._pattern_widget.height())
+            self._pat_anim.setEndValue(0)
+            self._pat_anim.start()
+            self._pw_anim.setStartValue(0)
+            self._pw_anim.setEndValue(self._pw_full_h)
+            self._pw_anim.start()
             self._status_lbl.setText("Enter your password")
             self._toggle_btn.setText("Use pattern instead")
             self._pw_field.clear()
-            self._pw_field.setFocus()
+            QTimer.singleShot(260, self._pw_field.setFocus)
         else:
+            # Collapse password, expand pattern
+            self._pw_anim.setStartValue(self._password_widget.height())
+            self._pw_anim.setEndValue(0)
+            self._pw_anim.start()
+            self._pat_anim.setStartValue(0)
+            self._pat_anim.setEndValue(self._pat_full_h)
+            self._pat_anim.start()
             self._status_lbl.setText("Draw your pattern")
             self._toggle_btn.setText("Use password instead")
             self._grid.reset()
@@ -362,16 +394,16 @@ class PatternLockPage(QWidget):
         if self._has_pattern:
             # User has pattern — show pattern mode by default
             self._use_password = False
-            self._pattern_widget.setVisible(True)
-            self._password_widget.setVisible(False)
+            self._pattern_widget.setMaximumHeight(self._pat_full_h)
+            self._password_widget.setMaximumHeight(0)
             self._toggle_btn.setText("Use password instead")
             self._toggle_btn.setVisible(True)
             self._status_lbl.setText("Draw your pattern")
         else:
             # User has no pattern — go straight to password mode
             self._use_password = True
-            self._pattern_widget.setVisible(False)
-            self._password_widget.setVisible(True)
+            self._pattern_widget.setMaximumHeight(0)
+            self._password_widget.setMaximumHeight(self._pw_full_h)
             self._toggle_btn.setVisible(False)
             self._status_lbl.setText("Enter your password")
             self._pw_field.setFocus()

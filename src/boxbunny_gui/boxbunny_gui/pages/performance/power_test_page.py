@@ -112,7 +112,7 @@ class PowerTestPage(QWidget):
         instr_lay.addWidget(instr_text)
 
         self._btn_begin = BigButton("Begin Test", stylesheet=PRIMARY_BTN)
-        self._btn_begin.setFixedHeight(60)
+        self._btn_begin.setFixedHeight(70)
         self._btn_begin.setFixedWidth(280)
         self._btn_begin.clicked.connect(self._start_countdown)
         btn_wrap = QHBoxLayout()
@@ -196,7 +196,7 @@ class PowerTestPage(QWidget):
         res_lay.addLayout(res_row)
 
         btn_home = BigButton("Done", stylesheet=PRIMARY_BTN)
-        btn_home.setFixedHeight(60)
+        btn_home.setFixedHeight(70)
         btn_home.clicked.connect(
             lambda: self._router.navigate("performance")
         )

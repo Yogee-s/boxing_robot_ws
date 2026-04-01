@@ -344,7 +344,7 @@ class SparringConfigPage(QWidget):
         btn_start = BigButton(
             f"{Icon.PLAY}  Start Sparring", stylesheet=PRIMARY_BTN
         )
-        btn_start.setFixedHeight(60)
+        btn_start.setFixedHeight(70)
         btn_start.clicked.connect(self._on_start)
         root.addWidget(btn_start)
 

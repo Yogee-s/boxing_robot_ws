@@ -242,20 +242,20 @@ class SettingsPage(QWidget):
         self._new_pw = QLineEdit()
         self._new_pw.setPlaceholderText("New password")
         self._new_pw.setEchoMode(QLineEdit.EchoMode.Password)
-        self._new_pw.setFixedHeight(36)
+        self._new_pw.setFixedHeight(44)
         self._new_pw.setMinimumWidth(160)
         pw_row.addWidget(self._new_pw)
 
         self._confirm_pw = QLineEdit()
         self._confirm_pw.setPlaceholderText("Confirm password")
         self._confirm_pw.setEchoMode(QLineEdit.EchoMode.Password)
-        self._confirm_pw.setFixedHeight(36)
+        self._confirm_pw.setFixedHeight(44)
         self._confirm_pw.setMinimumWidth(160)
         pw_row.addWidget(self._confirm_pw)
 
         pw_save = QPushButton("Update Password")
         pw_save.setCursor(Qt.CursorShape.PointingHandCursor)
-        pw_save.setFixedSize(140, 36)
+        pw_save.setFixedSize(160, 44)
         pw_save.setStyleSheet(self._action_btn_style())
         pw_save.clicked.connect(self._on_change_password)
         pw_row.addWidget(pw_save)
@@ -273,7 +273,7 @@ class SettingsPage(QWidget):
 
         self._pat_toggle_btn = QPushButton("Set / Change Pattern")
         self._pat_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._pat_toggle_btn.setFixedSize(170, 32)
+        self._pat_toggle_btn.setFixedSize(190, 44)
         self._pat_toggle_btn.setStyleSheet(f"""
             QPushButton {{
                 font-size: 12px; font-weight: 600;
@@ -305,7 +305,7 @@ class SettingsPage(QWidget):
 
         pat_save = QPushButton("Save Pattern")
         pat_save.setCursor(Qt.CursorShape.PointingHandCursor)
-        pat_save.setFixedSize(120, 32)
+        pat_save.setFixedSize(140, 44)
         pat_save.setStyleSheet(self._action_btn_style())
         pat_save.clicked.connect(self._on_set_pattern)
         pat_btn_row.addWidget(pat_save)

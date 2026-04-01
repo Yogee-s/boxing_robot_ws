@@ -254,7 +254,7 @@ class TrainingResultsPage(QWidget):
 
         btn_home = QPushButton("Home")
         btn_home.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_home.setFixedSize(140, 42)
+        btn_home.setFixedSize(150, 48)
         btn_home.setStyleSheet(f"""
             QPushButton {{
                 font-size: 15px; font-weight: 600;
@@ -275,7 +275,7 @@ class TrainingResultsPage(QWidget):
 
         self._btn_combos = QPushButton("Combos")
         self._btn_combos.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_combos.setFixedSize(140, 42)
+        self._btn_combos.setFixedSize(150, 48)
         self._btn_combos.setStyleSheet(f"""
             QPushButton {{
                 font-size: 15px; font-weight: 600;
@@ -298,7 +298,7 @@ class TrainingResultsPage(QWidget):
         self._btn_again = BigButton(
             f"{Icon.PLAY} Train Again", stylesheet=PRIMARY_BTN
         )
-        self._btn_again.setFixedHeight(42)
+        self._btn_again.setFixedHeight(48)
         self._btn_again.clicked.connect(self._on_train_again)
         bottom.addWidget(self._btn_again)
         root.addLayout(bottom)

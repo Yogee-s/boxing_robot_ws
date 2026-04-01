@@ -130,7 +130,7 @@ class HomeGuestPage(QWidget):
                 border-color: {Color.DANGER};
             }}
         """)
-        close_btn.setFixedHeight(32)
+        close_btn.setFixedHeight(44)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.clicked.connect(lambda: self.window().close())
         top.addWidget(close_btn)
@@ -172,7 +172,7 @@ class HomeGuestPage(QWidget):
         bottom.addStretch()
         back = QPushButton(f"{Icon.BACK}  Back")
         back.setCursor(Qt.CursorShape.PointingHandCursor)
-        back.setFixedSize(100, 30)
+        back.setFixedSize(120, 44)
         back.setStyleSheet(subtle_btn_style())
         back.clicked.connect(lambda: self._nav("auth"))
         bottom.addWidget(back)

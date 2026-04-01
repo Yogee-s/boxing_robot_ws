@@ -137,7 +137,7 @@ class StaminaTestPage(QWidget):
 
         # Start / Stop button
         self._btn_action = BigButton("Start", stylesheet=PRIMARY_BTN)
-        self._btn_action.setFixedHeight(60)
+        self._btn_action.setFixedHeight(70)
         self._btn_action.clicked.connect(self._toggle)
         root.addWidget(self._btn_action)
 
@@ -170,7 +170,7 @@ class StaminaTestPage(QWidget):
         res_lay.addLayout(res_row)
 
         btn_done = BigButton("Done", stylesheet=PRIMARY_BTN)
-        btn_done.setFixedHeight(60)
+        btn_done.setFixedHeight(70)
         btn_done.clicked.connect(
             lambda: self._router.navigate("performance")
         )

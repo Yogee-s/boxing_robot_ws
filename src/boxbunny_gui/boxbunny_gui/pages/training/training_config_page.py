@@ -42,7 +42,7 @@ _PARAMS: Dict[str, Dict] = {
                   "default": 1},
     "Rest Time": {"opts": ["30s", "45s", "60s", "90s"], "accent": "#8B7EC8",
                   "default": 1},
-    "Speed":     {"opts": ["Slow", "Medium", "Fast"], "accent": "#C88D2E",
+    "Speed":     {"opts": ["Slow (3s)", "Medium (2s)", "Fast (1.2s)"], "accent": "#C88D2E",
                   "default": 1},
 }
 
@@ -130,7 +130,7 @@ class TrainingConfigPage(QWidget):
         top.addWidget(self._diff_badge)
         root.addLayout(top)
 
-        root.addSpacing(14)
+        root.addStretch(1)
 
         # ── Selected combo display ───────────────────────────────────────
         combo_lbl = QLabel("Selected Combo")
@@ -211,13 +211,13 @@ class TrainingConfigPage(QWidget):
             self._tiles[key] = tile
         root.addLayout(row2)
 
-        root.addStretch(1)
+        root.addStretch(2)
 
         # ── Start button ─────────────────────────────────────────────────
         self._btn_start = BigButton(
             f"{Icon.PLAY}  Start Training", stylesheet=PRIMARY_BTN
         )
-        self._btn_start.setFixedHeight(60)
+        self._btn_start.setFixedHeight(70)
         self._btn_start.clicked.connect(self._on_start)
         root.addWidget(self._btn_start)
 

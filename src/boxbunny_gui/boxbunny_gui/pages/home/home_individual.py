@@ -194,7 +194,7 @@ class HomeIndividualPage(QWidget):
                 background-color: {Color.SURFACE_LIGHT};
             }}
         """)
-        settings_btn.setFixedHeight(32)
+        settings_btn.setFixedHeight(44)
         settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         settings_btn.clicked.connect(lambda: self._nav("settings"))
         top.addWidget(settings_btn)
@@ -211,7 +211,7 @@ class HomeIndividualPage(QWidget):
                 border-color: {Color.DANGER};
             }}
         """)
-        close_btn.setFixedHeight(32)
+        close_btn.setFixedHeight(44)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.clicked.connect(lambda: self.window().close())
         top.addWidget(close_btn)

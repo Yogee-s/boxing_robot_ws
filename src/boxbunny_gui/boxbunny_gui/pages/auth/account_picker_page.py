@@ -284,7 +284,7 @@ class AccountPickerPage(QWidget):
         bottom.addWidget(signup_hint)
 
         signup_btn = QPushButton("Sign Up")
-        signup_btn.setFixedSize(110, 38)
+        signup_btn.setFixedSize(140, 48)
         signup_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         signup_btn.setStyleSheet(outline_btn_style())
         signup_btn.clicked.connect(lambda: self._router.navigate("signup"))

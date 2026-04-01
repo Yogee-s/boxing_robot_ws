@@ -272,11 +272,10 @@ class _GradientLabel(QWidget):
         self._font = QFont("Inter", font_size, QFont.Weight.ExtraBold)
         self._color_left = QColor(color_left)
         self._color_right = QColor(color_right)
-        self.setFixedHeight(font_size + 20)
-        # Estimate width from font metrics to avoid clipping
+        self.setFixedHeight(font_size + 36)
         from PySide6.QtGui import QFontMetrics
         fm = QFontMetrics(self._font)
-        self.setMinimumWidth(fm.horizontalAdvance(text) + 40)
+        self.setMinimumWidth(fm.horizontalAdvance(text) + 60)
 
     def paintEvent(self, event) -> None:  # noqa: N802
         p = QPainter(self)
@@ -353,84 +352,77 @@ class StartupPage(QWidget):
 
         root = QVBoxLayout(self)
         root.setSpacing(0)
-        root.setContentsMargins(80, 16, 80, 16)
+        root.setContentsMargins(24, 10, 24, 10)
 
-        # ── Top bar: close button (right) ────────────────────────────────
+        # ── Top bar: close button flush to top-right ─────────────────────
         top = QHBoxLayout()
         top.addStretch()
-
         close_btn = QPushButton("Close")
-        close_btn.setStyleSheet(close_btn_style())
-        close_btn.setFixedSize(72, 32)
+        close_btn.setFixedSize(100, 44)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 15px; font-weight: 600;
+                background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
+                border: 1px solid {Color.BORDER_LIGHT}; border-radius: 10px;
+            }}
+            QPushButton:hover {{
+                background-color: {Color.DANGER}; color: white;
+                border-color: {Color.DANGER};
+            }}
+        """)
         close_btn.clicked.connect(lambda: self.window().close())
         top.addWidget(close_btn)
         root.addLayout(top)
 
         root.addStretch(3)
 
-        # ── Branding — gradient title + tagline ──────────────────────────
-        brand_container = QVBoxLayout()
-        brand_container.setSpacing(6)
-        brand_container.setAlignment(Qt.AlignCenter)
-
-        # Gradient title
-        title = _GradientLabel("BoxBunny", font_size=52)
-        brand_container.addWidget(title, alignment=Qt.AlignCenter)
+        # ── Branding ─────────────────────────────────────────────────────
+        title = _GradientLabel("BoxBunny", font_size=72)
+        root.addWidget(title, alignment=Qt.AlignCenter)
 
         subtitle = QLabel("AI  BOXING  TRAINING  ROBOT")
         subtitle.setAlignment(Qt.AlignCenter)
         subtitle.setStyleSheet(
-            f"font-size: 13px; color: {Color.TEXT_DISABLED};"
-            " letter-spacing: 5px; font-weight: 600;"
+            f"font-size: 15px; color: {Color.TEXT_DISABLED};"
+            " letter-spacing: 4px; font-weight: 600;"
         )
-        brand_container.addWidget(subtitle, alignment=Qt.AlignCenter)
-
-        root.addLayout(brand_container)
+        root.addWidget(subtitle, alignment=Qt.AlignCenter)
 
         root.addStretch(2)
 
-        # ── Decorative divider ───────────────────────────────────────────
-        divider = QFrame()
-        divider.setFixedSize(60, 3)
-        divider.setStyleSheet(
-            f"background-color: {Color.PRIMARY}; border-radius: 1px;"
-        )
-        root.addWidget(divider, alignment=Qt.AlignCenter)
-        root.addSpacing(24)
-
-        # ── Primary CTA — glowing button ─────────────────────────────────
+        # ── Quick Start ──────────────────────────────────────────────────
         start_btn = _GlowButton("Quick Start  \u2192")
-        start_btn.setFixedSize(420, 60)
+        start_btn.setFixedSize(500, 76)
         start_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        start_btn.setStyleSheet(hero_btn_style())
+        start_btn.setStyleSheet(hero_btn_style(size=24))
         start_btn.clicked.connect(lambda: self._nav("guest_assessment"))
         root.addWidget(start_btn, alignment=Qt.AlignCenter)
+
+        root.addSpacing(6)
 
         guest_hint = QLabel("No account needed \u2014 start training right away")
         guest_hint.setAlignment(Qt.AlignCenter)
         guest_hint.setStyleSheet(
-            f"font-size: 12px; color: {Color.TEXT_DISABLED};"
-            " letter-spacing: 0.3px;"
+            f"font-size: 14px; color: {Color.TEXT};"
         )
-        root.addSpacing(4)
         root.addWidget(guest_hint, alignment=Qt.AlignCenter)
 
         root.addSpacing(20)
 
-        # ── Log In / Sign Up — equal secondary buttons ───────────────────
+        # ── Log In / Sign Up ─────────────────────────────────────────────
         btn_row = QHBoxLayout()
         btn_row.setAlignment(Qt.AlignCenter)
-        btn_row.setSpacing(14)
+        btn_row.setSpacing(16)
 
         login_btn = QPushButton("Log In")
-        login_btn.setFixedSize(200, 50)
+        login_btn.setFixedSize(240, 62)
         login_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         login_btn.setStyleSheet(secondary_btn_style())
         login_btn.clicked.connect(lambda: self._nav("account_picker"))
 
         signup_btn = QPushButton("Sign Up")
-        signup_btn.setFixedSize(200, 50)
+        signup_btn.setFixedSize(240, 62)
         signup_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         signup_btn.setStyleSheet(secondary_btn_style())
         signup_btn.clicked.connect(lambda: self._nav("signup"))
@@ -441,13 +433,23 @@ class StartupPage(QWidget):
 
         root.addStretch(2)
 
-        # ── Bottom row: Phone Login ──────────────────────────────────────
+        # ── Phone Login — flush to bottom-right ──────────────────────────
         bottom = QHBoxLayout()
         bottom.addStretch()
         qr_btn = QPushButton("Phone Login")
-        qr_btn.setFixedSize(130, 34)
+        qr_btn.setFixedSize(170, 48)
         qr_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        qr_btn.setStyleSheet(subtle_btn_style())
+        qr_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 14px; font-weight: 600;
+                background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
+                border: 1px solid {Color.BORDER_LIGHT}; border-radius: 10px;
+            }}
+            QPushButton:hover {{
+                color: {Color.TEXT}; border-color: {Color.PRIMARY};
+                background-color: {Color.SURFACE_HOVER};
+            }}
+        """)
         qr_btn.clicked.connect(self._show_qr)
         bottom.addWidget(qr_btn)
         root.addLayout(bottom)

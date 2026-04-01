@@ -308,7 +308,7 @@ class ComboSelectPage(QWidget):
         self._btn_train = BigButton(
             f"{Icon.PLAY}  Start Training", stylesheet=PRIMARY_BTN
         )
-        self._btn_train.setFixedHeight(60)
+        self._btn_train.setFixedHeight(70)
         self._btn_train.clicked.connect(self._on_train_next)
         root.addWidget(self._btn_train)
 
@@ -537,7 +537,7 @@ class ComboSelectPage(QWidget):
 
     def _on_self_select(self) -> None:
         """Self-Select: open the custom sequence builder."""
-        self._router.navigate("self_select")
+        self._router.navigate("self_select", reset=True)
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 

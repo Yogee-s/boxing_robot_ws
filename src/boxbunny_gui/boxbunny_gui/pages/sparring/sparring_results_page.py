@@ -246,7 +246,7 @@ class SparringResultsPage(QWidget):
 
         btn_home = QPushButton("Home")
         btn_home.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_home.setFixedSize(140, 42)
+        btn_home.setFixedSize(150, 48)
         btn_home.setStyleSheet(f"""
             QPushButton {{
                 font-size: 15px; font-weight: 600;
@@ -268,7 +268,7 @@ class SparringResultsPage(QWidget):
         btn_again = BigButton(
             f"{Icon.PLAY}  Spar Again", stylesheet=PRIMARY_BTN
         )
-        btn_again.setFixedHeight(42)
+        btn_again.setFixedHeight(48)
         btn_again.clicked.connect(
             lambda: self._router.navigate("sparring_select")
         )

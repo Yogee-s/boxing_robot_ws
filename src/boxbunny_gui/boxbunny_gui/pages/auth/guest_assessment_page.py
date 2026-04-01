@@ -169,13 +169,16 @@ class _QuestionsWidget(QWidget):
         bottom.setSpacing(12)
 
         skip_btn = QPushButton("Skip")
-        skip_btn.setFixedSize(80, 34)
+        skip_btn.setFixedSize(110, 48)
+        skip_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         skip_btn.setStyleSheet(subtle_btn_style())
         skip_btn.clicked.connect(self._on_skip)
         bottom.addWidget(skip_btn)
 
         back_btn = QPushButton("Back")
-        back_btn.setStyleSheet(back_link_style())
+        back_btn.setFixedSize(110, 48)
+        back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        back_btn.setStyleSheet(subtle_btn_style())
         back_btn.clicked.connect(
             lambda: self._page._router.navigate("auth") if self._page._router else None
         )
@@ -184,7 +187,7 @@ class _QuestionsWidget(QWidget):
         bottom.addStretch()
 
         self._next_btn = QPushButton(f"Next  {Icon.NEXT}")
-        self._next_btn.setFixedSize(130, 42)
+        self._next_btn.setFixedSize(150, 50)
         self._next_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._next_btn.setStyleSheet(f"""
             QPushButton {{
@@ -366,7 +369,7 @@ class _ResultWidget(QWidget):
         bottom.setSpacing(12)
 
         back_btn = QPushButton(f"{Icon.BACK}  Back")
-        back_btn.setFixedSize(100, 40)
+        back_btn.setFixedSize(120, 48)
         back_btn.setStyleSheet(f"""
             QPushButton {{
                 font-size: 13px; font-weight: 600;
@@ -382,7 +385,7 @@ class _ResultWidget(QWidget):
         bottom.addStretch()
 
         confirm_btn = QPushButton(f"Confirm  {Icon.CHECK}")
-        confirm_btn.setFixedSize(150, 44)
+        confirm_btn.setFixedSize(170, 54)
         confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         confirm_btn.setStyleSheet(f"""
             QPushButton {{
