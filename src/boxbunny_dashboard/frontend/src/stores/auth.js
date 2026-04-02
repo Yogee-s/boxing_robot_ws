@@ -42,6 +42,8 @@ export const useAuthStore = defineStore('auth', () => {
         user_type: data.user_type,
         level: 'beginner',
       }
+      // Tell GUI to log in too
+      api.sendRemoteCommand('navigate', { route: 'home', username: data.username }).catch(() => {})
       return data
     } catch (e) {
       error.value = e.message || 'Login failed'

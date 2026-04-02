@@ -187,6 +187,24 @@ class BoxBunnyApp:
     def _poll_remote_commands(self) -> None:
         """Check for commands from the phone dashboard."""
         import json
+
+        # Check for phone login notification
+        login_file = Path("/tmp/boxbunny_gui_login.json")
+        try:
+            if login_file.exists():
+                login_data = json.loads(login_file.read_text())
+                login_file.unlink(missing_ok=True)
+                username = login_data.get("username", "")
+                if username:
+                    logger.info("Phone login detected: %s", username)
+                    if self._preset_overlay.is_visible:
+                        self._preset_overlay.slide_out()
+                    self._router.navigate("home", username=username)
+                    return
+        except (json.JSONDecodeError, OSError):
+            pass
+
+        # Check for remote commands
         cmd_file = Path("/tmp/boxbunny_gui_command.json")
         try:
             if not cmd_file.exists():
@@ -212,11 +230,11 @@ class BoxBunnyApp:
                 )
             elif action == "navigate":
                 route = config.get("route", "")
+                nav_user = username or config.get("username", "")
                 if route:
-                    # Close preset overlay if open
                     if self._preset_overlay.is_visible:
                         self._preset_overlay.slide_out()
-                    self._router.navigate(route, username=username)
+                    self._router.navigate(route, username=nav_user)
         except (json.JSONDecodeError, OSError):
             pass
 
