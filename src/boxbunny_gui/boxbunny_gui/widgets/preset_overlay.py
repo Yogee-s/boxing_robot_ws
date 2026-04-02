@@ -292,7 +292,7 @@ class PresetOverlay(QWidget):
 
         n = len(self._presets)
         panel_w = min(win_w - 30, _CARD_W * n + 14 * (n - 1) + 52)
-        panel_h = _CARD_H + 120  # header + cards + footer
+        panel_h = _CARD_H + 150  # header + cards + footer with padding
         panel_x = (win_w - panel_w) // 2
         overlay_h = win_h - top_bar_h
         panel_y_end = (overlay_h - panel_h) // 2
@@ -362,30 +362,94 @@ class PresetOverlay(QWidget):
         self._current_idx = 0
 
     def _load_user_presets(self) -> List[Dict[str, Any]]:
-        """Load presets from the user's database."""
+        """Load presets from the main database (shared with phone dashboard)."""
         try:
             import json
             import sqlite3
             from pathlib import Path
             db_path = (
                 Path(__file__).resolve().parents[4]
-                / "data" / "users" / self._username / "boxbunny.db"
+                / "data" / "boxbunny_main.db"
             )
+            if not db_path.exists():
+                # Try absolute fallback
+                db_path = Path(
+                    "/home/boxbunny/Desktop/doomsday_integration/"
+                    "boxing_robot_ws/data/boxbunny_main.db"
+                )
             if not db_path.exists():
                 return []
             conn = sqlite3.connect(str(db_path))
+            conn.row_factory = sqlite3.Row
+            # Get user_id from username
+            user_row = conn.execute(
+                "SELECT id FROM users WHERE username = ?",
+                (self._username,),
+            ).fetchone()
+            if not user_row:
+                conn.close()
+                return []
+            user_id = user_row["id"]
             rows = conn.execute(
-                "SELECT preset_json FROM presets ORDER BY id"
+                "SELECT * FROM presets WHERE user_id = ? "
+                "AND (tags IS NULL OR tags != 'archived') "
+                "ORDER BY is_favorite DESC, use_count DESC",
+                (user_id,),
             ).fetchall()
             conn.close()
             presets = []
-            for (pj,) in rows:
-                presets.append(json.loads(pj))
+            for row in rows:
+                presets.append(self._row_to_preset(dict(row)))
             logger.info("Loaded %d presets for %s", len(presets), self._username)
             return presets
         except Exception as exc:
             logger.debug("Could not load user presets: %s", exc)
             return []
+
+    @staticmethod
+    def _row_to_preset(row: dict) -> Dict[str, Any]:
+        """Convert a main DB preset row to the overlay card format."""
+        import json
+        cfg = {}
+        try:
+            cfg = json.loads(row.get("config_json", "{}"))
+        except (json.JSONDecodeError, TypeError):
+            pass
+        rounds = str(cfg.get("rounds", cfg.get("Rounds", "2")))
+        work_sec = cfg.get("work_sec", 90)
+        rest_sec = cfg.get("rest_sec", 30)
+        speed = cfg.get("speed", cfg.get("Speed", "Medium (2s)"))
+        combo_name = cfg.get("combo_name", cfg.get("combo", {}).get("name", ""))
+        combo_seq = cfg.get("combo_seq", cfg.get("combo", {}).get("seq", ""))
+        combo_id = cfg.get("combo_id", cfg.get("combo", {}).get("id"))
+        difficulty = cfg.get("difficulty", "Beginner")
+        ptype = row.get("preset_type", "training")
+        route_map = {
+            "training": "training_session", "sparring": "sparring_session",
+            "performance": "power_test", "free": "training_session",
+            "circuit": "training_session",
+        }
+        route = cfg.get("route", route_map.get(ptype, "training_session"))
+        work_time = f"{int(work_sec)}s" if isinstance(work_sec, (int, float)) else str(work_sec)
+        rest_time = f"{int(rest_sec)}s" if isinstance(rest_sec, (int, float)) else str(rest_sec)
+        accent_map = {
+            "training": Color.PRIMARY, "sparring": Color.DANGER,
+            "performance": Color.WARNING, "free": Color.INFO,
+            "circuit": Color.PURPLE,
+        }
+        return {
+            "name": row.get("name", "Preset"),
+            "tag": ptype.upper(),
+            "desc": row.get("description", ""),
+            "route": route,
+            "combo": {"id": combo_id, "name": combo_name, "seq": combo_seq},
+            "config": {
+                "Rounds": rounds, "Work Time": work_time,
+                "Rest Time": rest_time, "Speed": speed if isinstance(speed, str) else "Medium (2s)",
+            },
+            "difficulty": difficulty.title() if difficulty else "Beginner",
+            "accent": accent_map.get(ptype, Color.PRIMARY),
+        }
 
     def _build_cards(self) -> None:
         for card in self._cards:

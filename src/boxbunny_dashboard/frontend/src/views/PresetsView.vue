@@ -98,20 +98,20 @@
               <div class="w-10 h-1 bg-bb-border/50 rounded-full mx-auto mb-5" />
               <h2 class="text-lg font-bold text-bb-text mb-4">New Preset</h2>
 
-              <form @submit.prevent="createNewPreset" class="space-y-4">
+              <form @submit.prevent="createNewPreset" class="space-y-3">
                 <div>
-                  <label class="block text-xs font-medium text-bb-text-secondary mb-1.5">Name</label>
+                  <label class="block text-xs font-medium text-bb-text-secondary mb-1">Name</label>
                   <input v-model="newPreset.name" type="text" class="input" placeholder="Preset name" required />
                 </div>
                 <div>
-                  <label class="block text-xs font-medium text-bb-text-secondary mb-1.5">Type</label>
-                  <div class="grid grid-cols-3 gap-2">
+                  <label class="block text-xs font-medium text-bb-text-secondary mb-1">Type</label>
+                  <div class="grid grid-cols-5 gap-1.5">
                     <button
                       v-for="t in presetTypes"
                       :key="t"
                       type="button"
                       @click="newPreset.preset_type = t"
-                      class="py-2 rounded-xl text-xs font-semibold border transition-all"
+                      class="py-1.5 rounded-lg text-[10px] font-semibold border transition-all"
                       :class="newPreset.preset_type === t
                         ? 'border-bb-primary bg-bb-primary-dim text-bb-primary'
                         : 'border-bb-border/50 bg-bb-surface-light text-bb-text-secondary'"
@@ -121,10 +121,61 @@
                   </div>
                 </div>
                 <div>
-                  <label class="block text-xs font-medium text-bb-text-secondary mb-1.5">Description</label>
-                  <input v-model="newPreset.description" type="text" class="input" placeholder="Optional description" />
+                  <label class="block text-xs font-medium text-bb-text-secondary mb-1">Description</label>
+                  <input v-model="newPreset.description" type="text" class="input" placeholder="Optional" />
                 </div>
-                <div class="flex gap-3 pt-2">
+
+                <!-- Training Config -->
+                <div class="bg-bb-bg rounded-xl p-3 space-y-2.5">
+                  <p class="text-[10px] font-bold text-bb-text-muted tracking-wider">TRAINING CONFIG</p>
+                  <div class="grid grid-cols-2 gap-2">
+                    <div>
+                      <label class="block text-[10px] text-bb-text-muted mb-0.5">Rounds</label>
+                      <select v-model="newConfig.rounds" class="input text-sm py-1.5">
+                        <option v-for="r in [1,2,3,5,8]" :key="r" :value="r">{{ r }}</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="block text-[10px] text-bb-text-muted mb-0.5">Work Time</label>
+                      <select v-model="newConfig.work_sec" class="input text-sm py-1.5">
+                        <option v-for="w in [30,60,90,120,180]" :key="w" :value="w">{{ w }}s</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="block text-[10px] text-bb-text-muted mb-0.5">Rest Time</label>
+                      <select v-model="newConfig.rest_sec" class="input text-sm py-1.5">
+                        <option v-for="r in [15,30,45,60,90]" :key="r" :value="r">{{ r }}s</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="block text-[10px] text-bb-text-muted mb-0.5">Speed</label>
+                      <select v-model="newConfig.speed" class="input text-sm py-1.5">
+                        <option value="Slow (3s)">Slow</option>
+                        <option value="Medium (2s)">Medium</option>
+                        <option value="Fast (1.2s)">Fast</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label class="block text-[10px] text-bb-text-muted mb-0.5">Combo Sequence (e.g., 1-2-3)</label>
+                    <input v-model="newConfig.combo_seq" type="text" class="input text-sm py-1.5" placeholder="1-2 or leave empty for free" />
+                  </div>
+                  <div>
+                    <label class="block text-[10px] text-bb-text-muted mb-0.5">Difficulty</label>
+                    <div class="grid grid-cols-3 gap-1.5">
+                      <button v-for="d in ['beginner','intermediate','advanced']" :key="d" type="button"
+                        @click="newConfig.difficulty = d"
+                        class="py-1 rounded-lg text-[10px] font-semibold border transition-all capitalize"
+                        :class="newConfig.difficulty === d
+                          ? 'border-bb-primary bg-bb-primary-dim text-bb-primary'
+                          : 'border-bb-border/50 text-bb-text-muted'">
+                        {{ d }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="flex gap-3 pt-1">
                   <button type="button" @click="showCreateModal = false" class="btn-secondary flex-1">
                     Cancel
                   </button>
@@ -150,14 +201,23 @@ const loading = ref(true)
 const showCreateModal = ref(false)
 const startingId = ref(null)
 
-const presetTypes = ['reaction', 'shadow', 'defence']
+const presetTypes = ['training', 'sparring', 'performance', 'free', 'circuit']
 
 const newPreset = ref({
   name: '',
-  preset_type: 'reaction',
+  preset_type: 'training',
   description: '',
   config_json: '{}',
   tags: '',
+})
+
+const newConfig = ref({
+  rounds: 2,
+  work_sec: 90,
+  rest_sec: 30,
+  speed: 'Medium (2s)',
+  combo_seq: '',
+  difficulty: 'beginner',
 })
 
 const sortedPresets = computed(() => {
@@ -172,9 +232,11 @@ const sortedPresets = computed(() => {
 
 function typeBadgeClass(type) {
   const map = {
-    reaction: 'badge-green',
-    shadow: 'bg-purple-500/20 text-purple-400',
-    defence: 'badge-warning',
+    training: 'badge-green',
+    sparring: 'badge-danger',
+    performance: 'badge-warning',
+    free: 'bg-blue-500/20 text-blue-400',
+    circuit: 'bg-purple-500/20 text-purple-400',
   }
   return map[type] || 'badge-neutral'
 }
@@ -192,16 +254,24 @@ async function fetchPresets() {
 
 async function createNewPreset() {
   try {
+    const cfg = { ...newConfig.value }
+    if (cfg.combo_seq) {
+      cfg.combo_name = cfg.combo_seq.split('-').map(c => {
+        const names = {'1':'Jab','2':'Cross','3':'L Hook','4':'R Hook','5':'L Upper','6':'R Upper'}
+        return names[c] || c
+      }).join('-')
+    }
     const created = await api.createPreset({
       name: newPreset.value.name,
       preset_type: newPreset.value.preset_type,
       description: newPreset.value.description,
-      config_json: newPreset.value.config_json,
+      config_json: JSON.stringify(cfg),
       tags: newPreset.value.tags,
     })
     presets.value.push(created)
     showCreateModal.value = false
-    newPreset.value = { name: '', preset_type: 'reaction', description: '', config_json: '{}', tags: '' }
+    newPreset.value = { name: '', preset_type: 'training', description: '', config_json: '{}', tags: '' }
+    newConfig.value = { rounds: 2, work_sec: 90, rest_sec: 30, speed: 'Medium (2s)', combo_seq: '', difficulty: 'beginner' }
   } catch (e) {
     console.error('Failed to create preset:', e)
   }

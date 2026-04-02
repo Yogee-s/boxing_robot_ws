@@ -217,12 +217,95 @@ class TrainingConfigPage(QWidget):
         root.addStretch(2)
 
         # ── Start button ─────────────────────────────────────────────────
+        # Bottom row — save + start
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+
+        save_btn = QPushButton("Save as Preset")
+        save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        save_btn.setFixedHeight(52)
+        save_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 14px; font-weight: 600;
+                background-color: {Color.SURFACE};
+                color: {Color.TEXT_SECONDARY};
+                border: 1px solid {Color.BORDER_LIGHT};
+                border-radius: {Size.RADIUS}px;
+                padding: 0 20px;
+            }}
+            QPushButton:hover {{
+                color: {Color.TEXT}; border-color: {Color.PRIMARY};
+                background-color: {Color.SURFACE_LIGHT};
+            }}
+        """)
+        save_btn.clicked.connect(self._save_as_preset)
+        btn_row.addWidget(save_btn)
+
         self._btn_start = BigButton(
             f"{Icon.PLAY}  Start Training", stylesheet=PRIMARY_BTN
         )
-        self._btn_start.setFixedHeight(70)
+        self._btn_start.setFixedHeight(52)
         self._btn_start.clicked.connect(self._on_start)
-        root.addWidget(self._btn_start)
+        btn_row.addWidget(self._btn_start, stretch=1)
+
+        root.addLayout(btn_row)
+
+    def _save_as_preset(self) -> None:
+        """Save current training config as a preset in the main DB."""
+        import json
+        import sqlite3
+        from pathlib import Path
+
+        if not self._username:
+            logger.warning("Cannot save preset — no username (guest mode)")
+            return
+
+        combo = self._combo
+        config = {k: t.value for k, t in self._tiles.items()}
+        preset_name = combo.get("name", "Custom Training")
+
+        cfg_json = json.dumps({
+            "rounds": int(config.get("Rounds", "2")),
+            "work_sec": int(config.get("Work Time", "90s").rstrip("s")),
+            "rest_sec": int(config.get("Rest Time", "30s").rstrip("s")),
+            "speed": config.get("Speed", "Medium (2s)"),
+            "combo_seq": combo.get("seq", ""),
+            "combo_name": combo.get("name", ""),
+            "combo_id": combo.get("id"),
+            "difficulty": self._difficulty or "beginner",
+        })
+
+        try:
+            db_path = Path(__file__).resolve().parents[4] / "data" / "boxbunny_main.db"
+            if not db_path.exists():
+                db_path = Path(
+                    "/home/boxbunny/Desktop/doomsday_integration/"
+                    "boxing_robot_ws/data/boxbunny_main.db"
+                )
+            conn = sqlite3.connect(str(db_path))
+            user_row = conn.execute(
+                "SELECT id FROM users WHERE username = ?", (self._username,),
+            ).fetchone()
+            if not user_row:
+                conn.close()
+                return
+            conn.execute(
+                "INSERT INTO presets (user_id, name, description, preset_type, config_json) "
+                "VALUES (?, ?, ?, 'training', ?)",
+                (user_row[0], preset_name, f"{self._difficulty} combo drill", cfg_json),
+            )
+            conn.commit()
+            conn.close()
+            logger.info("Preset saved: %s for %s", preset_name, self._username)
+            # Visual feedback
+            self._btn_start.setText(f"{Icon.CHECK}  Preset Saved!")
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(
+                1500,
+                lambda: self._btn_start.setText(f"{Icon.PLAY}  Start Training"),
+            )
+        except Exception as exc:
+            logger.warning("Failed to save preset: %s", exc)
 
     def imu_start(self) -> None:
         """Called by centre pad IMU to start training."""
