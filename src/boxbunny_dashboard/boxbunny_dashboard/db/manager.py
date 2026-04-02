@@ -86,9 +86,10 @@ class DatabaseManager:
         stance: str = "orthodox",
     ) -> Optional[int]:
         """Create a new user account. Returns user ID or None on failure."""
-        password_hash = bcrypt.hashpw(
-            password.encode("utf-8"), bcrypt.gensalt()
-        ).decode("utf-8")
+        import hashlib, os as _os
+        salt = _os.urandom(16).hex()
+        h = hashlib.sha256(f"{salt}:{password}".encode()).hexdigest()
+        password_hash = f"sha256:{salt}:{h}"
         try:
             with self._get_main_conn() as conn:
                 cursor = conn.execute(
@@ -131,11 +132,12 @@ class DatabaseManager:
         return None
 
     def set_pattern(self, user_id: int, pattern_sequence: List[int]) -> bool:
-        """Set pattern lock for a user. Pattern is a list of dot indices."""
+        """Set pattern lock for a user (SHA-256 — compatible with GUI)."""
+        import hashlib, os
         pattern_str = "-".join(str(s) for s in pattern_sequence)
-        pattern_hash = bcrypt.hashpw(
-            pattern_str.encode("utf-8"), bcrypt.gensalt()
-        ).decode("utf-8")
+        salt = os.urandom(16).hex()
+        h = hashlib.sha256(f"{salt}:{pattern_str}".encode()).hexdigest()
+        pattern_hash = f"sha256:{salt}:{h}"
         with self._get_main_conn() as conn:
             conn.execute(
                 "UPDATE users SET pattern_hash = ? WHERE id = ?",
@@ -174,7 +176,7 @@ class DatabaseManager:
         allowed = {
             "display_name", "level", "age", "gender", "height_cm",
             "weight_kg", "reach_cm", "stance", "settings_json",
-            "proficiency_answers_json",
+            "proficiency_answers_json", "avatar",
         }
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:

@@ -61,13 +61,69 @@ _MODES = [
 
 # ── Small avatar for the top bar ─────────────────────────────────────────
 
+# Avatar colour per avatar name (matches dashboard SVG avatars)
+_AVATAR_COLORS = {
+    "boxer": ("#FF6B35", "#E85E2C"),
+    "tiger": ("#FFAB40", "#FF9100"),
+    "wolf": ("#8B949E", "#6E7681"),
+    "eagle": ("#58A6FF", "#388BFD"),
+    "flame": ("#FF5C5C", "#E84545"),
+    "lightning": ("#F8E45C", "#E8D84C"),
+    "shield": ("#56D364", "#3FB950"),
+    "crown": ("#BC8CFF", "#9B6AE0"),
+}
+
+
 class _MiniAvatar(QWidget):
-    """Small circular gradient avatar with person silhouette."""
+    """Circular avatar — shows SVG icon if set, otherwise initial letter."""
 
     def __init__(self, size: int = 38, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setFixedSize(size, size)
         self._sz = size
+        self._initial = ""
+        self._color1 = Color.PRIMARY
+        self._color2 = Color.PRIMARY_DARK
+        self._pixmap = None  # QPixmap of the avatar SVG
+
+    def set_user(self, username: str) -> None:
+        """Load avatar from DB — show SVG if available, else initial."""
+        self._initial = username[0].upper() if username else "?"
+        self._pixmap = None
+        try:
+            from boxbunny_gui.db_helper import get_user_by_username
+            user = get_user_by_username(username)
+            if user and user.get("avatar"):
+                av = user["avatar"]
+                c1, c2 = _AVATAR_COLORS.get(av, (Color.PRIMARY, Color.PRIMARY_DARK))
+                self._color1 = c1
+                self._color2 = c2
+                # Try to load the SVG
+                from pathlib import Path
+                from PySide6.QtGui import QPixmap
+                from PySide6.QtSvg import QSvgRenderer
+                from PySide6.QtCore import QByteArray
+                # Find assets dir relative to the workspace
+                svg_path = None
+                for candidate in [
+                    Path(__file__).resolve().parents[3] / "assets" / "avatars" / f"{av}.svg",
+                    Path(__file__).resolve().parents[4] / "assets" / "avatars" / f"{av}.svg",
+                    Path("/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws/src/boxbunny_gui/assets/avatars") / f"{av}.svg",
+                ]:
+                    if candidate.exists():
+                        svg_path = candidate
+                        break
+                if svg_path:
+                    renderer = QSvgRenderer(str(svg_path))
+                    pm = QPixmap(self._sz, self._sz)
+                    pm.fill(QColor(0, 0, 0, 0))
+                    svg_painter = QPainter(pm)
+                    renderer.render(svg_painter)
+                    svg_painter.end()
+                    self._pixmap = pm
+        except Exception:
+            pass
+        self.update()
 
     def paintEvent(self, event) -> None:  # noqa: N802
         p = QPainter(self)
@@ -78,18 +134,24 @@ class _MiniAvatar(QWidget):
         clip.addEllipse(QRectF(0, 0, s, s))
         p.setClipPath(clip)
 
-        grad = QLinearGradient(0, 0, 0, s)
-        grad.setColorAt(0.0, QColor(Color.PRIMARY))
-        grad.setColorAt(1.0, QColor(Color.PRIMARY_DARK))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(grad)
-        p.drawEllipse(QRectF(0, 0, s, s))
+        if self._pixmap:
+            # Draw the SVG avatar (already has its own background)
+            p.drawPixmap(0, 0, self._pixmap)
+        else:
+            # Gradient circle with initial letter
+            grad = QLinearGradient(0, 0, 0, s)
+            grad.setColorAt(0.0, QColor(self._color1))
+            grad.setColorAt(1.0, QColor(self._color2))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(grad)
+            p.drawEllipse(QRectF(0, 0, s, s))
 
-        person = QColor(255, 255, 255, 200)
-        p.setBrush(person)
-        head_r = s * 0.16
-        p.drawEllipse(QRectF(s / 2 - head_r, s * 0.24, head_r * 2, head_r * 2))
-        p.drawEllipse(QRectF(s * 0.22, s * 0.56, s * 0.56, s * 0.44))
+            if self._initial:
+                from PySide6.QtGui import QFont
+                f = QFont("Inter", int(s * 0.38), QFont.Weight.Bold)
+                p.setFont(f)
+                p.setPen(QColor(255, 255, 255, 220))
+                p.drawText(QRectF(0, 0, s, s), Qt.AlignCenter, self._initial)
         p.end()
 
 
@@ -301,7 +363,7 @@ class HomeIndividualPage(QWidget):
     def _open_presets(self):
         if self._preset_overlay:
             self._preset_overlay.set_username(self._username)
-            self._preset_overlay.slide_in()
+            self._preset_overlay.toggle()
 
     def _nav(self, page: str):
         if self._router:
@@ -310,6 +372,7 @@ class HomeIndividualPage(QWidget):
     def on_enter(self, username: str = "Guest", **kwargs: Any):
         self._username = username
         self._name_label.setText(f"Welcome, {username}!")
+        self._avatar.set_user(username)
 
         # Load session history from DB for this user
         if username and username != "Guest":

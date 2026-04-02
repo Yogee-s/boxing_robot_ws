@@ -255,7 +255,7 @@ class HomeGuestPage(QWidget):
 
     def _open_presets(self):
         if self._preset_overlay:
-            self._preset_overlay.slide_in()
+            self._preset_overlay.toggle()
 
     def _nav(self, page: str):
         if self._router:

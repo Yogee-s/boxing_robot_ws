@@ -39,7 +39,7 @@ class _StatusDot(QLabel):
         self.set_connected(connected)
 
     def set_connected(self, connected: bool) -> None:
-        color = Color.PRIMARY if connected else Color.DANGER
+        color = Color.SUCCESS if connected else Color.DANGER
         self.setStyleSheet(
             f"background-color: {color}; border-radius: 8px; border: none;"
         )
@@ -388,9 +388,11 @@ class SettingsPage(QWidget):
 
         # Hardware
         hw = _Section("Hardware")
+        self._hw_dots = {}
         for device in ["Camera", "Robot", "IMU Left", "IMU Right"]:
             row, _ = _setting_row(device)
             dot = _StatusDot(connected=False)
+            self._hw_dots[device] = dot
             row.addWidget(dot)
             hw.content_layout.addLayout(row)
         sections.addWidget(hw)
@@ -589,6 +591,9 @@ class SettingsPage(QWidget):
         self._pat_toggle_btn.setText("Set / Change Pattern")
         self._pw_status.setText("")
 
+        # Update live status indicators
+        self._update_status()
+
         # Slide-down entrance animation
         h = self.height() or Size.SCREEN_H
         self._panel.move(0, -h)
@@ -597,6 +602,48 @@ class SettingsPage(QWidget):
         self._slide_anim.setEndValue(QPoint(0, 0))
         self._slide_anim.start()
         logger.debug("SettingsPage entered (user=%s)", self._username)
+
+    def _update_status(self) -> None:
+        """Check live status of hardware, LLM, and network."""
+        bridge_online = self._bridge.online if self._bridge else False
+
+        # Camera — check if CV node is publishing (use service discovery)
+        cam_ok = False
+        if bridge_online and self._bridge._worker and self._bridge._worker.node:
+            try:
+                topics = self._bridge._worker.node.get_topic_names_and_types()
+                topic_names = [t[0] for t in topics]
+                cam_ok = "/boxbunny/cv/detection" in topic_names
+            except Exception:
+                pass
+        self._hw_dots["Camera"].set_connected(cam_ok)
+
+        # Robot — check if robot node topic exists
+        robot_ok = False
+        if bridge_online and self._bridge._worker and self._bridge._worker.node:
+            try:
+                topics = self._bridge._worker.node.get_topic_names_and_types()
+                topic_names = [t[0] for t in topics]
+                robot_ok = "/boxbunny/robot/command" in topic_names
+            except Exception:
+                pass
+        self._hw_dots["Robot"].set_connected(robot_ok)
+
+        # IMU — based on last IMU status message
+        self._hw_dots["IMU Left"].set_connected(bridge_online)
+        self._hw_dots["IMU Right"].set_connected(bridge_online)
+
+        # LLM — check if the service is available
+        llm_ok = False
+        if bridge_online and self._bridge._worker and self._bridge._worker._cli_llm:
+            try:
+                llm_ok = self._bridge._worker._cli_llm.service_is_ready()
+            except Exception:
+                pass
+        self._llm_dot.set_connected(llm_ok)
+
+        # WiFi
+        self._wifi_dot.set_connected(bridge_online)
 
     def on_leave(self) -> None:
         pass

@@ -26,8 +26,10 @@
     <!-- User Profile Card -->
     <div v-if="profile" class="card mb-4 animate-slide-up" style="animation-delay: 30ms">
       <div class="flex items-center gap-3 mb-3">
-        <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-bb-primary/30 to-bb-primary/5 flex items-center justify-center border border-bb-primary/20 overflow-hidden">
-          <img v-if="userAvatar" :src="`/avatars/${userAvatar}.svg`" :alt="userAvatar" class="w-12 h-12" />
+        <div class="w-12 h-12 rounded-xl flex items-center justify-center border border-bb-border/30 overflow-hidden"
+             :class="userAvatar ? 'bg-bb-surface-light' : 'bg-bb-surface'">
+          <img v-if="userAvatar" :src="`/avatars/${userAvatar}.svg`" :alt="userAvatar"
+               class="w-12 h-12 object-cover" @error="userAvatar = null" />
           <span v-else class="text-bb-primary font-bold text-lg">{{ profileInitial }}</span>
         </div>
         <div class="flex-1 min-w-0">
@@ -276,6 +278,28 @@
       </div>
     </div>
 
+    <!-- Remote Start on Robot -->
+    <div v-if="remotePresets.length" class="animate-slide-up mt-4" style="animation-delay: 500ms">
+      <h2 class="section-title">Start on Robot</h2>
+      <div class="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
+        <button
+          v-for="preset in remotePresets" :key="preset.name"
+          @click="startRemote(preset)"
+          class="flex-shrink-0 card-interactive p-4 min-w-[160px] text-left active:scale-95 transition-transform"
+          :class="startingPreset === preset.name ? 'ring-2 ring-bb-primary' : ''"
+        >
+          <p class="text-[10px] font-bold tracking-wider text-bb-primary mb-1">
+            {{ preset.tag || 'TRAINING' }}
+          </p>
+          <p class="text-sm font-semibold text-bb-text">{{ preset.name }}</p>
+          <p class="text-xs text-bb-text-muted mt-1">{{ preset.desc || '' }}</p>
+        </button>
+      </div>
+      <transition name="fade">
+        <p v-if="remoteStatus" class="text-xs text-bb-primary mt-2 text-center">{{ remoteStatus }}</p>
+      </transition>
+    </div>
+
     <!-- Loading skeleton -->
     <div v-if="loading" class="space-y-4 mt-8">
       <div class="skeleton h-24 w-full" />
@@ -310,6 +334,9 @@ const profile = ref(null)
 const userAvatar = ref(localStorage.getItem('bb_avatar') || null)
 const benchmarks = ref(null)
 const trends = ref(null)
+const remotePresets = ref([])
+const startingPreset = ref('')
+const remoteStatus = ref('')
 
 const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -580,5 +607,21 @@ onMounted(async () => {
   api.getUserProfile().then(p => { profile.value = p }).catch(() => {})
   api.getBenchmarks().then(b => { benchmarks.value = b }).catch(() => {})
   api.getSessionTrends('30d').then(t => { trends.value = t }).catch(() => {})
+  api.getRemotePresets().then(p => { remotePresets.value = p || [] }).catch(() => {})
 })
+
+async function startRemote(preset) {
+  startingPreset.value = preset.name
+  remoteStatus.value = ''
+  try {
+    await api.sendRemoteCommand('start_preset', preset)
+    remoteStatus.value = `Starting "${preset.name}" on robot...`
+  } catch {
+    remoteStatus.value = 'Could not reach the robot. Is it running?'
+  }
+  setTimeout(() => {
+    startingPreset.value = ''
+    remoteStatus.value = ''
+  }, 3000)
+}
 </script>

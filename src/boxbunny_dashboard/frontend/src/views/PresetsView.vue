@@ -58,6 +58,16 @@
               </svg>
             </button>
             <button
+              @click.stop="startOnRobot(preset)"
+              class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+              :class="startingId === preset.id ? 'text-bb-primary bg-bb-primary-dim' : 'text-bb-text-muted'"
+              title="Start on Robot"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                <polygon points="5 3 19 12 5 21 5 3" />
+              </svg>
+            </button>
+            <button
               @click.stop="deletePresetById(preset.id)"
               class="w-8 h-8 rounded-lg flex items-center justify-center text-bb-text-muted hover:text-bb-danger transition-colors"
             >
@@ -138,6 +148,7 @@ import * as api from '@/api/client'
 const presets = ref([])
 const loading = ref(true)
 const showCreateModal = ref(false)
+const startingId = ref(null)
 
 const presetTypes = ['reaction', 'shadow', 'defence']
 
@@ -204,6 +215,20 @@ async function toggleFavorite(presetId) {
   } catch (e) {
     console.error('Failed to toggle favorite:', e)
   }
+}
+
+async function startOnRobot(preset) {
+  startingId.value = preset.id
+  try {
+    await api.sendRemoteCommand('start_preset', {
+      name: preset.name,
+      route: 'training_session',
+      combo: { name: preset.name, seq: '' },
+      config: preset.config_json ? JSON.parse(preset.config_json) : {},
+      difficulty: preset.preset_type || 'Beginner',
+    })
+  } catch { /* ignore */ }
+  setTimeout(() => { startingId.value = null }, 2000)
 }
 
 async function deletePresetById(presetId) {

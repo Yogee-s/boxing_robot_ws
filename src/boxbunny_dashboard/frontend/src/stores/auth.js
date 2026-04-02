@@ -75,6 +75,8 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function logout() {
     try {
+      // Tell GUI to log out too
+      await api.sendRemoteCommand('navigate', { route: 'auth' }).catch(() => {})
       await api.logout()
     } finally {
       token.value = null

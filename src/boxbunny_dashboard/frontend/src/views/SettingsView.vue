@@ -7,12 +7,14 @@
       <h3 class="section-title">Profile</h3>
       <div class="flex items-center gap-4 mb-4">
         <button @click="showAvatarPicker = true" class="relative group">
-          <div class="w-14 h-14 rounded-2xl overflow-hidden bg-bb-primary-dim flex items-center justify-center">
+          <div class="w-14 h-14 rounded-2xl overflow-hidden flex items-center justify-center"
+               :class="selectedAvatar ? 'bg-bb-surface' : 'bg-bb-primary-dim'">
             <img
               v-if="selectedAvatar"
               :src="`/avatars/${selectedAvatar}.svg`"
               :alt="selectedAvatar"
-              class="w-14 h-14"
+              class="w-14 h-14 object-cover"
+              @error="selectedAvatar = null"
             />
             <span v-else class="text-xl font-bold text-bb-primary">{{ initials }}</span>
           </div>
@@ -308,6 +310,17 @@ const settingsPatternRef = ref(null)
 const showAvatarPicker = ref(false)
 const selectedAvatar = ref(localStorage.getItem('bb_avatar') || null)
 
+// Load avatar from DB on mount (overrides localStorage if DB has one)
+;(async () => {
+  try {
+    const p = await api.getUserProfile()
+    if (p && p.avatar) {
+      selectedAvatar.value = p.avatar
+      localStorage.setItem('bb_avatar', p.avatar)
+    }
+  } catch { /* ignore */ }
+})()
+
 const avatarOptions = [
   { id: 'boxer', label: 'Boxer' },
   { id: 'tiger', label: 'Tiger' },
@@ -328,7 +341,7 @@ const initials = ref(
     .slice(0, 2)
 )
 
-function selectAvatar(avatarId) {
+async function selectAvatar(avatarId) {
   selectedAvatar.value = avatarId
   if (avatarId) {
     localStorage.setItem('bb_avatar', avatarId)
@@ -336,6 +349,10 @@ function selectAvatar(avatarId) {
     localStorage.removeItem('bb_avatar')
   }
   showAvatarPicker.value = false
+  // Save to database so GUI and other devices see it
+  try {
+    await api.updateProfile({ avatar: avatarId || '' })
+  } catch { /* ignore */ }
   showStatus('Avatar updated')
 }
 

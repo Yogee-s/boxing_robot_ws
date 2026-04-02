@@ -80,6 +80,7 @@ class TokenResponse(BaseModel):
 class ProfileUpdateRequest(BaseModel):
     display_name: Optional[str] = None
     level: Optional[str] = None
+    avatar: Optional[str] = None
     proficiency_answers_json: Optional[str] = None
     age: Optional[int] = None
     gender: Optional[str] = None
@@ -95,6 +96,7 @@ class UserInfoResponse(BaseModel):
     display_name: str
     user_type: str
     level: str
+    avatar: Optional[str] = None
     age: Optional[int] = None
     gender: Optional[str] = None
     height_cm: Optional[float] = None

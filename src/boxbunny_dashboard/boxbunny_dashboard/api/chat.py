@@ -104,16 +104,53 @@ def _call_llm_sync(prompt: str, system_prompt: str) -> str:
             return future.result().response
         logger.warning("LLM service returned failure or timed out")
     except Exception as exc:
-        logger.debug("ROS LLM service unavailable: %s", exc)
+        logger.warning("ROS LLM call failed: %s", exc, exc_info=True)
 
     return ""
 
 
+def _call_llm_direct(prompt: str, system_prompt: str) -> str:
+    """Direct LLM call as fallback when ROS is unavailable."""
+    try:
+        from llama_cpp import Llama
+        from pathlib import Path
+        model_path = (
+            Path(__file__).resolve().parents[4]
+            / "models" / "llm" / "qwen2.5-3b-instruct-q4_k_m.gguf"
+        )
+        if not model_path.exists():
+            return ""
+        if not hasattr(_call_llm_direct, "_model"):
+            logger.info("Loading LLM model directly: %s", model_path)
+            _call_llm_direct._model = Llama(
+                model_path=str(model_path),
+                n_ctx=2048, n_gpu_layers=-1, verbose=False,
+            )
+        resp = _call_llm_direct._model.create_chat_completion(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=128, temperature=0.7,
+        )
+        return resp["choices"][0]["message"]["content"].strip()
+    except Exception as exc:
+        logger.warning("Direct LLM call failed: %s", exc)
+        return ""
+
+
 async def _call_llm(prompt: str, system_prompt: str) -> str:
-    """Call LLM in a thread pool to avoid blocking the async event loop."""
+    """Call LLM — tries ROS service first, then direct model, then fallback."""
     loop = asyncio.get_event_loop()
+    # Try ROS service
     result = await loop.run_in_executor(
         None, _call_llm_sync, prompt, system_prompt,
+    )
+    if result:
+        return result
+    # Try direct model call
+    result = await loop.run_in_executor(
+        None, _call_llm_direct, prompt, system_prompt,
     )
     if result:
         return result

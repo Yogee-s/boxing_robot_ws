@@ -88,6 +88,9 @@ def create_app() -> FastAPI:
     app.include_router(chat_router, prefix="/api/chat", tags=["chat"])
     app.include_router(export_router, prefix="/api/export", tags=["export"])
 
+    from boxbunny_dashboard.api.remote import router as remote_router
+    app.include_router(remote_router, prefix="/api/remote", tags=["remote"])
+
     # -- WebSocket --
     from boxbunny_dashboard.websocket import websocket_endpoint
 

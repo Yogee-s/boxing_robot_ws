@@ -1,8 +1,8 @@
 <template>
-  <div class="min-h-screen min-h-[100dvh] flex flex-col items-center justify-center px-6 py-12 bg-bb-bg overflow-hidden">
+  <div class="min-h-screen min-h-[100dvh] flex flex-col items-center justify-center px-6 py-6 pb-20 bg-bb-bg overflow-hidden safe-bottom">
     <!-- Logo -->
     <transition name="logo" appear>
-      <div class="mb-8 text-center">
+      <div class="mb-4 text-center">
         <div class="w-20 h-20 mx-auto mb-4 rounded-2xl bg-bb-primary-dim flex items-center justify-center glow-primary-sm">
           <span class="text-3xl font-black text-bb-primary">B</span>
         </div>
@@ -17,7 +17,7 @@
     <transition name="step" mode="out-in">
       <div v-if="step === 'auth'" key="auth" class="w-full max-w-sm">
         <!-- Login / Signup toggle -->
-        <div class="flex bg-bb-surface rounded-xl p-1 mb-6 relative overflow-hidden">
+        <div class="flex bg-bb-surface rounded-xl p-1 mb-4 relative overflow-hidden">
           <div
             class="absolute top-1 bottom-1 rounded-lg bg-bb-surface-light transition-all duration-300 ease-out"
             :style="{ left: isSignup ? '50%' : '4px', width: 'calc(50% - 4px)' }"
@@ -40,7 +40,7 @@
 
         <!-- Form content with cross-fade -->
         <transition name="form-switch" mode="out-in">
-          <form v-if="!isSignup" key="login-form" @submit.prevent="handleLogin" class="space-y-4">
+          <form v-if="!isSignup" key="login-form" @submit.prevent="handleLogin" class="space-y-3">
             <!-- Login method toggle -->
             <div class="flex bg-bb-bg rounded-xl p-1 relative overflow-hidden">
               <div
@@ -137,7 +137,7 @@
             </button>
           </form>
 
-          <form v-else key="signup-form" @submit.prevent="handleSignup" class="space-y-4">
+          <form v-else key="signup-form" @submit.prevent="handleSignup" class="space-y-3">
             <!-- Display name -->
             <div>
               <label class="block text-xs font-medium text-bb-text-secondary mb-1.5">Display Name</label>

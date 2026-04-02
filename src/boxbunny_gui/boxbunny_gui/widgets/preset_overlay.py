@@ -173,9 +173,12 @@ class PresetOverlay(QWidget):
         self._cards: List[_PresetCard] = []
         self._current_idx: int = 0
         self._visible: bool = False
+        self._animating: bool = False
         self._username: str = ""
 
         self.setStyleSheet("background-color: rgba(0, 0, 0, 160);")
+        # Allow clicks to pass through to widgets below (like Quick Start button)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.hide()
 
         # ── Popup panel ──────────────────────────────────────────────────
@@ -265,6 +268,8 @@ class PresetOverlay(QWidget):
         self._username = username
 
     def toggle(self) -> None:
+        if self._animating:
+            return
         if self._visible:
             self.slide_out()
         else:
@@ -274,42 +279,47 @@ class PresetOverlay(QWidget):
         self._load_presets()
         self._build_cards()
         self._visible = True
+        self._animating = True
 
         win = self.parent()
         if win is None:
             return
         win_w, win_h = win.width(), win.height()
 
-        self.setGeometry(0, 0, win_w, win_h)
+        # Start below the top bar (60px) so Quick Start button stays clickable
+        top_bar_h = 60
+        self.setGeometry(0, top_bar_h, win_w, win_h - top_bar_h)
 
         n = len(self._presets)
         panel_w = min(win_w - 30, _CARD_W * n + 14 * (n - 1) + 52)
         panel_h = _CARD_H + 120  # header + cards + footer
         panel_x = (win_w - panel_w) // 2
-        panel_y_end = (win_h - panel_h) // 2
+        overlay_h = win_h - top_bar_h
+        panel_y_end = (overlay_h - panel_h) // 2
 
         self._panel.setFixedSize(panel_w, panel_h)
-        self._panel.move(panel_x, win_h)
+        self._panel.move(panel_x, overlay_h)
 
         self.raise_()
         self.show()
 
         self._panel_anim.stop()
         self._panel_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self._panel_anim.setStartValue(QPoint(panel_x, win_h))
+        self._panel_anim.setStartValue(QPoint(panel_x, overlay_h))
         self._panel_anim.setEndValue(QPoint(panel_x, panel_y_end))
         self._panel_anim.start()
+        QTimer.singleShot(_ANIM_MS + 20, self._on_anim_done)
 
     def slide_out(self) -> None:
         self._visible = False
-        win = self.parent()
-        win_h = win.height() if win else Size.SCREEN_H
+        self._animating = True
+        overlay_h = self.height()
         panel_x = self._panel.x()
 
         self._panel_anim.stop()
         self._panel_anim.setEasingCurve(QEasingCurve.Type.InCubic)
         self._panel_anim.setStartValue(self._panel.pos())
-        self._panel_anim.setEndValue(QPoint(panel_x, win_h))
+        self._panel_anim.setEndValue(QPoint(panel_x, overlay_h))
         self._panel_anim.start()
         # Hide after animation finishes
         QTimer.singleShot(_ANIM_MS + 50, self._hide_if_closed)
@@ -430,12 +440,19 @@ class PresetOverlay(QWidget):
             self._highlight_anim.setEndValue(target)
             self._highlight_anim.start()
 
+    def _on_anim_done(self) -> None:
+        self._animating = False
+
     def _hide_if_closed(self) -> None:
         """Hide the widget after slide-out, only if still closed."""
+        self._animating = False
         if not self._visible:
             self.hide()
 
     def mousePressEvent(self, event) -> None:
         """Click on backdrop (outside panel) closes the overlay."""
         if self._visible:
-            self.slide_out()
+            # Only close if click is outside the panel
+            panel_rect = self._panel.geometry()
+            if not panel_rect.contains(event.pos()):
+                self.slide_out()

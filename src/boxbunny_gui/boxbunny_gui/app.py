@@ -112,6 +112,13 @@ class BoxBunnyApp:
         # ── Start ROS bridge (non-blocking) ─────────────────────────────
         self._bridge.start()
 
+        # ── Remote command polling (phone dashboard control) ────────────
+        from PySide6.QtCore import QTimer
+        self._remote_timer = QTimer()
+        self._remote_timer.setInterval(500)
+        self._remote_timer.timeout.connect(self._poll_remote_commands)
+        self._remote_timer.start()
+
         logger.info("BoxBunnyApp initialised (online=%s)", self._bridge.online)
 
     # ── Public API ──────────────────────────────────────────────────────
@@ -176,6 +183,42 @@ class BoxBunnyApp:
             return
 
         # Other IMU commands ignored outside preset overlay
+
+    def _poll_remote_commands(self) -> None:
+        """Check for commands from the phone dashboard."""
+        import json
+        cmd_file = Path("/tmp/boxbunny_gui_command.json")
+        try:
+            if not cmd_file.exists():
+                return
+            data = json.loads(cmd_file.read_text())
+            cmd_file.unlink(missing_ok=True)
+            action = data.get("action", "")
+            config = data.get("config", {})
+            username = data.get("username", "")
+            logger.info("Remote command: %s from %s", action, username)
+
+            if action == "start_preset":
+                self._preset_overlay.set_username(username)
+                self._on_preset_selected(config)
+            elif action == "open_presets":
+                self._preset_overlay.set_username(username)
+                self._preset_overlay.toggle()
+            elif action == "start_training":
+                self._router.navigate(
+                    "training_session",
+                    config=config,
+                    username=username,
+                )
+            elif action == "navigate":
+                route = config.get("route", "")
+                if route:
+                    # Close preset overlay if open
+                    if self._preset_overlay.is_visible:
+                        self._preset_overlay.slide_out()
+                    self._router.navigate(route, username=username)
+        except (json.JSONDecodeError, OSError):
+            pass
 
     def _on_preset_selected(self, preset: dict) -> None:
         """Called when user confirms a preset — route to the right page."""

@@ -258,6 +258,16 @@ export async function exportDateRange(startDate, endDate, mode = null) {
 
 // ---- Health ----
 
+// ---- Remote GUI Control ----
+
+export async function sendRemoteCommand(action, config = {}) {
+  return request('POST', '/remote/command', { action, config })
+}
+
+export async function getRemotePresets() {
+  return request('GET', '/remote/presets')
+}
+
 export async function healthCheck() {
   return request('GET', '/health')
 }
