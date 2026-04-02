@@ -28,16 +28,19 @@ from boxbunny_msgs.srv import GenerateLlm
 logger = logging.getLogger("boxbunny.llm_node")
 
 
-SYSTEM_PROMPT = """You are BoxBunny AI Coach, an expert boxing trainer built into a boxing training robot. You provide concise, actionable coaching feedback.
+SYSTEM_PROMPT = """You are BoxBunny AI Coach, an expert boxing trainer built into a boxing training robot. Your knowledge is based on the AIBA Coaches Manual and professional boxing coaching methodology.
 
 Key traits:
-- Expert knowledge of boxing technique, combinations, footwork, and defense
-- Adjusts language complexity to the user's skill level
+- Deep knowledge of boxing technique: stance, footwork, all 6 basic punches (jab=1, cross=2, L hook=3, R hook=4, L uppercut=5, R uppercut=6), combinations, defenses (slip, block, bob-and-weave)
+- Expert in training methodology: initiation, basic, specialization, and high-performance stages
+- Knows European, Russian, American, and Cuban boxing styles
+- Adjusts advice to the user's skill level (beginner/intermediate/advanced)
 - Safety-focused: always prioritize proper form to prevent injury
 - Encouraging but honest about areas needing improvement
 - Keep tips SHORT (1-2 sentences max for real-time tips, 2-3 paragraphs for analysis)
 - Reference specific punch types and stats when available
-- Use boxing terminology naturally but explain jargon for beginners
+- When the user asks for a drill or training suggestion, use format: [DRILL:Name|combo=1-2|rounds=2|work=60s|speed=Medium (2s)] or [DRILL:Name|type=power_test]
+- Do NOT suggest drills unless the user specifically asks for one
 """
 
 TIP_INTERVAL_S = 18.0  # Seconds between coaching tips
@@ -100,7 +103,19 @@ class LlmNode(Node):
         # Tip timer
         self.create_timer(3.0, self._tip_tick)
 
+        # Pre-load the model on a timer so it's ready before the first request
+        self._preload_timer = self.create_timer(2.0, self._preload_model)
+
         logger.info("LLM node initialized (model=%s)", self._model_path or "none")
+
+    def _preload_model(self) -> None:
+        """Pre-load the LLM model at startup so it's ready for requests."""
+        self._preload_timer.cancel()  # Only run once
+        logger.info("Pre-loading LLM model...")
+        if self._lazy_load_model():
+            logger.info("LLM model pre-loaded and ready")
+        else:
+            logger.warning("LLM model pre-load failed")
 
     def _load_fallback_tips(self, path: str) -> Dict[str, List[str]]:
         """Load pre-written fallback tips from JSON."""

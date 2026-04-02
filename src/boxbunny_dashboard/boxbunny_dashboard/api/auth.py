@@ -146,22 +146,25 @@ class UserListItem(BaseModel):
 @router.get("/users", response_model=List[UserListItem])
 async def list_users(db: DatabaseManager = Depends(get_db)) -> List[UserListItem]:
     """List all registered users (for account picker on login screen)."""
-    with db._get_main_conn() as conn:
-        rows = conn.execute(
-            "SELECT id, username, display_name, user_type, level, pattern_hash "
-            "FROM users ORDER BY display_name"
-        ).fetchall()
-    return [
-        UserListItem(
-            id=r["id"],
-            username=r["username"],
-            display_name=r["display_name"] or r["username"],
-            level=r["level"] or "beginner",
-            user_type=r["user_type"] or "individual",
-            has_pattern=bool(r["pattern_hash"]),
-        )
-        for r in rows
-    ]
+    try:
+        with db._get_main_conn() as conn:
+            rows = conn.execute(
+                "SELECT id, username, display_name, user_type, level, pattern_hash "
+                "FROM users ORDER BY display_name"
+            ).fetchall()
+        return [
+            UserListItem(
+                id=r["id"],
+                username=r["username"],
+                display_name=r["display_name"] or r["username"],
+                level=r["level"] or "beginner",
+                user_type=r["user_type"] or "individual",
+                has_pattern=bool(r["pattern_hash"]),
+            )
+            for r in rows
+        ]
+    except Exception:
+        return []
 
 
 @router.post("/login", response_model=TokenResponse)

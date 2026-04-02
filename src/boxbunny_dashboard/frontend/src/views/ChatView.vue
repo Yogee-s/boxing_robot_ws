@@ -14,8 +14,11 @@
       <div class="flex-1">
         <p class="text-sm font-semibold text-bb-text">BoxBunny Coach</p>
         <div class="flex items-center gap-1.5">
-          <span class="w-1.5 h-1.5 rounded-full bg-bb-primary animate-pulse" />
-          <p class="text-[10px] text-bb-primary">Online</p>
+          <span class="w-1.5 h-1.5 rounded-full animate-pulse"
+                :class="llmReady ? 'bg-green-400' : 'bg-bb-warning'" />
+          <p class="text-[10px]" :class="llmReady ? 'text-green-400' : 'text-bb-warning'">
+            {{ llmReady ? 'Ready' : llmChecking ? 'Connecting...' : 'Loading model...' }}
+          </p>
         </div>
       </div>
       <button
@@ -97,7 +100,7 @@
           <div
             class="rounded-2xl px-4 py-2.5 text-sm leading-relaxed"
             :class="msg.role === 'user'
-              ? 'bg-bb-primary text-bb-bg rounded-br-md'
+              ? 'bg-bb-primary text-white rounded-br-md'
               : 'bg-bb-surface border border-bb-border/30 text-bb-text rounded-bl-md'"
           >
             <span class="whitespace-pre-wrap">{{ msg.content }}</span>
@@ -108,8 +111,35 @@
             {{ formatTimestamp(msg.timestamp) }}
           </span>
 
+          <!-- Training action cards (from LLM suggestions) -->
+          <div v-if="msg.actions && msg.actions.length > 0" class="space-y-2 mt-2">
+            <button
+              v-for="(action, ai) in msg.actions" :key="ai"
+              @click="startAction(action)"
+              class="w-full flex items-center gap-3 p-3 rounded-xl
+                     bg-bb-primary-dim border border-bb-primary/30
+                     active:scale-[0.97] transition-all"
+            >
+              <div class="w-9 h-9 rounded-lg bg-bb-primary/20 flex items-center justify-center flex-shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="#FF6B35" stroke="none">
+                  <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
+              </div>
+              <div class="text-left flex-1 min-w-0">
+                <p class="text-sm font-semibold text-bb-primary">{{ action.label }}</p>
+                <p v-if="action.config.combo_seq" class="text-[10px] text-bb-text-muted">
+                  Combo: {{ action.config.combo_seq }} · {{ action.config['Work Time'] || '' }}
+                </p>
+              </div>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                   stroke="#FF6B35" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-shrink-0">
+                <polyline points="9 18 15 12 9 6"/>
+              </svg>
+            </button>
+          </div>
+
           <!-- Follow-up suggestions (after assistant messages) -->
-          <div v-if="msg.role === 'assistant' && idx === chatStore.messages.length - 1 && !chatStore.sending && followUpSuggestions.length > 0"
+          <div v-if="msg.role === 'assistant' && idx === chatStore.messages.length - 1 && !chatStore.sending && !chatStore.streaming && followUpSuggestions.length > 0"
                class="flex flex-wrap gap-1.5 mt-2">
             <button
               v-for="suggestion in followUpSuggestions"
@@ -151,9 +181,9 @@
           <input
             v-model="input"
             type="text"
-            :placeholder="chatStore.sending ? 'AI Coach is thinking...' : chatStore.streaming ? 'Generating response...' : 'Ask your AI coach...'"
+            :placeholder="!llmReady ? 'AI Coach loading... please wait' : chatStore.sending ? 'AI Coach is thinking...' : chatStore.streaming ? 'Generating response...' : 'Ask your AI coach...'"
             class="input py-2.5 text-sm pr-10"
-            :disabled="chatStore.sending || chatStore.streaming"
+            :disabled="!llmReady || chatStore.sending || chatStore.streaming"
             maxlength="2000"
             @keydown.enter.prevent="handleSend()"
           />
@@ -163,7 +193,7 @@
         </div>
         <button
           type="submit"
-          :disabled="!input.trim() || chatStore.sending || chatStore.streaming"
+          :disabled="!llmReady || !input.trim() || chatStore.sending || chatStore.streaming"
           class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0
                  transition-all duration-200 active:scale-90
                  disabled:opacity-30 disabled:pointer-events-none"
@@ -183,12 +213,15 @@
 <script setup>
 import { ref, nextTick, onMounted, onUpdated, computed, watch } from 'vue'
 import { useChatStore } from '@/stores/chat'
+import * as api from '@/api/client'
 
 const chatStore = useChatStore()
 const input = ref('')
 const messagesContainer = ref(null)
 const showContext = ref(false)
 const showChips = ref(true)
+const llmReady = ref(false)
+const llmChecking = ref(true)
 
 const quickChips = [
   { icon: 'A', label: 'Analyze my last session', text: 'Analyze my last training session and give me detailed feedback.' },
@@ -238,6 +271,30 @@ async function scrollToBottom() {
   }
 }
 
+async function startAction(action) {
+  // Navigate GUI to the config/setup page — user starts when ready
+  const config = { ...action.config }
+  if (action.type === 'power_test' || action.type === 'reaction_test' || action.type === 'stamina_test') {
+    await api.sendRemoteCommand('navigate', { route: action.config.route || action.type })
+  } else {
+    // Navigate to training config page so user can review and start
+    await api.sendRemoteCommand('setup_drill', {
+      combo: { name: config.name, seq: config.combo_seq || '', id: null },
+      difficulty: config.difficulty || 'Beginner',
+      Rounds: config.Rounds || '2',
+      'Work Time': config['Work Time'] || '60s',
+      'Rest Time': '30s',
+      Speed: config.Speed || 'Medium (2s)',
+    })
+  }
+  chatStore.messages.push({
+    role: 'assistant',
+    content: `Drill loaded on the robot — press Start or centre pad when you're ready!`,
+    timestamp: new Date().toISOString(),
+  })
+  await scrollToBottom()
+}
+
 async function handleSend(text = null) {
   const messageText = text || input.value.trim()
   if (!messageText) return
@@ -282,6 +339,23 @@ function formatTimestamp(ts) {
 onMounted(async () => {
   await chatStore.loadHistory()
   await scrollToBottom()
+  // Check if LLM is ready — poll every 3s until ready
+  const checkLlm = async () => {
+    try {
+      const status = await api.getChatStatus()
+      llmReady.value = status.ready
+    } catch {
+      llmReady.value = false
+    }
+    llmChecking.value = false
+  }
+  await checkLlm()
+  if (!llmReady.value) {
+    const interval = setInterval(async () => {
+      await checkLlm()
+      if (llmReady.value) clearInterval(interval)
+    }, 3000)
+  }
 })
 </script>
 

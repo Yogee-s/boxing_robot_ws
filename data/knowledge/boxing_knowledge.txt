@@ -1,0 +1,175 @@
+# BoxBunny AI Coach Knowledge Base
+# Source: AIBA Coaches Manual + Boxing Coaching Best Practices
+
+## BOXING STANCE (Orthodox)
+- Lead foot (left) forward, rear foot (right) back at 45 degrees
+- Feet shoulder-width apart, weight evenly distributed 50/50
+- Knees slightly bent for mobility and balance
+- Chin tucked, eyes forward through eyebrows
+- Lead hand at chin height, rear hand protecting chin
+- Elbows close to body protecting ribs
+
+## BASIC PUNCHES
+
+### Jab (Code 1) - Left straight
+- Extend lead hand straight from chin, rotate fist palm-down on impact
+- Snap back immediately to guard position
+- Push off rear foot slightly, keep rear hand protecting chin
+- Uses: range finder, set up combinations, control distance
+- Common errors: dropping rear hand, telegraphing, over-reaching
+
+### Cross (Code 2) - Right straight
+- Drive from rear foot, rotate hips and shoulders
+- Extend rear hand straight to target, palm rotates down
+- Transfer weight from rear to lead foot during punch
+- Most powerful straight punch due to full body rotation
+- Uses: power shot, counter-punch, finish combinations
+
+### Lead Hook (Code 3) - Left hook
+- Rotate lead hip and shoulder, arm bent at 90 degrees
+- Fist travels in horizontal arc to target
+- Pivot on lead foot, weight shifts through rotation
+- Short-range power punch targeting chin, temple, or body
+- Common errors: looping too wide, dropping guard
+
+### Rear Hook (Code 4) - Right hook
+- Similar mechanics to lead hook but from rear side
+- Rotate rear hip through, pivot on rear foot
+- Less common but effective counter or body shot
+- Uses: inside fighting, close range exchanges
+
+### Lead Uppercut (Code 5) - Left uppercut
+- Drop slightly by bending knees, keep elbow close
+- Drive upward from legs through hips
+- Fist rises vertically from low to high
+- Effective at close range, targets chin or body
+- Set up by getting inside opponent's guard
+
+### Rear Uppercut (Code 6) - Right uppercut
+- Rear hand drops slightly, drive upward through legs and hips
+- Full body rotation adds significant power
+- Most powerful uppercut variation
+- Excellent counter when opponent ducks forward
+
+## DEFENSIVE TECHNIQUES
+
+### Slip
+- Move head off center line to avoid punch
+- Slip left to avoid jab/cross, slip right to avoid hooks
+- Bend at waist and knees, keep eyes on opponent
+- Creates counter-punching opportunities
+
+### Block
+- Use gloves and arms to absorb incoming punches
+- High guard: both hands up protecting head
+- Body block: lower elbows to protect ribs
+- Parry: redirect punch with small hand movement
+
+### Bob and Weave
+- Bend knees to duck under hooks
+- Move in U-shape motion: down, under, up
+- Stay balanced, ready to counter immediately
+
+## COMBINATIONS
+
+### Basic (Beginner)
+- 1-2 (Jab-Cross): Foundation combo, teaches weight transfer
+- 1-1-2 (Double Jab-Cross): Range control into power
+- 1-2-3 (Jab-Cross-Hook): Classic three-punch combo
+- 1-2-1-2 (Double Jab-Cross): Rhythm and timing
+
+### Intermediate
+- 1-2-3-2 (Jab-Cross-Hook-Cross): Four-punch combination
+- 1-2-3-4 (Jab-Cross-L Hook-R Hook): Full rotation combo
+- 1-2-5-6 (Jab-Cross-L Upper-R Upper): Mix levels
+- Body shot combos: 1-2b-3b (upstairs-downstairs)
+
+### Advanced
+- 1-slip-2-3 (Jab-Slip-Cross-Hook): Offense-defense flow
+- 1-2-3-4-5-6 (Full six): All punches in sequence
+- Counter combinations after defensive moves
+- Feint-based combinations
+
+## TRAINING STAGES (AIBA Method)
+
+### Initiation Stage (Beginners)
+- Focus on fundamental stance and guard
+- Learn basic punches individually
+- Develop coordination and balance
+- 2-3 sessions per week, short duration
+- Emphasis on fun and engagement
+
+### Basic Stage
+- Combine punches into simple combos (1-2, 1-2-3)
+- Introduce basic defensive moves
+- Begin pad work and light sparring
+- Build aerobic base and general fitness
+- 3-4 sessions per week
+
+### Specialization Stage
+- Complex combinations and counter-fighting
+- Sport-specific conditioning
+- Regular sparring with structured rounds
+- Tactical development and fight strategy
+- 4-5 sessions per week
+
+### High-Performance Stage
+- Competition preparation
+- Individual technique refinement
+- Peak conditioning cycles
+- Mental preparation and ring psychology
+
+## PHYSICAL CONDITIONING
+
+### Endurance
+- Aerobic base: running, skipping rope, swimming
+- Boxing-specific: heavy bag rounds, shadow boxing
+- Build to 3-minute round intervals with 1-minute rest
+- Progressive overload over weeks
+
+### Strength
+- Core: planks, Russian twists, medicine ball
+- Upper body: push-ups, pull-ups, resistance bands
+- Lower body: squats, lunges, box jumps
+- Boxing-specific: heavy bag power shots
+
+### Speed
+- Speed bag, double-end bag
+- Reaction drills with visual/audio cues
+- Fast combinations on focus pads
+- Plyometric training for explosive power
+
+### Coordination
+- Jump rope (various patterns)
+- Shadow boxing with footwork
+- Combination drills with movement
+- Mirror drills for symmetry
+
+## TRAINING SESSION STRUCTURE
+1. Warm-up (10-15 min): Light cardio, dynamic stretching
+2. Technical work (20-30 min): Technique drills, combinations
+3. Conditioning (15-20 min): Pad work, bag work, or sparring
+4. Cool-down (10 min): Static stretching, breathing exercises
+
+## BOXING STYLES (Advanced - from AIBA Manual Chapter 5)
+
+### European Style
+- Emphasis on technical precision and footwork
+- Long-range fighting, use of jab
+- Disciplined defense, counter-punching
+
+### Russian Style
+- Strong emphasis on conditioning and endurance
+- Aggressive forward pressure
+- Body punching combined with head attacks
+
+### American Style
+- Versatile, adaptive approach
+- Strong jab and cross fundamentals
+- Good defensive awareness
+
+### Cuban Style
+- Exceptional footwork and movement
+- Angles and lateral movement
+- Counter-punching expertise
+- Unpredictable rhythm changes

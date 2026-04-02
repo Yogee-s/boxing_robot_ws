@@ -282,26 +282,40 @@ class SparringResultsPage(QWidget):
             )
 
     def _request_llm(self) -> None:
-        if self._bridge is None:
-            self._ai_lbl.setText("AI Coach unavailable in offline mode.")
-            return
         import json
         style = self._config.get("style", "Sparring")
+        difficulty = self._config.get("difficulty", "medium")
+
+        if self._bridge is None:
+            self._ai_lbl.setText(
+                f"Sparring session against {style} ({difficulty}) completed. "
+                "Connect the AI Coach for detailed analysis."
+            )
+            return
+
         context = {
             "style": style,
-            "difficulty": self._config.get("difficulty", "medium"),
+            "difficulty": difficulty,
         }
         self._bridge.call_generate_llm(
-            prompt=f"Summarize this sparring session against {style} style in 2 sentences.",
+            prompt=(
+                f"Give a brief 2-sentence coaching analysis of this sparring session. "
+                f"The user sparred against {style} style at {difficulty} difficulty."
+            ),
             context_json=json.dumps(context),
             system_prompt_key="coach_summary",
             callback=self._on_llm,
         )
 
     def _on_llm(self, success: bool, response: str, _time: float) -> None:
-        self._ai_lbl.setText(
-            response if success else "AI Coach analysis unavailable."
-        )
+        if success and response.strip():
+            self._ai_lbl.setText(response.strip())
+        else:
+            style = self._config.get("style", "Sparring")
+            self._ai_lbl.setText(
+                f"Sparring session against {style} completed. "
+                "Keep working on your defense and counter-punching!"
+            )
 
     def on_enter(self, **kwargs: Any) -> None:
         self._config = kwargs.get("config", {})

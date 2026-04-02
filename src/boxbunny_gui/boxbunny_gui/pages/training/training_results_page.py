@@ -411,38 +411,90 @@ class TrainingResultsPage(QWidget):
         )
 
     def _request_llm_summary(self) -> None:
-        if self._bridge is None:
-            self._coach_lbl.setText("AI Coach unavailable in offline mode.")
-            return
         import json
         combo_name = self._config.get("combo", {}).get("name", "Free Training")
+        punches = self._total_punches
+        combos = self._combos_done
+        rounds_cfg = self._config.get("Rounds", "1")
+        work_time = self._config.get("Work Time", "90s")
+        difficulty = self._difficulty or "beginner"
+
+        # Build an accurate description of what happened
+        if punches == 0 and combos == 0:
+            session_desc = (
+                f"The user started a {difficulty} training session "
+                f"with combo '{combo_name}' but ended it early without "
+                f"throwing any punches or completing any combos."
+            )
+        elif punches > 0 and combos == 0:
+            session_desc = (
+                f"The user did a {difficulty} session with combo '{combo_name}'. "
+                f"They threw {punches} punches but didn't complete any full combo cycles. "
+                f"Config: {rounds_cfg} rounds, {work_time} work time."
+            )
+        else:
+            session_desc = (
+                f"The user completed a {difficulty} session with combo '{combo_name}'. "
+                f"They threw {punches} punches and completed {combos} full combo cycles. "
+                f"Config: {rounds_cfg} rounds, {work_time} work time."
+            )
+
+        # If no bridge or LLM unavailable, generate a local summary
+        if self._bridge is None:
+            self._coach_lbl.setText(self._local_summary(punches, combos, combo_name))
+            return
+
         context = {
             "combo": combo_name,
-            "difficulty": self._difficulty or "beginner",
-            "total_punches": self._total_punches,
-            "combos_completed": self._combos_done,
-            "rounds": self._config.get("Rounds", "1"),
-            "work_time": self._config.get("Work Time", "90s"),
+            "difficulty": difficulty,
+            "total_punches": punches,
+            "combos_completed": combos,
+            "rounds": rounds_cfg,
+            "work_time": work_time,
         }
         self._bridge.call_generate_llm(
             prompt=(
-                f"Summarize this boxing training session in 2 sentences. "
-                f"Combo: {combo_name}, "
-                f"Punches: {self._total_punches}, "
-                f"Combos completed: {self._combos_done}."
+                f"Give a brief 2-sentence coaching analysis of this session. "
+                f"Be specific about what happened and give one tip. "
+                f"{session_desc}"
             ),
             context_json=json.dumps(context),
             system_prompt_key="coach_summary",
             callback=self._on_llm_response,
         )
 
+    @staticmethod
+    def _local_summary(punches: int, combos: int, combo_name: str) -> str:
+        """Fallback summary when LLM is unavailable."""
+        if punches == 0:
+            return (
+                "Session ended early with no punches thrown. "
+                "No worries — when you're ready, try starting with "
+                "a simple jab-cross drill to warm up!"
+            )
+        if combos == 0:
+            return (
+                f"You threw {punches} punches but didn't complete any full "
+                f"combo cycles. Focus on following the sequence cues "
+                f"and matching each punch in order."
+            )
+        return (
+            f"Nice work! You threw {punches} punches and completed "
+            f"{combos} full cycles of {combo_name}. "
+            f"Keep practicing to build muscle memory and speed."
+        )
+
     def _on_llm_response(
         self, success: bool, response: str, gen_time: float,
     ) -> None:
-        self._coach_lbl.setText(
-            response if success else "AI Coach analysis unavailable."
-        )
-
+        if success and response.strip():
+            self._coach_lbl.setText(response.strip())
+        else:
+            # LLM failed — use local fallback
+            combo_name = self._config.get("combo", {}).get("name", "Free Training")
+            self._coach_lbl.setText(
+                self._local_summary(self._total_punches, self._combos_done, combo_name)
+            )
     def on_enter(self, **kwargs: Any) -> None:
         self._config = kwargs.get("config", {})
         self._curriculum = kwargs.get("curriculum")

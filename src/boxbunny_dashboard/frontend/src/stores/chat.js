@@ -35,6 +35,7 @@ export const useChatStore = defineStore('chat', () => {
       const response = await api.sendChatMessage(text)
       const fullText = response.reply || ''
       const suggestions = response.suggestions || null
+      const actions = response.actions || null
       const timestamp = response.timestamp || new Date().toISOString()
 
       // Add empty assistant message, then stream words into it
@@ -61,10 +62,11 @@ export const useChatStore = defineStore('chat', () => {
           await new Promise(r => setTimeout(r, 30))
         }
       }
-      // Show suggestions after streaming completes
+      // Show suggestions and actions after streaming completes
       messages.value[msgIdx] = {
         ...messages.value[msgIdx],
         suggestions,
+        actions,
       }
       streaming.value = false
       return messages.value[msgIdx]

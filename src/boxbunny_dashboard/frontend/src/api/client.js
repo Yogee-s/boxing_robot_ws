@@ -204,6 +204,10 @@ export async function togglePresetFavorite(presetId) {
 
 // ---- Chat ----
 
+export async function getChatStatus() {
+  return request('GET', '/chat/status')
+}
+
 export async function sendChatMessage(message, context = {}) {
   return request('POST', '/chat/message', { message, context })
 }

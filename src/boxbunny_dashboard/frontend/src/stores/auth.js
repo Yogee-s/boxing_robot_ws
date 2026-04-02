@@ -46,7 +46,7 @@ export const useAuthStore = defineStore('auth', () => {
       api.sendRemoteCommand('navigate', { route: 'home', username: data.username }).catch(() => {})
       return data
     } catch (e) {
-      error.value = e.message || 'Login failed'
+      error.value = e.detail || e.message || 'Login failed — check your connection'
       throw e
     } finally {
       loading.value = false

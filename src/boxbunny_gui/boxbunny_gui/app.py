@@ -189,20 +189,24 @@ class BoxBunnyApp:
         import json
 
         # Check for phone login notification
-        login_file = Path("/tmp/boxbunny_gui_login.json")
-        try:
-            if login_file.exists():
-                login_data = json.loads(login_file.read_text())
-                login_file.unlink(missing_ok=True)
-                username = login_data.get("username", "")
-                if username:
-                    logger.info("Phone login detected: %s", username)
-                    if self._preset_overlay.is_visible:
-                        self._preset_overlay.slide_out()
-                    self._router.navigate("home", username=username)
-                    return
-        except (json.JSONDecodeError, OSError):
-            pass
+        # Skip if a QR popup dialog is currently open — it handles its own polling
+        from PySide6.QtWidgets import QApplication
+        active_modal = QApplication.activeModalWidget()
+        if active_modal is None:
+            login_file = Path("/tmp/boxbunny_gui_login.json")
+            try:
+                if login_file.exists():
+                    login_data = json.loads(login_file.read_text())
+                    login_file.unlink(missing_ok=True)
+                    username = login_data.get("username", "")
+                    if username:
+                        logger.info("Phone login detected: %s", username)
+                        if self._preset_overlay.is_visible:
+                            self._preset_overlay.slide_out()
+                        self._router.navigate("home", username=username)
+                        return
+            except (json.JSONDecodeError, OSError):
+                pass
 
         # Check for remote commands
         cmd_file = Path("/tmp/boxbunny_gui_command.json")
@@ -226,6 +230,15 @@ class BoxBunnyApp:
                 self._router.navigate(
                     "training_session",
                     config=config,
+                    username=username,
+                )
+            elif action == "setup_drill":
+                # Navigate to training config — user starts when ready
+                combo = config.get("combo", {})
+                self._router.navigate(
+                    "training_config",
+                    combo=combo,
+                    difficulty=config.get("difficulty", "Beginner"),
                     username=username,
                 )
             elif action == "navigate":
