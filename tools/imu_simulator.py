@@ -95,7 +95,11 @@ log = logging.getLogger("imu_simulator")
 
 
 class IMUSimulatorNode(Node):
-    """Thin ROS 2 node with publishers and a robot-command subscriber."""
+    """Thin ROS 2 node with publishers and a robot-command subscriber.
+
+    Also subscribes to real hardware topics (motor_feedback, strike_detected)
+    so the simulator mirrors the physical robot state in dev mode.
+    """
 
     def __init__(self) -> None:
         super().__init__("imu_simulator")
@@ -105,12 +109,60 @@ class IMUSimulatorNode(Node):
         self._pub_punch = self.create_publisher(ConfirmedPunch, _TOPIC_PUNCH, 10)
         self.create_timer(1.0, self._publish_status)
 
+        # Publisher for robot punch commands (so simulator can command real arms)
+        self._pub_robot_cmd = self.create_publisher(RobotCommand, _TOPIC_ROBOT_CMD, 10)
+
         # Subscribe to robot commands so the GUI drill cycling shows up
         self.create_subscription(
             RobotCommand, _TOPIC_ROBOT_CMD, self._on_robot_command, 10,
         )
         self._robot_cmd_callback = None  # set by GUI
+
+        # ── Real hardware mirror subscriptions ───────────────────────────
+        # Subscribe to Teensy strike detection so simulator flashes when
+        # real pads are hit (dev mode runs both hardware and simulator)
+        from std_msgs.msg import String as StdString, Float64MultiArray
+        self.create_subscription(
+            StdString, "/robot/strike_detected",
+            self._on_real_strike, 10,
+        )
+        # Subscribe to motor_feedback for real-time IMU accel display
+        self.create_subscription(
+            Float64MultiArray, "motor_feedback",
+            self._on_motor_feedback, 10,
+        )
+        self._real_strike_callback = None   # set by GUI
+        self._motor_feedback_callback = None  # set by GUI
+        self._real_imu_accel = [[0.0, 0.0, 0.0] for _ in range(4)]
+        self._teensy_connected = False
+
         self.get_logger().info("IMU simulator node started")
+
+    def _on_real_strike(self, msg) -> None:
+        """Handle strike detection from real Teensy hardware."""
+        import json as _json
+        try:
+            data = _json.loads(msg.data)
+            self._teensy_connected = True
+            if self._real_strike_callback:
+                self._real_strike_callback(data)
+        except Exception:
+            pass
+
+    def _on_motor_feedback(self, msg) -> None:
+        """Handle motor feedback from Teensy for live position/current display.
+
+        Strike detection is NOT done here — the V4 arm control GUI already
+        does gravity calibration + strike detection and publishes the result
+        on /robot/strike_detected.  We just display the raw values.
+        """
+        self._teensy_connected = True
+        if len(msg.data) >= 21:
+            for i in range(4):
+                base = 9 + i * 3
+                self._real_imu_accel[i] = [msg.data[base], msg.data[base+1], msg.data[base+2]]
+        if self._motor_feedback_callback:
+            self._motor_feedback_callback(msg.data)
 
     def _on_robot_command(self, msg: RobotCommand) -> None:
         """Forward incoming robot commands to the GUI for visual flash."""
@@ -168,7 +220,8 @@ class IMUSimulatorNode(Node):
         msg.head_pad_connected = True
         msg.left_arm_connected = True
         msg.right_arm_connected = True
-        msg.is_simulator = True
+        # Mark as simulator, but indicate if real hardware is also connected
+        msg.is_simulator = not self._teensy_connected
         self._pub_status.publish(msg)
 
 
@@ -194,6 +247,12 @@ class IMUSimulatorGUI:
 
         # Wire up incoming robot commands to flash punch buttons
         node._robot_cmd_callback = self._on_incoming_punch
+        # Wire up real hardware mirror callbacks
+        node._real_strike_callback = self._on_real_strike_gui
+        node._motor_feedback_callback = self._on_motor_feedback_gui
+
+        # IMU pad index -> pad name (matches boxbunny.yaml imu_pad_map)
+        self._imu_pad_map = {0: "centre", 1: "left", 2: "right", 3: "head"}
 
     # ── UI ───────────────────────────────────────────────────────────────
     def _build(self) -> None:
@@ -209,6 +268,11 @@ class IMUSimulatorGUI:
                  bg=SURFACE, fg=PRIMARY).pack(side="left")
         tk.Label(top, text="IMU Simulator", font=(FONT, 9),
                  bg=SURFACE, fg=FG_DIM).pack(side="left", padx=8)
+        self._hw_indicator = tk.Label(
+            top, text="HW: --", font=(FONT, 8, "bold"),
+            bg=SURFACE, fg=FG_MUTED,
+        )
+        self._hw_indicator.pack(side="right", padx=12)
 
         # ── Force section ───────────────────────────────────────────────
         force_frame = tk.Frame(r, bg=BG)
@@ -354,6 +418,70 @@ class IMUSimulatorGUI:
         )
         self._seq_label.pack(fill="x", padx=8, pady=4)
 
+        # ── Teensy live data ────────────────────────────────────────────
+        tk.Frame(r, bg=BORDER, height=1).pack(fill="x", padx=16, pady=(8, 0))
+        tk.Label(r, text="TEENSY LIVE DATA", font=(FONT, 8, "bold"),
+                 bg=BG, fg=FG_MUTED).pack(anchor="w", padx=16, pady=(6, 0))
+
+        hw_frame = tk.Frame(r, bg=SURFACE, highlightthickness=0)
+        hw_frame.pack(fill="x", padx=16, pady=(2, 0))
+
+        # Motor positions row
+        motor_row = tk.Frame(hw_frame, bg=SURFACE)
+        motor_row.pack(fill="x", padx=8, pady=(6, 0))
+        _motor_names = ["L1", "L2", "R1", "R2"]
+        tk.Label(motor_row, text="Motors", font=(FONT, 9, "bold"),
+                 bg=SURFACE, fg=FG_DIM).pack(side="left", padx=(0, 6))
+        self._hw_pos_labels = []
+        self._hw_cur_labels = []
+        for i in range(4):
+            cell = tk.Frame(motor_row, bg=SURFACE)
+            cell.pack(side="left", expand=True, fill="x", padx=2)
+            tk.Label(cell, text=_motor_names[i], font=(FONT, 8),
+                     bg=SURFACE, fg=FG_MUTED).pack()
+            plbl = tk.Label(cell, text="--", font=(FONT, 10),
+                            bg=SURFACE, fg=FG)
+            plbl.pack()
+            clbl = tk.Label(cell, text="--", font=(FONT, 9),
+                            bg=SURFACE, fg=FG_DIM)
+            clbl.pack()
+            self._hw_pos_labels.append(plbl)
+            self._hw_cur_labels.append(clbl)
+
+        # IMU accel magnitudes row (per pad) + threshold indicator
+        imu_header = tk.Frame(hw_frame, bg=SURFACE)
+        imu_header.pack(fill="x", padx=8, pady=(6, 0))
+        tk.Label(imu_header, text="IMU", font=(FONT, 9, "bold"),
+                 bg=SURFACE, fg=FG_DIM).pack(side="left")
+        # Show the strike threshold (matches V4 IMU Diagnostics: 20 m/s²)
+        self._strike_threshold = 20.0
+        tk.Label(imu_header, text=f"strike threshold: {self._strike_threshold:.0f} m/s\u00B2",
+                 font=(FONT, 8), bg=SURFACE, fg=FG_MUTED).pack(side="left", padx=(8, 0))
+        tk.Label(imu_header, text="(gravity-subtracted)",
+                 font=(FONT, 7), bg=SURFACE, fg=FG_MUTED).pack(side="left", padx=(4, 0))
+
+        imu_row = tk.Frame(hw_frame, bg=SURFACE)
+        imu_row.pack(fill="x", padx=8, pady=(2, 6))
+        _imu_pad_names = ["Centre", "Left", "Right", "Head"]
+        _imu_pad_colors = [PRIMARY, PUNCH_JAB, PUNCH_UPPER, AMBER]
+        self._hw_imu_labels = []
+        self._hw_imu_peak_labels = []
+        for i in range(4):
+            cell = tk.Frame(imu_row, bg=SURFACE)
+            cell.pack(side="left", expand=True, fill="x", padx=2)
+            tk.Label(cell, text=_imu_pad_names[i], font=(FONT, 8),
+                     bg=SURFACE, fg=_imu_pad_colors[i]).pack()
+            # Raw magnitude (from motor_feedback, includes gravity)
+            lbl = tk.Label(cell, text="--", font=(FONT, 11, "bold"),
+                           bg=SURFACE, fg=FG_DIM)
+            lbl.pack()
+            self._hw_imu_labels.append(lbl)
+            # Last detected peak (from /robot/strike_detected, gravity-subtracted)
+            peak_lbl = tk.Label(cell, text="", font=(FONT, 8),
+                                bg=SURFACE, fg=FG_MUTED)
+            peak_lbl.pack()
+            self._hw_imu_peak_labels.append(peak_lbl)
+
         # ── Event log ───────────────────────────────────────────────────
         tk.Frame(r, bg=BORDER, height=1).pack(fill="x", padx=16, pady=(8, 0))
         tk.Label(r, text="EVENT LOG", font=(FONT, 8, "bold"),
@@ -396,6 +524,114 @@ class IMUSimulatorGUI:
         }
         self._log(f"CMD>  {_PUNCH_LABELS.get(punch_type, punch_type):<8s}  "
                   f"(from GUI drill)")
+
+    # ── Real hardware mirror handlers ──────────────────────────────────
+    def _on_real_strike_gui(self, data: dict) -> None:
+        """Called from ROS thread when real Teensy detects a pad strike."""
+        self._root.after(0, lambda: self._flash_real_strike(data))
+
+    def _flash_real_strike(self, data: dict) -> None:
+        """Flash the pad on the simulator matching a real hardware strike.
+
+        The /robot/strike_detected message is published by the V4 arm control
+        GUI after gravity calibration + peak scanning.  The peak_accel value
+        is already gravity-subtracted, so the threshold comparison matches
+        the V4 IMUDiagnosticsTab: check_val > _strike_cutoff (20 m/s²).
+        """
+        pad_index = data.get("pad_index", -1)
+        peak_accel = data.get("peak_accel", 0.0)
+        pad_name = self._imu_pad_map.get(pad_index)
+        if pad_name is None:
+            return
+
+        # Force level classification (same thresholds as imu_node.py)
+        if peak_accel >= 40:
+            color = RED
+            level = "hard"
+        elif peak_accel >= 20:
+            color = AMBER
+            level = "medium"
+        else:
+            color = GREEN
+            level = "light"
+
+        # Flash the pad button
+        if pad_name in self._pad_btns:
+            self._flash(self._pad_btns[pad_name], color, PAD_BG, RED)
+
+        # Update the peak label under the IMU value for this pad
+        if 0 <= pad_index < len(self._hw_imu_peak_labels):
+            self._hw_imu_peak_labels[pad_index].configure(
+                text=f"pk: {peak_accel:.1f}", fg=color,
+            )
+            # Clear the peak label after 1.5s
+            self._hw_imu_peak_labels[pad_index].after(
+                1500,
+                lambda idx=pad_index: self._hw_imu_peak_labels[idx].configure(
+                    text="", fg=FG_MUTED,
+                ),
+            )
+
+        self._log(
+            f"HW>  {pad_name:<7s}  peak={peak_accel:.1f}m/s\u00B2  level={level}"
+            f"  (threshold={self._strike_threshold:.0f})"
+        )
+
+    def _on_motor_feedback_gui(self, data) -> None:
+        """Called from ROS thread with motor_feedback data."""
+        # Schedule GUI update on main thread with a copy of the data
+        self._root.after(0, lambda d=list(data): self._update_hw_display(d))
+
+    def _update_hw_display(self, data: list) -> None:
+        """Update the Teensy live data display (positions, currents, raw IMU).
+
+        Strike detection is handled by _flash_real_strike() which is triggered
+        by /robot/strike_detected — the V4 arm control GUI does the gravity
+        calibration, peak scanning, and threshold check on its side, then
+        publishes the final result.  We just display raw values here.
+        """
+        import math
+
+        # Connection indicator
+        if self._node._teensy_connected:
+            self._hw_indicator.configure(text="HW: LIVE", fg=GREEN)
+        else:
+            self._hw_indicator.configure(text="HW: --", fg=FG_MUTED)
+            return
+
+        # Motor positions [0:4]
+        if len(data) >= 4:
+            for i in range(4):
+                self._hw_pos_labels[i].configure(
+                    text=f"{data[i]:+.2f}", fg=FG,
+                )
+
+        # Motor currents [4:8]
+        if len(data) >= 8:
+            for i in range(4):
+                val = abs(data[4 + i])
+                color = RED if val > 2.0 else (AMBER if val > 0.5 else FG_DIM)
+                self._hw_cur_labels[i].configure(
+                    text=f"{data[4+i]:+.2f}A", fg=color,
+                )
+
+        # IMU raw magnitudes (for reference — strike detection comes from
+        # /robot/strike_detected which is published by the V4 arm control GUI
+        # after gravity calibration + peak scanning + threshold check)
+        if len(data) >= 21:
+            for i in range(4):
+                ax = data[9 + i * 3]
+                ay = data[9 + i * 3 + 1]
+                az = data[9 + i * 3 + 2]
+                raw_mag = math.sqrt(ax * ax + ay * ay + az * az)
+                # Just display; color is informational only
+                if raw_mag > 20:
+                    color = AMBER
+                elif raw_mag > 12:
+                    color = FG
+                else:
+                    color = FG_DIM
+                self._hw_imu_labels[i].configure(text=f"{raw_mag:.1f}", fg=color)
 
     # ── Factories ───────────────────────────────────────────────────────
     def _make_pad(self, parent: tk.Frame, label: str,
@@ -477,11 +713,25 @@ class IMUSimulatorGUI:
 
     # ── Punch simulator ─────────────────────────────────────────────────
     def _on_punch(self, punch_type: str, color: str) -> None:
-        """Simulate robot arm throwing a punch — only flashes arm, not pads."""
+        """Simulate robot arm throwing a punch — publishes RobotCommand to
+        make physical arms move, plus ConfirmedPunch for data tracking."""
         level = self._get_force_level()
         force = self._get_force_normalized()
         self._node.publish_punch(punch_type, level, force)
         arm_side, _ = _PUNCH_TYPES.get(punch_type, ("left", "centre"))
+
+        # Also publish RobotCommand so physical robot arms execute the punch
+        _PUNCH_TO_CODE = {
+            "jab": "1", "cross": "2", "l_hook": "3",
+            "r_hook": "4", "l_upper": "5", "r_upper": "6",
+        }
+        code = _PUNCH_TO_CODE.get(punch_type)
+        if code:
+            cmd = RobotCommand()
+            cmd.command_type = "punch"
+            cmd.punch_code = code
+            cmd.speed = "medium"
+            self._node._pub_robot_cmd.publish(cmd)
 
         # Flash the punch button
         if punch_type in self._punch_btns:

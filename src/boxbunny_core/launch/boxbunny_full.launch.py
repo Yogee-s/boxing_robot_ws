@@ -44,9 +44,8 @@ def generate_launch_description() -> LaunchDescription:
             name="robot_node",
             output="screen",
             parameters=[{
-                "serial_port": "/dev/ttyACM0",
-                "baud_rate": 115200,
                 "punch_sequences_dir": str(ws_root / "data" / "punch_sequences"),
+                "heartbeat_hz": 10.0,
             }],
         ),
         Node(

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import threading
 import time
 from collections import deque
@@ -26,9 +27,18 @@ try:
 except ImportError:
     raise ImportError("PyTorch is required for inference_runtime")
 
-# Local library imports (same directory)
-from .voxel_features import BackgroundModel, VoxelFeatureConfig, VoxelOccupancyExtractor
-from .fusion_model import (
+# Ensure action_prediction/ is on sys.path so that `from lib.xxx` imports
+# inside fusion_model.py / voxel_model.py resolve correctly.  These files
+# use `from lib.voxel_model import ...` which requires the action_prediction
+# directory (the parent of lib/) to be importable.
+_LIB_DIR = Path(__file__).resolve().parent          # action_prediction/lib/
+_AP_DIR = _LIB_DIR.parent                           # action_prediction/
+if str(_AP_DIR) not in sys.path:
+    sys.path.insert(0, str(_AP_DIR))
+
+# Now use absolute imports (matching how live_voxelflow_inference.py does it)
+from lib.voxel_features import BackgroundModel, VoxelFeatureConfig, VoxelOccupancyExtractor
+from lib.fusion_model import (
     FusionVoxelPoseTransformerModel,
     POSE_FEATURE_DIM,
     extract_pose_features,
@@ -36,7 +46,7 @@ from .fusion_model import (
 
 _POSE_AVAILABLE = False
 try:
-    from .pose import YOLOPoseEstimator
+    from lib.pose import YOLOPoseEstimator
     _POSE_AVAILABLE = True
 except ImportError:
     YOLOPoseEstimator = None
@@ -620,7 +630,7 @@ class InferenceEngine:
         pose_bbox = None
 
         if self.fusion_mode and self._pose_estimator is not None:
-            from .fusion_model import (
+            from lib.fusion_model import (
                 extract_pose_features_static,
                 compute_pose_velocity,
                 POSE_STATIC_DIM,
