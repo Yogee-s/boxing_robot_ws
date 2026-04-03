@@ -451,6 +451,32 @@ class DatabaseManager:
         result["events"] = [dict(e) for e in events]
         return result
 
+    def get_session_events(
+        self, username: str, session_id: str,
+    ) -> List[Dict[str, Any]]:
+        """Get all events for a session with parsed data.
+
+        Returns a list of dicts with ``event_type`` and ``data`` (the
+        ``data_json`` column parsed back into a Python object).
+        """
+        with self._get_user_conn(username) as conn:
+            rows = conn.execute(
+                "SELECT event_type, data_json FROM session_events "
+                "WHERE session_id = ? ORDER BY timestamp",
+                (session_id,),
+            ).fetchall()
+        results: List[Dict[str, Any]] = []
+        for row in rows:
+            data: Any = {}
+            raw = row["data_json"]
+            if raw:
+                try:
+                    data = json.loads(raw) if isinstance(raw, str) else raw
+                except (json.JSONDecodeError, TypeError):
+                    data = {}
+            results.append({"event_type": row["event_type"], "data": data})
+        return results
+
     # --- Performance Tests (per-user DB) ---
 
     def save_power_test(self, username: str, data: Dict) -> int:

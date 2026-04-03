@@ -120,6 +120,52 @@ async def send_command(
         )
 
 
+class HeightAction(BaseModel):
+    action: str = Field(..., description="up | down | stop")
+
+
+# Height control state
+_height_active: bool = False
+_height_direction: str = "stop"
+_height_last_cmd: float = 0.0
+
+
+@router.post("/height", response_model=RemoteStatus)
+async def height_control(
+    body: HeightAction,
+    user: dict = Depends(get_current_user),
+) -> RemoteStatus:
+    """Control robot height via press-and-hold.
+
+    Send "up"/"down" to start moving, "stop" to halt.
+    Auto-stops after 5 seconds if no new command (dead-man switch).
+    """
+    global _height_active, _height_direction, _height_last_cmd
+
+    action_map = {"up": "manual_up", "down": "manual_down", "stop": "stop"}
+    mapped = action_map.get(body.action)
+    if mapped is None:
+        raise HTTPException(400, f"Invalid action: {body.action}")
+
+    _height_direction = mapped
+    _height_last_cmd = time.time()
+    _height_active = mapped != "stop"
+
+    # Write height command for GUI to pick up
+    cmd = {
+        "action": "height_adjust",
+        "config": {"height_action": mapped},
+        "timestamp": time.time(),
+    }
+    try:
+        _CMD_FILE.write_text(json.dumps(cmd))
+        logger.info("Height: %s from %s", mapped, user["username"])
+        return RemoteStatus(success=True, message=f"Height: {body.action}")
+    except Exception as exc:
+        logger.warning("Failed to write height command: %s", exc)
+        raise HTTPException(500, "Failed to send height command")
+
+
 @router.get("/presets")
 async def get_user_presets(
     user: dict = Depends(get_current_user),

@@ -20,6 +20,8 @@ if _AP not in sys.path:
 import rclpy
 from rclpy.node import Node
 
+from std_msgs.msg import String as _StdString
+
 try:
     from boxbunny_msgs.msg import PunchDetection
 except ImportError:
@@ -33,8 +35,12 @@ class _CVPub(Node):
     def __init__(self):
         super().__init__("cv_ros_bridge")
         self._pub = self.create_publisher(PunchDetection, "/boxbunny/cv/detection", 10)
+        self._pub_direction = self.create_publisher(
+            _StdString, "/boxbunny/cv/person_direction", 10)
         self._last = "idle"
         self._consec = 0
+        self._last_direction = "centre"
+        self._frame_width = 960.0
         self.get_logger().info("Publishing CV predictions to /boxbunny/cv/detection")
 
     def send(self, action: str, confidence: float):
@@ -50,6 +56,32 @@ class _CVPub(Node):
         msg.raw_class = action
         msg.consecutive_frames = self._consec
         self._pub.publish(msg)
+
+    def send_direction(self, bbox_cx: float, frame_width: float):
+        """Publish person direction based on bounding box centre X."""
+        self._frame_width = frame_width
+        w = frame_width
+        left_b = w * 0.35
+        right_b = w * 0.65
+        hyst = 20.0
+
+        if self._last_direction == "centre":
+            new = "left" if bbox_cx < left_b - hyst else (
+                "right" if bbox_cx > right_b + hyst else "centre")
+        elif self._last_direction == "left":
+            new = "left" if bbox_cx < left_b + hyst else (
+                "right" if bbox_cx > right_b else "centre")
+        elif self._last_direction == "right":
+            new = "right" if bbox_cx > right_b - hyst else (
+                "left" if bbox_cx < left_b else "centre")
+        else:
+            new = "centre"
+
+        if new != self._last_direction:
+            self._last_direction = new
+            m = _StdString()
+            m.data = new
+            self._pub_direction.publish(m)
 
 
 _ros_node = _CVPub()
@@ -165,6 +197,16 @@ def main():
                 conf = getattr(app, 'current_confidence', 0.0)
                 if pred and isinstance(pred, str) and pred != "Initializing...":
                     _ros_node.send(pred, conf)
+        except Exception:
+            pass
+        # Publish person direction from YOLO bbox
+        try:
+            bbox = getattr(app, '_latest_pose_bbox', None)
+            if bbox is not None and len(bbox) >= 4:
+                cx = (bbox[0] + bbox[2]) / 2.0
+                rgb = getattr(app, '_latest_rgb', None)
+                fw = float(rgb.shape[1]) if rgb is not None else 960.0
+                _ros_node.send_direction(cx, fw)
         except Exception:
             pass
         try:

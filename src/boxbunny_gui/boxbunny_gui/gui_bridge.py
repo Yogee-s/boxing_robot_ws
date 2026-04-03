@@ -25,6 +25,7 @@ try:
         CoachTip,
         DefenseEvent,
         DrillProgress,
+        HeightCommand,
         IMUStatus,
         NavCommand,
         RobotCommand,
@@ -117,6 +118,10 @@ class _RosWorker(QObject):
         self._robot_cmd_pub = n.create_publisher(
             RobotCommand, Topics.ROBOT_COMMAND, 10,
         )
+        # Publisher for height commands
+        self._height_pub = n.create_publisher(
+            HeightCommand, Topics.ROBOT_HEIGHT, 10,
+        )
         # Pre-create service clients so they're ready when needed
         self._cli_start = n.create_client(StartSession, Services.START_SESSION)
         self._cli_end = n.create_client(EndSession, Services.END_SESSION)
@@ -133,6 +138,18 @@ class _RosWorker(QObject):
         msg.punch_code = punch_code
         msg.speed = speed
         self._robot_cmd_pub.publish(msg)
+
+    def publish_height_command(self, action: str) -> None:
+        """Publish a HeightCommand for manual height adjustment.
+
+        Args:
+            action: "manual_up", "manual_down", or "stop"
+        """
+        if not hasattr(self, '_height_pub') or self._height_pub is None:
+            return
+        msg = HeightCommand()
+        msg.action = action
+        self._height_pub.publish(msg)
 
     # ── Callbacks ───────────────────────────────────────────────────────
 
@@ -353,6 +370,16 @@ class GuiBridge(QObject):
         if not self._is_ready():
             return
         self._worker.publish_robot_command(punch_code, speed)
+
+    def publish_height_command(self, action: str) -> None:
+        """Publish a height adjustment command (thread-safe via worker).
+
+        Args:
+            action: "manual_up", "manual_down", or "stop"
+        """
+        if not self._is_ready():
+            return
+        self._worker.publish_height_command(action)
 
     # ── Helpers ─────────────────────────────────────────────────────────
 

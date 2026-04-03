@@ -306,6 +306,54 @@ async def get_session_trends(
     }
 
 
+@router.get("/{session_id}/raw")
+async def get_session_raw_data(
+    session_id: str,
+    user: dict = Depends(get_current_user),
+    db: DatabaseManager = Depends(_get_db),
+) -> Dict[str, Any]:
+    """Return raw CV predictions, IMU strikes, and direction timeline for a session."""
+    username = user["username"]
+
+    # Get session events from database
+    events = db.get_session_events(username, session_id) or []
+
+    raw_cv: List[Dict[str, Any]] = []
+    raw_imu: List[Dict[str, Any]] = []
+    direction: List[Dict[str, Any]] = []
+
+    for evt in events:
+        if evt.get("event_type") == "raw_cv_predictions":
+            raw_cv = evt.get("data", [])
+        elif evt.get("event_type") == "raw_imu_strikes":
+            raw_imu = evt.get("data", [])
+        elif evt.get("event_type") == "direction_timeline":
+            direction = evt.get("data", [])
+
+    # Also get experimental data from summary
+    detail = db.get_session_detail(username, session_id)
+    summary: Dict[str, Any] = {}
+    if detail and detail.get("summary_json"):
+        try:
+            summary = (
+                json.loads(detail["summary_json"])
+                if isinstance(detail["summary_json"], str)
+                else detail["summary_json"]
+            )
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    return {
+        "cv_predictions": raw_cv,
+        "imu_strikes": raw_imu,
+        "direction_timeline": direction,
+        "cv_prediction_summary": summary.get("cv_prediction_summary", {}),
+        "imu_strike_summary": summary.get("imu_strike_summary", {}),
+        "direction_summary": summary.get("direction_summary", {}),
+        "experimental": summary.get("experimental", {}),
+    }
+
+
 @router.get("/{session_id}", response_model=SessionDetail)
 async def get_session_detail(
     session_id: str,

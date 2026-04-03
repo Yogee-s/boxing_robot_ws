@@ -113,6 +113,38 @@
       </div>
     </div>
 
+    <!-- Robot Height Control -->
+    <div class="card mb-4 animate-slide-up" style="animation-delay: 75ms">
+      <h3 class="section-title">Robot Height</h3>
+      <div class="flex items-center justify-center gap-6">
+        <button
+          @touchstart.prevent="heightStart('up')"
+          @touchend.prevent="heightStop()"
+          @mousedown="heightStart('up')"
+          @mouseup="heightStop()"
+          @mouseleave="heightStop()"
+          class="w-20 h-16 rounded-xl bg-bb-surface-light flex items-center justify-center text-xl font-bold active:bg-green-600 transition-colors"
+          :class="heightDir === 'up' ? 'bg-green-600 text-white' : 'text-bb-text'"
+        >
+          ▲ UP
+        </button>
+        <div class="text-center">
+          <span class="text-sm text-bb-text-muted">{{ heightDir === 'stop' ? 'Stopped' : heightDir.toUpperCase() }}</span>
+        </div>
+        <button
+          @touchstart.prevent="heightStart('down')"
+          @touchend.prevent="heightStop()"
+          @mousedown="heightStart('down')"
+          @mouseup="heightStop()"
+          @mouseleave="heightStop()"
+          class="w-20 h-16 rounded-xl bg-bb-surface-light flex items-center justify-center text-xl font-bold active:bg-red-500 transition-colors"
+          :class="heightDir === 'down' ? 'bg-red-500 text-white' : 'text-bb-text'"
+        >
+          ▼ DN
+        </button>
+      </div>
+    </div>
+
     <!-- Security -->
     <div class="card mb-4 animate-slide-up" style="animation-delay: 100ms">
       <h3 class="section-title">Security</h3>
@@ -297,6 +329,28 @@ const auth = useAuthStore()
 const wsStore = useWebSocketStore()
 
 const displayName = ref(auth.displayName)
+const heightDir = ref('stop')
+let heightInterval = null
+
+function heightStart(dir) {
+  heightDir.value = dir
+  // Send immediately
+  api.post('/api/remote/height', { action: dir }).catch(() => {})
+  // Keep sending at 10Hz while held
+  heightInterval = setInterval(() => {
+    api.post('/api/remote/height', { action: dir }).catch(() => {})
+  }, 100)
+}
+
+function heightStop() {
+  heightDir.value = 'stop'
+  if (heightInterval) {
+    clearInterval(heightInterval)
+    heightInterval = null
+  }
+  api.post('/api/remote/height', { action: 'stop' }).catch(() => {})
+}
+
 const weeklyGoal = ref(3)
 const currentPassword = ref('')
 const newPassword = ref('')

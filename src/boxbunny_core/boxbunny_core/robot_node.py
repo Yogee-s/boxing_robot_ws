@@ -57,13 +57,16 @@ class RobotNode(Node):
 
         # ── Publishers to V4 GUI ─────────────────────────────────────────
         self._pub_strike_cmd = self.create_publisher(
-            String, "/robot/strike_command", 10
+            String, Topics.ROBOT_STRIKE_COMMAND, 10
         )
         self._pub_system_enable = self.create_publisher(
-            String, "/robot/system_enable", 10
+            String, Topics.ROBOT_SYSTEM_ENABLE, 10
         )
         self._pub_height_cmd = self.create_publisher(
             String, Topics.ROBOT_HEIGHT_CMD, 10
+        )
+        self._pub_yaw_cmd = self.create_publisher(
+            String, Topics.ROBOT_YAW_CMD, 10
         )
         self._pub_status = self.create_publisher(
             String, Topics.ROBOT_STATUS, 10
@@ -80,8 +83,13 @@ class RobotNode(Node):
         )
         # Strike completion from V4 GUI
         self.create_subscription(
-            String, "/robot/strike_feedback",
+            String, Topics.ROBOT_STRIKE_FEEDBACK,
             self._on_strike_feedback, 10
+        )
+        # Person direction → yaw motor forwarding
+        self.create_subscription(
+            String, Topics.CV_PERSON_DIRECTION,
+            self._on_person_direction, 10
         )
 
         # ── Subscribers from BoxBunny system ─────────────────────────────
@@ -190,6 +198,12 @@ class RobotNode(Node):
         else:
             return
         self._pub_height_cmd.publish(height_msg)
+
+    def _on_person_direction(self, msg: String) -> None:
+        """Forward person direction to Teensy yaw motor."""
+        yaw_msg = String()
+        yaw_msg.data = msg.data.upper()  # "LEFT", "RIGHT", "CENTRE"
+        self._pub_yaw_cmd.publish(yaw_msg)
         logger.debug("Height command: %s", height_msg.data)
 
     # ── Round control ───────────────────────────────────────────────────

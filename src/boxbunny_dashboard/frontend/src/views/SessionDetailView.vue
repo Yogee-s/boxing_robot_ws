@@ -160,9 +160,23 @@
 
       <!-- Movement Trace (canvas visualization) -->
       <div v-if="hasMovementData" class="card mb-4 animate-slide-up" style="animation-delay: 170ms">
-        <h3 class="section-title">Movement Trace</h3>
+        <div class="flex items-center justify-between mb-1">
+          <h3 class="section-title m-0">Movement Trace</h3>
+          <button
+            @click="togglePlayback"
+            class="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors"
+            :class="isPlaying ? 'bg-bb-danger-dim text-bb-danger' : 'bg-bb-primary-dim text-bb-primary'"
+          >
+            <span v-if="!isPlaying">&#9654; Play</span>
+            <span v-else>&#9632; Stop</span>
+          </button>
+        </div>
         <p class="text-[10px] text-bb-text-muted mb-2">Lateral (L/R) vs Depth (F/B) over session</p>
         <canvas ref="movementCanvas" class="w-full rounded-xl bg-bb-bg/60 border border-bb-border/10" height="200"></canvas>
+        <div class="flex justify-between mt-1.5">
+          <span class="text-[10px] text-bb-text-muted">{{ movementStartTime }}</span>
+          <span class="text-[10px] text-bb-text-muted">{{ movementEndTime }}</span>
+        </div>
       </div>
 
       <!-- Session Summary -->
@@ -218,6 +232,91 @@
             <span class="text-bb-primary font-bold">XP</span>
           </div>
         </div>
+      </div>
+
+      <!-- Raw Data (Collapsed by default) -->
+      <div class="card mb-4 animate-slide-up" style="animation-delay: 250ms">
+        <button @click="showRawData = !showRawData" class="w-full flex items-center justify-between py-2">
+          <h3 class="section-title m-0">Raw Sensor Data</h3>
+          <span class="text-bb-text-muted text-sm">{{ showRawData ? 'Hide' : 'Show' }}</span>
+        </button>
+        <transition name="fade">
+          <div v-if="showRawData" class="mt-3">
+            <div v-if="rawLoading" class="text-center text-bb-text-muted py-4">Loading...</div>
+            <div v-else>
+              <!-- CV Prediction Events -->
+              <h4 class="text-sm font-bold text-bb-text-muted mb-2">CV Prediction Events</h4>
+              <div v-if="Object.keys(rawData.cv_prediction_summary).length" class="grid grid-cols-3 gap-2 mb-4">
+                <div v-for="(data, type) in rawData.cv_prediction_summary" :key="type"
+                     class="bg-bb-surface-light rounded-lg p-2 text-center">
+                  <span class="text-xs text-bb-text-muted block">{{ type.replace(/_/g, ' ') }}</span>
+                  <span class="text-lg font-bold text-bb-text">{{ data.events }}</span>
+                  <span class="text-xs text-bb-text-muted block">{{ (data.avg_conf * 100).toFixed(0) }}% avg</span>
+                </div>
+              </div>
+              <p v-else class="text-xs text-bb-text-muted mb-4 italic">No CV prediction data</p>
+
+              <!-- IMU Pad Strikes -->
+              <h4 class="text-sm font-bold text-bb-text-muted mb-2">IMU Pad Strikes</h4>
+              <div v-if="Object.keys(rawData.imu_strike_summary).length" class="grid grid-cols-4 gap-2 mb-4">
+                <div v-for="(count, pad) in rawData.imu_strike_summary" :key="pad"
+                     class="bg-bb-surface-light rounded-lg p-2 text-center">
+                  <span class="text-xs text-bb-text-muted block">{{ pad }}</span>
+                  <span class="text-lg font-bold text-bb-text">{{ count }}</span>
+                </div>
+              </div>
+              <p v-else class="text-xs text-bb-text-muted mb-4 italic">No IMU strike data</p>
+
+              <!-- Direction Summary -->
+              <h4 class="text-sm font-bold text-bb-text-muted mb-2">Position Time</h4>
+              <div v-if="Object.keys(rawData.direction_summary).length" class="grid grid-cols-3 gap-2">
+                <div v-for="(secs, dir) in rawData.direction_summary" :key="dir"
+                     class="bg-bb-surface-light rounded-lg p-2 text-center">
+                  <span class="text-xs text-bb-text-muted block">{{ dir }}</span>
+                  <span class="text-lg font-bold text-bb-text">{{ typeof secs === 'number' ? secs.toFixed(0) : secs }}s</span>
+                </div>
+              </div>
+              <p v-else class="text-xs text-bb-text-muted italic">No direction data</p>
+            </div>
+          </div>
+        </transition>
+      </div>
+
+      <!-- Experimental Defense Data -->
+      <div class="card mb-4 animate-slide-up" style="animation-delay: 255ms">
+        <button @click="showExperimental = !showExperimental" class="w-full flex items-center justify-between py-2">
+          <h3 class="section-title m-0">
+            Defense Analysis
+            <span class="text-xs bg-amber-600 text-white px-1.5 py-0.5 rounded ml-2">BETA</span>
+          </h3>
+          <span class="text-bb-text-muted text-sm">{{ showExperimental ? 'Hide' : 'Show' }}</span>
+        </button>
+        <transition name="fade">
+          <div v-if="showExperimental && rawData.experimental" class="mt-3">
+            <p class="text-xs text-bb-text-muted mb-3 italic">
+              Based on CV detection -- may not capture all defensive movements
+            </p>
+            <div v-if="rawData.experimental.defense_rate != null" class="grid grid-cols-2 gap-3 mb-3">
+              <div class="bg-bb-surface-light rounded-lg p-3 text-center">
+                <span class="text-xs text-bb-text-muted block">Defense Rate</span>
+                <span class="text-2xl font-bold text-bb-text">{{ (rawData.experimental.defense_rate * 100).toFixed(0) }}%</span>
+              </div>
+              <div class="bg-bb-surface-light rounded-lg p-3 text-center">
+                <span class="text-xs text-bb-text-muted block">Avg Reaction</span>
+                <span class="text-2xl font-bold text-bb-text">{{ rawData.experimental.avg_reaction_time_ms || '--' }}ms</span>
+              </div>
+            </div>
+            <div v-if="rawData.experimental.defense_breakdown" class="grid grid-cols-4 gap-2">
+              <div v-for="(count, type) in rawData.experimental.defense_breakdown" :key="type"
+                   class="bg-bb-surface-light rounded-lg p-2 text-center">
+                <span class="text-xs text-bb-text-muted block">{{ type }}</span>
+                <span class="text-lg font-bold text-bb-text">{{ count }}</span>
+              </div>
+            </div>
+            <p v-if="!rawData.experimental.defense_rate && !rawData.experimental.defense_breakdown"
+               class="text-xs text-bb-text-muted italic">No experimental defense data available</p>
+          </div>
+        </transition>
       </div>
 
       <!-- Actions Row -->
@@ -293,7 +392,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import * as api from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
@@ -307,6 +406,23 @@ const loading = ref(true)
 const error = ref('')
 const showShareCard = ref(false)
 const userProfile = ref(null)
+
+// Raw data panel state
+const showRawData = ref(false)
+const showExperimental = ref(false)
+const rawLoading = ref(false)
+const rawData = ref({
+  cv_predictions: null,
+  cv_prediction_summary: {},
+  imu_strike_summary: {},
+  direction_summary: {},
+  experimental: {},
+})
+
+// Movement animation state
+const isPlaying = ref(false)
+const playProgress = ref(0)
+let animationFrameId = null
 
 const punchColors = [
   'rgba(0, 230, 118, 0.8)',    // green - jab
@@ -666,6 +782,35 @@ async function exportPDF() {
   }
 }
 
+// Lazy-load raw data when toggled
+async function fetchRawData() {
+  rawLoading.value = true
+  try {
+    const data = await api.getSessionRawData(route.params.id)
+    rawData.value = data
+  } catch (e) {
+    logger('Failed to load raw data:', e)
+  }
+  rawLoading.value = false
+}
+
+function logger(...args) {
+  // eslint-disable-next-line no-console
+  console.error(...args)
+}
+
+watch(showRawData, async (val) => {
+  if (val && rawData.value.cv_predictions === null) {
+    await fetchRawData()
+  }
+})
+
+watch(showExperimental, async (val) => {
+  if (val && !rawData.value.experimental?.defense_rate) {
+    await fetchRawData()
+  }
+})
+
 // Movement trace data
 const movementCanvas = ref(null)
 const hasMovementData = computed(() => {
@@ -673,19 +818,40 @@ const hasMovementData = computed(() => {
   return s && s.movement_timeline_json && s.movement_timeline_json !== '[]'
 })
 
-function drawMovementTrace() {
+// Movement start/end time labels
+const movementStartTime = computed(() => {
+  if (!session.value?.started_at) return 'Start'
+  try {
+    return new Date(session.value.started_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+  } catch { return 'Start' }
+})
+const movementEndTime = computed(() => {
+  if (!session.value?.ended_at) return 'End'
+  try {
+    return new Date(session.value.ended_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+  } catch { return 'End' }
+})
+
+function getMovementTimeline() {
+  const s = summary.value
+  if (!s?.movement_timeline_json) return null
+  try {
+    const parsed = JSON.parse(s.movement_timeline_json)
+    return (parsed && parsed.length >= 2) ? parsed : null
+  } catch { return null }
+}
+
+function drawMovementTrace(highlightUpTo = -1) {
   const canvas = movementCanvas.value
   if (!canvas) return
-  const s = summary.value
-  if (!s?.movement_timeline_json) return
-  let timeline
-  try { timeline = JSON.parse(s.movement_timeline_json) } catch { return }
-  if (!timeline || timeline.length < 2) return
+  const timeline = getMovementTimeline()
+  if (!timeline) return
 
   const ctx = canvas.getContext('2d')
-  const W = canvas.width = canvas.clientWidth * (window.devicePixelRatio || 1)
-  const H = canvas.height = 200 * (window.devicePixelRatio || 1)
-  ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1)
+  const dpr = window.devicePixelRatio || 1
+  canvas.width = canvas.clientWidth * dpr
+  canvas.height = 200 * dpr
+  ctx.scale(dpr, dpr)
   const w = canvas.clientWidth
   const h = 200
 
@@ -697,7 +863,27 @@ function drawMovementTrace() {
 
   ctx.clearRect(0, 0, w, h)
 
-  // Grid
+  // Direction zone background coloring (left=blue, centre=green, right=purple)
+  const zoneW = w / 3
+  ctx.globalAlpha = 0.04
+  ctx.fillStyle = '#42A5F5'  // blue - left
+  ctx.fillRect(0, 0, zoneW, h)
+  ctx.fillStyle = '#56D364'  // green - centre
+  ctx.fillRect(zoneW, 0, zoneW, h)
+  ctx.fillStyle = '#AB47BC'  // purple - right
+  ctx.fillRect(zoneW * 2, 0, zoneW, h)
+  ctx.globalAlpha = 1.0
+
+  // Zone labels
+  ctx.fillStyle = 'rgba(255,255,255,0.12)'
+  ctx.font = '9px sans-serif'
+  ctx.textAlign = 'center'
+  ctx.fillText('LEFT', zoneW / 2, h - 6)
+  ctx.fillText('CENTRE', w / 2, h - 6)
+  ctx.fillText('RIGHT', w - zoneW / 2, h - 6)
+  ctx.textAlign = 'start'
+
+  // Grid crosshair
   ctx.strokeStyle = 'rgba(255,255,255,0.05)'
   ctx.lineWidth = 1
   ctx.beginPath()
@@ -705,38 +891,109 @@ function drawMovementTrace() {
   ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2)
   ctx.stroke()
 
-  // Labels
+  // Axis labels
   ctx.fillStyle = 'rgba(255,255,255,0.2)'
   ctx.font = '10px sans-serif'
-  ctx.fillText('LEFT', 4, h / 2 - 4)
-  ctx.fillText('RIGHT', w - 36, h / 2 - 4)
   ctx.fillText('CLOSE', w / 2 + 4, 12)
-  ctx.fillText('FAR', w / 2 + 4, h - 4)
+  ctx.fillText('FAR', w / 2 + 4, h - 14)
 
-  // Draw trace
+  // Helper to map point to canvas coords
+  function toXY(point) {
+    return {
+      x: w / 2 + (point.lat || 0) / maxLat * (w / 2 - 10),
+      y: h / 2 + (point.dep_disp || 0) / maxDep * (h / 2 - 10),
+    }
+  }
+
+  const drawCount = highlightUpTo >= 0 ? Math.min(highlightUpTo + 1, timeline.length) : timeline.length
+
+  // Draw full trace (dimmed if animating)
+  if (highlightUpTo >= 0) {
+    ctx.strokeStyle = 'rgba(255, 107, 53, 0.15)'
+    ctx.lineWidth = 1.5
+    ctx.beginPath()
+    for (let i = 0; i < timeline.length; i++) {
+      const { x, y } = toXY(timeline[i])
+      if (i === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    }
+    ctx.stroke()
+  }
+
+  // Draw highlighted portion
   ctx.strokeStyle = '#FF6B35'
   ctx.lineWidth = 2
   ctx.beginPath()
-  for (let i = 0; i < timeline.length; i++) {
-    const x = w / 2 + (timeline[i].lat || 0) / maxLat * (w / 2 - 10)
-    const y = h / 2 + (timeline[i].dep_disp || 0) / maxDep * (h / 2 - 10)
+  for (let i = 0; i < drawCount; i++) {
+    const { x, y } = toXY(timeline[i])
     if (i === 0) ctx.moveTo(x, y)
     else ctx.lineTo(x, y)
   }
   ctx.stroke()
 
-  // Start and end markers
-  const first = timeline[0]
-  const last = timeline[timeline.length - 1]
-  const fx = w / 2 + (first.lat || 0) / maxLat * (w / 2 - 10)
-  const fy = h / 2 + (first.dep_disp || 0) / maxDep * (h / 2 - 10)
+  // Start marker (green)
+  const start = toXY(timeline[0])
   ctx.fillStyle = '#56D364'
-  ctx.beginPath(); ctx.arc(fx, fy, 5, 0, Math.PI * 2); ctx.fill()
+  ctx.beginPath(); ctx.arc(start.x, start.y, 5, 0, Math.PI * 2); ctx.fill()
 
-  const lx = w / 2 + (last.lat || 0) / maxLat * (w / 2 - 10)
-  const ly = h / 2 + (last.dep_disp || 0) / maxDep * (h / 2 - 10)
-  ctx.fillStyle = '#FF5C5C'
-  ctx.beginPath(); ctx.arc(lx, ly, 5, 0, Math.PI * 2); ctx.fill()
+  // End marker or current position dot
+  if (highlightUpTo >= 0 && highlightUpTo < timeline.length) {
+    // Animated cursor dot
+    const cur = toXY(timeline[highlightUpTo])
+    ctx.fillStyle = '#FFAB40'
+    ctx.shadowColor = '#FFAB40'
+    ctx.shadowBlur = 8
+    ctx.beginPath(); ctx.arc(cur.x, cur.y, 6, 0, Math.PI * 2); ctx.fill()
+    ctx.shadowBlur = 0
+  } else {
+    // Static end marker (red)
+    const end = toXY(timeline[timeline.length - 1])
+    ctx.fillStyle = '#FF5C5C'
+    ctx.beginPath(); ctx.arc(end.x, end.y, 5, 0, Math.PI * 2); ctx.fill()
+  }
+}
+
+function togglePlayback() {
+  if (isPlaying.value) {
+    stopPlayback()
+  } else {
+    startPlayback()
+  }
+}
+
+function startPlayback() {
+  const timeline = getMovementTimeline()
+  if (!timeline) return
+  isPlaying.value = true
+  playProgress.value = 0
+  const totalFrames = timeline.length
+  const durationMs = 3000 // 3 second animation
+  const startTime = performance.now()
+
+  function animate(now) {
+    const elapsed = now - startTime
+    const progress = Math.min(elapsed / durationMs, 1)
+    const frameIdx = Math.floor(progress * (totalFrames - 1))
+    playProgress.value = frameIdx
+    drawMovementTrace(frameIdx)
+    if (progress < 1 && isPlaying.value) {
+      animationFrameId = requestAnimationFrame(animate)
+    } else {
+      isPlaying.value = false
+      playProgress.value = 0
+      drawMovementTrace(-1) // redraw static
+    }
+  }
+  animationFrameId = requestAnimationFrame(animate)
+}
+
+function stopPlayback() {
+  isPlaying.value = false
+  if (animationFrameId) {
+    cancelAnimationFrame(animationFrameId)
+    animationFrameId = null
+  }
+  drawMovementTrace(-1) // redraw static
 }
 
 onMounted(async () => {
@@ -744,6 +1001,6 @@ onMounted(async () => {
   // Load user profile for context (non-blocking)
   api.getUserProfile().then(p => { userProfile.value = p }).catch(() => {})
   // Draw movement trace after data loads
-  setTimeout(drawMovementTrace, 100)
+  setTimeout(() => drawMovementTrace(-1), 100)
 })
 </script>

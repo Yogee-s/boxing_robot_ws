@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """BoxBunny CV + IMU Fusion Debug GUI -- standalone Tkinter window showing
-CV inference stats and IMU simulator side by side.
+CV inference stats and Teensy simulator side by side.
 
 Launch:  python3 notebooks/scripts/cv_imu_combined_gui.py
 """

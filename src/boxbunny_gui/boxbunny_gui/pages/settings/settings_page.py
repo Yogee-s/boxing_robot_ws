@@ -395,6 +395,48 @@ class SettingsPage(QWidget):
             self._hw_dots[device] = dot
             row.addWidget(dot)
             hw.content_layout.addLayout(row)
+        # Height adjustment
+        height_row = QHBoxLayout()
+        height_lbl = QLabel("Height Adjust")
+        height_lbl.setFont(font(14))
+        height_lbl.setStyleSheet(f"color: {Color.FG_DIM};")
+        height_row.addWidget(height_lbl)
+        height_row.addStretch()
+        btn_up = QPushButton("UP")
+        btn_up.setMinimumSize(80, 50)
+        btn_up.setFont(font(14, bold=True))
+        btn_up.setStyleSheet(SURFACE_BTN)
+        btn_down = QPushButton("DOWN")
+        btn_down.setMinimumSize(80, 50)
+        btn_down.setFont(font(14, bold=True))
+        btn_down.setStyleSheet(SURFACE_BTN)
+
+        self._height_timer = None
+
+        def _height_start(action: str) -> None:
+            if self._bridge:
+                self._bridge.publish_height_command(action)
+            from PySide6.QtCore import QTimer
+            self._height_timer = QTimer()
+            self._height_timer.timeout.connect(
+                lambda: self._bridge.publish_height_command(action) if self._bridge else None
+            )
+            self._height_timer.start(100)  # 10Hz continuous publish
+
+        def _height_stop() -> None:
+            if self._height_timer:
+                self._height_timer.stop()
+                self._height_timer = None
+            if self._bridge:
+                self._bridge.publish_height_command("stop")
+
+        btn_up.pressed.connect(lambda: _height_start("manual_up"))
+        btn_up.released.connect(_height_stop)
+        btn_down.pressed.connect(lambda: _height_start("manual_down"))
+        btn_down.released.connect(_height_stop)
+        height_row.addWidget(btn_up)
+        height_row.addWidget(btn_down)
+        hw.content_layout.addLayout(height_row)
         sections.addWidget(hw)
 
         # Sound
