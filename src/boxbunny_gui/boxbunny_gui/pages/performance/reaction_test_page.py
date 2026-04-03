@@ -68,21 +68,23 @@ class _Cam(QObject):
             self._best_ms = ms; self._best = list(self._buf)
         self._buf.clear()
 
-    def run(self):
-        self._on = True; self._prev = None
+    def _lazy_load_model(self):
+        """Load YOLO on first use — doesn't block camera startup."""
+        if self._mdl is not None or self._mdl_failed: return
         try:
             from ultralytics import YOLO
             self._mdl = YOLO(str(_YOLO) if _YOLO.exists() else "yolo11s-pose.pt")
-        except: self._mdl = None
+        except:
+            self._mdl_failed = True
+
+    def run(self):
+        self._on = True; self._prev = None; self._mdl_failed = False
 
         try:
             import pyrealsense2 as rs
             p = rs.pipeline(); c = rs.config()
             c.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
             p.start(c)
-            for _ in range(10):
-                try: p.wait_for_frames(timeout_ms=5000)
-                except: pass
             while self._on:
                 try: f = p.wait_for_frames(timeout_ms=1000)
                 except: continue
@@ -109,6 +111,7 @@ class _Cam(QObject):
     def stop(self): self._on = False
 
     def _proc(self, bgr):
+        self._lazy_load_model()
         mv = 0.0
         if self._mdl:
             try:
@@ -132,9 +135,34 @@ class _Cam(QObject):
 
     @staticmethod
     def _kps(r):
-        if not r or not r[0].keypoints or r[0].keypoints.data is None: return None
-        a = r[0].keypoints.data.cpu().numpy()
-        return a[0] if a.shape[0]>0 else None
+        """Pick the person closest to camera centre (largest + most centred bbox)."""
+        if not r or not r[0].keypoints or r[0].keypoints.data is None:
+            return None
+        kps_data = r[0].keypoints.data.cpu().numpy()
+        if kps_data.shape[0] == 0:
+            return None
+        if kps_data.shape[0] == 1:
+            return kps_data[0]
+
+        # Multiple people — pick by largest bbox area × closeness to centre
+        boxes = r[0].boxes
+        if boxes is None or boxes.xyxy is None:
+            return kps_data[0]
+        xyxy = boxes.xyxy.cpu().numpy()
+        img_w = 640  # approximate
+        best_idx = 0
+        best_score = -1
+        for i in range(len(xyxy)):
+            x1, y1, x2, y2 = xyxy[i]
+            area = (x2 - x1) * (y2 - y1)
+            cx = (x1 + x2) / 2
+            # Penalise distance from horizontal centre
+            centre_dist = abs(cx - img_w / 2) / (img_w / 2)
+            score = area * (1.0 - 0.5 * centre_dist)
+            if score > best_score:
+                best_score = score
+                best_idx = i
+        return kps_data[best_idx] if best_idx < kps_data.shape[0] else kps_data[0]
 
 
 # ── Page ─────────────────────────────────────────────────────────────────────
