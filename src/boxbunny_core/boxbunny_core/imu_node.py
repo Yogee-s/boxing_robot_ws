@@ -94,7 +94,8 @@ class ImuNode(Node):
         )
 
         # IMU pad index -> pad name mapping (from boxbunny.yaml)
-        self._imu_pad_map = {0: "centre", 1: "left", 2: "right", 3: "head"}
+        # Physical wiring: index 1 = user's RIGHT pad, index 2 = user's LEFT pad
+        self._imu_pad_map = {0: "centre", 1: "right", 2: "left", 3: "head"}
 
         # Strike timing tracking (per-pad timestamps)
         self._last_strike_time: Dict[str, float] = {}
@@ -166,6 +167,9 @@ class ImuNode(Node):
 
         Published by the V4 GUI when a pad IMU exceeds the strike threshold.
         JSON: {"pad_index": 0, "pad_name": "Centre Body", "peak_accel": 35.2}
+
+        Debounced per-pad: ignores duplicate strikes within 300ms of the last
+        strike on the same pad (V4 GUI can fire multiple times per punch).
         """
         try:
             data = json.loads(msg.data)
@@ -179,6 +183,13 @@ class ImuNode(Node):
         if pad_name is None:
             return
 
+        # Debounce: skip if same pad was hit within 500ms
+        # (a single punch impact can ring above threshold for 300-400ms)
+        now = time.time()
+        last = self._last_strike_time.get(pad_name, 0.0)
+        if now - last < 0.5:
+            return
+
         # Classify force level from peak acceleration
         if peak_accel >= 40.0:
             level = "hard"
@@ -189,7 +200,7 @@ class ImuNode(Node):
 
         # Publish as a standard PadImpact (same as simulator path)
         impact = PadImpact()
-        impact.timestamp = time.time()
+        impact.timestamp = now
         impact.pad = pad_name
         impact.level = level
         impact.accel_magnitude = peak_accel

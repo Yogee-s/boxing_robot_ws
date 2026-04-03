@@ -62,6 +62,14 @@ class PunchProcessorNode(Node):
         self._session_active: bool = False
         self._stats: SessionStats = SessionStats()
 
+        # CV prediction buffer: stores recent non-idle predictions for
+        # pad-based filtering.  When IMU fires we search this buffer for
+        # the best prediction that is valid for the struck pad.
+        self._cv_buffer: list[tuple[float, str, float]] = []  # (ts, action, conf)
+        self._cv_buffer_window: float = 1.5  # seconds to keep
+        self._current_cv: str = "idle"
+        self._current_cv_conf: float = 0.0
+
         # Publishers
         self._pub_punch = (
             self.create_publisher(ConfirmedPunch, Topics.PUNCH_CONFIRMED, 10)
@@ -96,40 +104,94 @@ class PunchProcessorNode(Node):
     def _on_cv(self, msg: PunchDetection) -> None:  # type: ignore[name-defined]
         ts = msg.timestamp if msg.timestamp > 0.0 else time.time()
 
-        # Feed blocks into open defense window
+        # Feed blocks into open defense window (if robot is attacking)
         if self._def_win is not None and msg.punch_type == PunchType.BLOCK:
             self._def_win.cv_blocks.append({"confidence": msg.confidence, "timestamp": ts})
             return
-        if msg.punch_type not in PunchType.OFFENSIVE:
-            return
 
-        consecutive = getattr(msg, "consecutive_frames", 1) or 1
-        pend = PendingCV(ts, msg.punch_type, msg.confidence, msg.raw_class, consecutive)
-        imu = self._pimu.pop_match(ts - self._fw_s, ts + self._fw_s)
-        if imu is not None:
-            self._fuse(pend, imu)
-        else:
-            self._pcv.append(pend)
+        # Update current CV state (for fusion_monitor live display)
+        self._current_cv = msg.punch_type
+        self._current_cv_conf = msg.confidence
+
+        # Buffer non-idle predictions so IMU can search for best valid match
+        if msg.punch_type not in (PunchType.IDLE, PunchType.BLOCK, ""):
+            self._cv_buffer.append((ts, msg.punch_type, msg.confidence))
+            # Prune old entries
+            cutoff = ts - self._cv_buffer_window
+            self._cv_buffer = [
+                e for e in self._cv_buffer if e[0] >= cutoff
+            ]
 
     # -- IMU punch ------------------------------------------------------
 
     def _on_imu(self, msg: PunchEvent) -> None:  # type: ignore[name-defined]
+        """IMU strike detected — use the pad to filter CV predictions.
+
+        CV is the primary source of punch classification. The pad tells us
+        which punches are physically possible:
+          - centre: jab / cross
+          - left:   left_hook / left_uppercut
+          - right:  right_hook / right_uppercut
+          - head:   any offensive punch
+
+        We search the recent CV buffer for predictions that are valid for
+        this pad, count frames per type, and pick the one with the most
+        frames (i.e. the dominant prediction, not a 1-frame false positive).
+        """
         ts = msg.timestamp if msg.timestamp > 0.0 else time.time()
         accel = getattr(msg, "accel_magnitude", 0.0) or 0.0
-        pend = PendingIMU(ts, msg.pad, msg.level, msg.force_normalized, accel)
-        cv = self._pcv.pop_match(ts - self._fw_s, ts + self._fw_s)
-        if cv is not None:
-            self._fuse(cv, pend)
-        else:
-            self._pimu.append(pend)
+        pad = msg.pad
+
+        from boxbunny_core.constants import PadLocation
+        valid = PadLocation.VALID_PUNCHES.get(pad)
+
+        # Search the CV buffer for predictions valid on this pad
+        # Count frames per valid punch type and track best confidence
+        counts: dict[str, int] = {}
+        best_conf: dict[str, float] = {}
+        for _ts, action, conf in self._cv_buffer:
+            if valid is not None and action not in valid:
+                continue  # false positive — wrong punch for this pad
+            counts[action] = counts.get(action, 0) + 1
+            if conf > best_conf.get(action, 0.0):
+                best_conf[action] = conf
+
+        if not counts:
+            self.get_logger().info(
+                f"SKIP: pad={pad} — no valid CV predictions in buffer "
+                f"(buf_size={len(self._cv_buffer)} valid={valid})"
+            )
+            return
+
+        # Pick the punch type with the most frames (dominant prediction)
+        cv_action = max(counts, key=lambda a: counts[a])
+        cv_conf = best_conf[cv_action]
+
+        self.get_logger().info(
+            f"CONFIRMED: {cv_action} pad={pad} conf={cv_conf:.2f} "
+            f"frames={counts[cv_action]} accel={accel:.1f} "
+            f"candidates={counts}"
+        )
+
+        # Clear buffer after confirming (prevents same prediction matching
+        # a second strike)
+        self._cv_buffer.clear()
+
+        self._emit(
+            timestamp=ts, punch_type=cv_action, pad=msg.pad,
+            level=msg.level, force=msg.force_normalized,
+            confidence=cv_conf, imu_confirmed=True, cv_confirmed=True,
+            accel_magnitude=accel,
+        )
 
     # -- Fused match ----------------------------------------------------
 
     def _fuse(self, cv: PendingCV, imu: PendingIMU) -> None:
-        # CV+IMU match: always accept (IMU confirms, even single-frame CV)
-        ptype = reclassify_punch(imu.pad, cv.punch_type, min_conf=self._reclass_min)
+        # CV+IMU match: trust the CV prediction directly.
+        # The CV model knows the punch type; the IMU just confirms a hit happened.
+        # Pad constraints only apply to IMU-only events (no CV to identify the punch).
         self._emit(
-            timestamp=cv.timestamp, punch_type=ptype, pad=imu.pad,
+            timestamp=cv.timestamp, punch_type=cv.punch_type, pad=imu.pad,
             level=imu.level, force=imu.force_normalized,
             confidence=cv.confidence, imu_confirmed=True, cv_confirmed=True,
             accel_magnitude=imu.accel_magnitude,
@@ -138,33 +200,9 @@ class PunchProcessorNode(Node):
     # -- Expiry timer ---------------------------------------------------
 
     def _tick_expiry(self) -> None:
+        """Only used for defense window timeout now.
+        CV+IMU fusion is instant (no buffering/expiry needed)."""
         now = time.time()
-        cutoff = now - self._fw_s
-
-        for cv in self._pcv.expire(cutoff):
-            # CV-only: require sufficient frame persistence AND confidence
-            if (
-                cv.consecutive_frames >= self._cv_only_min_frames
-                and cv.confidence >= self._cv_only_min_conf
-            ):
-                self._emit(
-                    timestamp=cv.timestamp, punch_type=cv.punch_type, pad="",
-                    level="", force=0.0,
-                    confidence=max(0.0, cv.confidence - self._cv_penalty),
-                    imu_confirmed=False, cv_confirmed=True,
-                )
-            # else: silently discard noisy single/double-frame CV-only predictions
-
-        for imu in self._pimu.expire(cutoff):
-            # IMU-only: infer punch type from pad location instead of "unclassified"
-            inferred = infer_punch_from_pad(imu.pad)
-            self._emit(
-                timestamp=imu.timestamp, punch_type=inferred, pad=imu.pad,
-                level=imu.level, force=imu.force_normalized,
-                confidence=self._imu_only_conf, imu_confirmed=True, cv_confirmed=False,
-                accel_magnitude=imu.accel_magnitude,
-            )
-
         if self._def_win and now - self._def_win.open_time >= self._dw_s:
             self._close_defense()
 
@@ -265,9 +303,9 @@ class PunchProcessorNode(Node):
             self._pub_punch.publish(m)
         if self._session_active and punch_type != "unclassified":
             self._stats.record_punch(punch_type, pad, force, level, confidence, imu_confirmed)
-        self.get_logger().debug(
-            f"Punch: {punch_type} pad={pad} conf={confidence:.2f} "
-            f"imu={imu_confirmed} cv={cv_confirmed}"
+        self.get_logger().info(
+            f"EMIT: {punch_type} pad={pad} conf={confidence:.2f} "
+            f"imu={imu_confirmed} cv={cv_confirmed} accel={accel_magnitude:.1f}"
         )
 
     # -- Session summary ------------------------------------------------

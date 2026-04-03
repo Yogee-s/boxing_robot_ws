@@ -41,7 +41,8 @@ cv:
 # -- CV + IMU Fusion -----------------------------------------------------------
 fusion:
   # Time window (ms) to match CV detections with IMU impacts
-  fusion_window_ms: 200
+  # Wider window (500ms) to account for latency between CV inference and IMU detection
+  fusion_window_ms: 500
   # Confidence penalty applied to CV-only (unconfirmed by IMU) detections
   cv_unconfirmed_confidence_penalty: 0.3
   # Minimum secondary class confidence to trigger reclassification
@@ -63,7 +64,7 @@ fusion:
   # CV-only: minimum consecutive frames to accept without IMU
   cv_only_min_consecutive_frames: 3
   # CV-only: minimum confidence to accept without IMU
-  cv_only_min_confidence: 0.6
+  cv_only_min_confidence: 0.7
   # IMU-only: default confidence for pad-inferred punches
   imu_only_default_confidence: 0.3
   # IMU strike threshold (m/s²) after gravity calibration

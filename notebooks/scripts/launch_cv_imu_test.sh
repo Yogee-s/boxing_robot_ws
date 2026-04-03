@@ -32,26 +32,35 @@ echo ""
 # ── Cleanup ─────────────────────────────────────────────────────────────────
 cleanup() {
     echo ""
-    echo "=== Stopping ==="
-    # Kill all by name
+    echo "=== Stopping all processes ==="
+    # Kill by name — covers all windows including gnome-terminal children
+    pkill -f "run_with_ros" 2>/dev/null
     pkill -f "fusion_monitor" 2>/dev/null
     pkill -f "imu_simulator.py" 2>/dev/null
     pkill -f "run.py" 2>/dev/null
     pkill -f "live_voxelflow" 2>/dev/null
-    pkill -f "micro_ros_agent.*serial" 2>/dev/null
     pkill -f "unified_GUI_V4.py" 2>/dev/null
+    pkill -f "micro_ros_agent.*serial" 2>/dev/null
     pkill -f "imu_node" 2>/dev/null
     pkill -f "punch_processor" 2>/dev/null
+    pkill -f "cv_node" 2>/dev/null
+    pkill -f "_v4_gui_launcher" 2>/dev/null
     # Kill entire process group
     kill -- -$$ 2>/dev/null
     sleep 1
-    # Force kill stragglers
+    # Force kill anything still alive
+    pkill -9 -f "run_with_ros" 2>/dev/null
     pkill -9 -f "run.py" 2>/dev/null
     pkill -9 -f "live_voxelflow" 2>/dev/null
     pkill -9 -f "imu_simulator" 2>/dev/null
     pkill -9 -f "fusion_monitor" 2>/dev/null
     pkill -9 -f "unified_GUI_V4" 2>/dev/null
+    pkill -9 -f "micro_ros_agent" 2>/dev/null
+    pkill -9 -f "imu_node" 2>/dev/null
+    pkill -9 -f "punch_processor" 2>/dev/null
     kill -9 -- -$$ 2>/dev/null
+    # Release camera if still held
+    fuser -k /dev/video* 2>/dev/null
     echo "Done."
 }
 trap cleanup EXIT INT TERM
@@ -84,19 +93,32 @@ fi
 echo "  V4 GUI launching..."
 sleep 5
 
-# ── Step 3: ROS nodes ───────────────────────────────────────────────────────
-echo ""
-echo "=== Starting ROS Nodes ==="
+# ── Step 3: Activate conda (for run_with_ros.py which needs torch) ──────────
+eval "$(conda shell.bash hook 2>/dev/null)"
+conda activate boxing_ai 2>/dev/null || true
 source /opt/ros/humble/setup.bash
 source "$WS/install/setup.bash"
 
-ros2 run boxbunny_core imu_node 2>/dev/null &
-echo "  imu_node started"
-ros2 run boxbunny_core punch_processor 2>/dev/null &
-echo "  punch_processor started"
-sleep 2
+# ── Step 4: ROS nodes ───────────────────────────────────────────────────────
+echo ""
+echo "=== Starting ROS Nodes ==="
 
-# ── Step 4: IMU Simulator ───────────────────────────────────────────────────
+ros2 run boxbunny_core imu_node &
+echo "  imu_node started"
+ros2 run boxbunny_core punch_processor &
+echo "  punch_processor started"
+sleep 3
+
+# Switch imu_node to TRAINING mode (publish 3 times to ensure delivery)
+echo "  Switching IMU to TRAINING mode..."
+for i in 1 2 3; do
+    ros2 topic pub --once /boxbunny/session/state boxbunny_msgs/msg/SessionState \
+        "{state: 'active', mode: 'training', username: 'test'}" 2>/dev/null
+    sleep 0.5
+done
+echo "  TRAINING mode set"
+
+# ── Step 5: IMU Simulator ───────────────────────────────────────────────────
 echo ""
 echo "=== Starting IMU Simulator ==="
 python3 "$WS/tools/imu_simulator.py" &
@@ -104,7 +126,7 @@ SIM_PID=$!
 echo "  IMU Simulator PID: $SIM_PID"
 sleep 2
 
-# ── Step 5: Fusion Monitor (shows confirmed/rejected punches) ────────────────
+# ── Step 6: Fusion Monitor ──────────────────────────────────────────────────
 echo ""
 echo "=== Starting Fusion Monitor ==="
 python3 "$WS/notebooks/scripts/fusion_monitor.py" &
@@ -112,18 +134,16 @@ FUSION_PID=$!
 echo "  Fusion Monitor PID: $FUSION_PID"
 sleep 1
 
-# ── Step 6: CV Model (run.py — the original, exact same as cell 4a) ────────
+# ── Step 7: CV Inference (run.py + ROS publisher) ───────────────────────────
 echo ""
-echo "=== Starting CV Action Prediction (run.py) ==="
-echo "  This is the exact same inference GUI as cell 4a."
+echo "=== Starting CV Inference (with ROS publishing) ==="
+echo "  Publishes predictions to /boxbunny/cv/detection"
+echo "  punch_processor fuses with IMU events"
 echo "  Close the CV window to stop everything."
 echo ""
 
-eval "$(conda shell.bash hook 2>/dev/null)"
-conda activate boxing_ai 2>/dev/null || true
-
 cd "$WS/action_prediction"
-python3 run.py 2>&1
+python3 "$WS/notebooks/scripts/run_with_ros.py" 2>&1
 
 echo ""
 echo "=== Test Complete ==="
