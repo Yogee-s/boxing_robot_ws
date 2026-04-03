@@ -193,15 +193,19 @@ class IMUSimulatorNode(Node):
 
     def send_strike_command(self, slot: int, duration: float = 5.0,
                             speed: float = None) -> None:
-        """Tell the V4 GUI to execute a strike at the given slot."""
+        """Tell the V4 GUI to execute a strike at the given slot.
+
+        Speed is capped at 30 rad/s for gear safety.
+        """
         from std_msgs.msg import String as StdString
         cmd = {"slot": slot, "duration": duration}
         if speed is not None:
-            cmd["speed"] = speed
+            cmd["speed"] = min(float(speed), 30.0)
         msg = StdString()
         msg.data = json.dumps(cmd)
         self._pub_strike_cmd.publish(msg)
-        self.get_logger().info(f"Strike command: slot={slot}, duration={duration}s")
+        spd_str = f", speed={cmd.get('speed', 'default')}" if speed is not None else ""
+        self.get_logger().info(f"Strike command: slot={slot}, duration={duration}s{spd_str}")
 
     def _on_strike_feedback(self, msg) -> None:
         """Handle strike completion feedback from V4 GUI."""
@@ -242,6 +246,7 @@ class IMUSimulatorNode(Node):
 
         When the BoxBunny GUI or sparring engine publishes a punch command,
         forward it to the V4 GUI as a slot-based strike command.
+        Maps speed string ("slow"/"medium"/"fast") to rad/s, capped at 30.
         """
         if msg.command_type != "punch":
             return
@@ -249,10 +254,13 @@ class IMUSimulatorNode(Node):
         punch_type = _CODE_TO_PUNCH.get(msg.punch_code, "")
         if punch_type and self._robot_cmd_callback:
             self._robot_cmd_callback(punch_type)
+        # Map speed string to rad/s
+        _SPEED_MAP = {"slow": 8.0, "medium": 15.0, "fast": 25.0}
+        speed = _SPEED_MAP.get(msg.speed)
         # Forward to V4 GUI as strike_command
         slot = self._code_to_slot.get(msg.punch_code)
         if slot:
-            self.send_strike_command(slot, duration=5.0)
+            self.send_strike_command(slot, duration=5.0, speed=speed)
 
     def publish_pad(self, pad: str, level: str, accel: float = 0.0) -> None:
         msg = PadImpact()
@@ -321,6 +329,9 @@ class IMUSimulatorGUI:
         self._punch_btns: dict[str, tk.Button] = {}
         self._sequence: list[dict] = []
         self._seq_playing = False
+        self._combo_queue: list[str] = []
+        self._combo_playing = False
+        self._combo_timeout_id = None
 
         self._root = tk.Tk()
         self._root.title("BoxBunny IMU Simulator")
@@ -398,6 +409,41 @@ class IMUSimulatorGUI:
             showvalue=False,
         )
         self._accel_slider.pack(fill="x")
+
+        # ── Strike speed section ────────────────────────────────────────
+        spd_frame = tk.Frame(r, bg=BG)
+        spd_frame.pack(fill="x", padx=16, pady=(10, 0))
+
+        tk.Label(spd_frame, text="STRIKE SPEED", font=(FONT, 10, "bold"),
+                 bg=BG, fg=FG_MUTED).pack(side="left", padx=(0, 8))
+
+        self._speed_var = tk.DoubleVar(value=20.0)
+        for val, lbl in [(5, "Slow"), (15, "Med"), (25, "Fast")]:
+            tk.Button(
+                spd_frame, text=lbl, font=(FONT, 11, "bold"),
+                bg=SURFACE2, fg=AMBER,
+                activebackground=AMBER, activeforeground="#000",
+                relief="flat", bd=0, pady=6, padx=14,
+                command=lambda v=val: self._speed_var.set(v),
+            ).pack(side="left", padx=2)
+
+        self._speed_lbl = tk.Label(
+            spd_frame, text="20 rad/s", font=(FONT, 10, "bold"),
+            bg=BG, fg=AMBER, anchor="e",
+        )
+        self._speed_lbl.pack(side="right")
+        self._speed_var.trace_add("write", self._update_speed_label)
+
+        spd_slider_frame = tk.Frame(r, bg=BG)
+        spd_slider_frame.pack(fill="x", padx=16, pady=(4, 0))
+        self._speed_slider = tk.Scale(
+            spd_slider_frame, from_=1, to=30, orient="horizontal",
+            variable=self._speed_var, resolution=1,
+            bg=BG, fg=FG, troughcolor=SURFACE2,
+            highlightthickness=0, font=(FONT, 8),
+            showvalue=False,
+        )
+        self._speed_slider.pack(fill="x")
 
         # ── Pad & Arm section ───────────────────────────────────────────
         tk.Frame(r, bg=BORDER, height=1).pack(fill="x", padx=16, pady=(10, 0))
@@ -759,6 +805,16 @@ class IMUSimulatorGUI:
             color = RED
         self._accel_lbl.configure(text=f"{val:.0f} m/s\u00B2", fg=color)
 
+    def _update_speed_label(self, *_args) -> None:
+        val = self._speed_var.get()
+        if val <= 10:
+            color = GREEN
+        elif val <= 20:
+            color = AMBER
+        else:
+            color = RED
+        self._speed_lbl.configure(text=f"{val:.0f} rad/s", fg=color)
+
     def _get_force_level(self) -> str:
         val = self._accel_var.get()
         if val < 20:
@@ -820,7 +876,8 @@ class IMUSimulatorGUI:
         if code:
             slot = self._node._code_to_slot.get(code)
             if slot:
-                self._node.send_strike_command(slot, duration=5.0)
+                spd = self._speed_var.get()
+                self._node.send_strike_command(slot, duration=5.0, speed=spd)
 
         # Flash the punch button
         if punch_type in self._punch_btns:
@@ -840,22 +897,26 @@ class IMUSimulatorGUI:
                   f"arm={arm_side}  accel={self._accel_var.get():.1f}")
 
     def _play_combo(self, sequence: list) -> None:
-        """Play a combo sequence with animated delays."""
-        interval = int(self._interval_var.get())
+        """Play a combo sequence, waiting for each strike to complete."""
+        self._combo_queue = list(sequence)
+        self._combo_playing = True
+        self._play_next_combo_step()
 
-        def play_step(idx: int) -> None:
-            if idx >= len(sequence):
-                return
-            ptype = sequence[idx]
-            color_map = {
-                "jab": PUNCH_JAB, "cross": PUNCH_CROSS,
-                "l_hook": PUNCH_HOOK, "r_hook": PUNCH_HOOK,
-                "l_upper": PUNCH_UPPER, "r_upper": PUNCH_UPPER,
-            }
-            self._on_punch(ptype, color_map.get(ptype, PRIMARY))
-            self._root.after(interval, lambda: play_step(idx + 1))
-
-        play_step(0)
+    def _play_next_combo_step(self) -> None:
+        """Send the next punch in the combo queue."""
+        if not self._combo_queue:
+            self._combo_playing = False
+            return
+        ptype = self._combo_queue.pop(0)
+        color_map = {
+            "jab": PUNCH_JAB, "cross": PUNCH_CROSS,
+            "l_hook": PUNCH_HOOK, "r_hook": PUNCH_HOOK,
+            "l_upper": PUNCH_UPPER, "r_upper": PUNCH_UPPER,
+        }
+        self._on_punch(ptype, color_map.get(ptype, PRIMARY))
+        # Timeout: if no feedback within 10s, move on anyway
+        self._combo_timeout_id = self._root.after(
+            10000, self._play_next_combo_step)
 
     # ── Sequence builder ────────────────────────────────────────────────
     def _seq_add(self, kind: str, target: str) -> None:
@@ -931,6 +992,12 @@ class IMUSimulatorGUI:
         dur = data.get("duration_actual", 0.0)
         color = GREEN if status == "completed" else (AMBER if status == "overtime" else RED)
         self._log(f"FB>  {strike:<12s}  {status}  ({dur:.1f}s)")
+        # Advance combo queue on strike completion
+        if getattr(self, '_combo_playing', False):
+            # Cancel the timeout since we got real feedback
+            if hasattr(self, '_combo_timeout_id'):
+                self._root.after_cancel(self._combo_timeout_id)
+            self._play_next_combo_step()
 
     # ── Auto-setup V4 GUI slots ────────────────────────────────────────
     def _setup_v4_slots(self) -> None:
