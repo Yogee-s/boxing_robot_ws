@@ -96,7 +96,6 @@ class TrainingSessionPage(QWidget):
         self._combo_tokens: List[str] = []
         self._drill_idx: int = 0
         self._combos_completed: int = 0
-        self._waiting_for_arm: bool = False
         self._drill_timer = QTimer(self)
         self._drill_timer.timeout.connect(self._drill_tick)
 
@@ -303,18 +302,19 @@ class TrainingSessionPage(QWidget):
     # ── Drill cycling ────────────────────────────────────────────────────
 
     def _on_strike_complete(self, data: Dict[str, Any]) -> None:
-        """Handle robot arm strike completion feedback."""
+        """Handle robot arm strike completion feedback (informational only)."""
         if not self._session_active:
             return
-        self._waiting_for_arm = False
         logger.debug("Strike complete: %s", data.get("status", "?"))
 
     def _drill_tick(self) -> None:
-        """Advance to the next punch in the combo sequence."""
+        """Advance to the next punch in the combo sequence.
+
+        Sends commands on each timer tick without waiting for arm completion.
+        The V4 GUI handles queueing and execution timing internally.
+        """
         if not self._session_active or not self._combo_tokens:
             return
-        if self._waiting_for_arm:
-            return  # skip tick -- arm still executing previous punch
 
         self._drill_idx += 1
         if self._drill_idx >= len(self._combo_tokens):
@@ -325,10 +325,9 @@ class TrainingSessionPage(QWidget):
 
         self._update_cue()
 
-        # Publish punch command to robot and wait for completion
+        # Publish punch command to robot — fire and forget
         token = self._combo_tokens[self._drill_idx]
         if self._bridge is not None:
-            self._waiting_for_arm = True
             if token in _DEFENSE_PUNCH_MAP:
                 # Defense: robot throws a punch for user to defend against
                 choices = _DEFENSE_PUNCH_MAP[token]

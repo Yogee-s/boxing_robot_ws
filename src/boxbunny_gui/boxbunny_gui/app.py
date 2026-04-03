@@ -196,18 +196,17 @@ class BoxBunnyApp:
             if command == "back":
                 self._preset_overlay.slide_out()
             elif command == "prev":
-                self._preset_overlay.navigate_left()
-            elif command == "next":
                 self._preset_overlay.navigate_right()
+            elif command == "next":
+                self._preset_overlay.navigate_left()
             elif command == "enter":
                 self._preset_overlay.confirm()
             return
 
-        # Head pad — only toggle presets on home pages
+        # Head pad — toggle presets on home pages only
         if command == "back":
             current = self._router.current_page
             if current in ("home", "home_guest"):
-                # Get username from the current page's stored kwargs
                 kwargs = self._router._page_kwargs.get(current, {})
                 username = kwargs.get("username", "")
                 self._preset_overlay.set_username(username)
@@ -292,20 +291,22 @@ class BoxBunnyApp:
             pass
 
     def _on_preset_selected(self, preset: dict) -> None:
-        """Called when user confirms a preset — route to the right page."""
-        route = preset.get("route", "training_session")
+        """Called when user confirms a preset — route to config page with Start button."""
+        route = preset.get("route", "training_config")
         username = self._preset_overlay._username
 
         if route in ("power_test", "stamina_test", "reaction_test"):
-            # Performance tests — navigate directly
+            # Performance tests — navigate directly (they have their own start)
             self._router.navigate(route, username=username)
         else:
-            # Training session — pass config
+            # Training drills — go to config page, NOT directly to session.
+            # User presses centre pad (imu_start) on config page to begin.
             config = dict(preset.get("config", {}))
             config["combo"] = preset.get("combo", {})
             self._router.navigate(
-                route,
+                "training_config",
                 config=config,
+                combo=preset.get("combo", {}),
                 combo_id=preset.get("combo", {}).get("id"),
                 difficulty=preset.get("difficulty", "Beginner"),
                 username=username,

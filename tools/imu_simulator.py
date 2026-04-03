@@ -325,7 +325,8 @@ class IMUSimulatorGUI:
         self._root = tk.Tk()
         self._root.title("BoxBunny IMU Simulator")
         self._root.configure(bg=BG)
-        self._root.resizable(False, False)
+        self._root.geometry("600x920")
+        self._root.resizable(True, True)
         self._build()
 
         # Wire up incoming robot commands to flash punch buttons
@@ -336,7 +337,9 @@ class IMUSimulatorGUI:
         node._strike_feedback_callback = self._on_strike_feedback_gui
 
         # IMU pad index -> pad name (matches boxbunny.yaml imu_pad_map)
-        self._imu_pad_map = {0: "centre", 1: "left", 2: "right", 3: "head"}
+        # Teensy IMU indices → user-perspective pad names
+        # Physical wiring: Teensy index 1 = user's RIGHT, index 2 = user's LEFT
+        self._imu_pad_map = {0: "centre", 1: "right", 2: "left", 3: "head"}
 
     # ── UI ───────────────────────────────────────────────────────────────
     def _build(self) -> None:
@@ -346,14 +349,14 @@ class IMUSimulatorGUI:
         top = tk.Frame(r, bg=SURFACE, height=44)
         top.pack(fill="x")
         top.pack_propagate(False)
-        tk.Label(top, text="Box", font=(FONT, 14, "bold"),
+        tk.Label(top, text="Box", font=(FONT, 16, "bold"),
                  bg=SURFACE, fg=FG).pack(side="left", padx=(16, 0))
-        tk.Label(top, text="Bunny", font=(FONT, 14, "bold"),
+        tk.Label(top, text="Bunny", font=(FONT, 16, "bold"),
                  bg=SURFACE, fg=PRIMARY).pack(side="left")
-        tk.Label(top, text="IMU Simulator", font=(FONT, 9),
+        tk.Label(top, text="IMU Simulator", font=(FONT, 11),
                  bg=SURFACE, fg=FG_DIM).pack(side="left", padx=8)
         self._hw_indicator = tk.Label(
-            top, text="HW: --", font=(FONT, 8, "bold"),
+            top, text="HW: --", font=(FONT, 10, "bold"),
             bg=SURFACE, fg=FG_MUTED,
         )
         self._hw_indicator.pack(side="right", padx=12)
@@ -362,7 +365,7 @@ class IMUSimulatorGUI:
         force_frame = tk.Frame(r, bg=BG)
         force_frame.pack(fill="x", padx=16, pady=(10, 0))
 
-        tk.Label(force_frame, text="FORCE", font=(FONT, 8, "bold"),
+        tk.Label(force_frame, text="FORCE", font=(FONT, 10, "bold"),
                  bg=BG, fg=FG_MUTED).pack(side="left", padx=(0, 8))
 
         self._accel_var = tk.DoubleVar(value=30.0)
@@ -370,7 +373,7 @@ class IMUSimulatorGUI:
             (10, "Light", GREEN), (30, "Medium", AMBER), (50, "Hard", RED),
         ]:
             tk.Button(
-                force_frame, text=lbl, font=(FONT, 9, "bold"),
+                force_frame, text=lbl, font=(FONT, 11, "bold"),
                 bg=SURFACE2, fg=color,
                 activebackground=color, activeforeground="#000",
                 relief="flat", bd=0, pady=6, padx=14,
@@ -398,12 +401,13 @@ class IMUSimulatorGUI:
 
         # ── Pad & Arm section ───────────────────────────────────────────
         tk.Frame(r, bg=BORDER, height=1).pack(fill="x", padx=16, pady=(10, 0))
-        tk.Label(r, text="USER STRIKE DETECTION", font=(FONT, 8, "bold"),
+        tk.Label(r, text="USER STRIKE DETECTION", font=(FONT, 10, "bold"),
                  bg=BG, fg=FG_MUTED).pack(anchor="w", padx=16, pady=(8, 0))
 
         body = tk.Frame(r, bg=BG)
         body.pack(padx=16, pady=(6, 0))
 
+        # Layout from USER's perspective: left pad on screen-left, right on screen-right
         self._arm_btns["left"] = self._make_arm(body, "L", 0, 0)
         pf = tk.Frame(body, bg=BG)
         pf.grid(row=0, column=1, padx=6)
@@ -415,7 +419,7 @@ class IMUSimulatorGUI:
 
         # ── Punch simulator ─────────────────────────────────────────────
         tk.Frame(r, bg=BORDER, height=1).pack(fill="x", padx=16, pady=(10, 0))
-        tk.Label(r, text="ROBOT ARM PUNCHES", font=(FONT, 8, "bold"),
+        tk.Label(r, text="ROBOT ARM PUNCHES", font=(FONT, 10, "bold"),
                  bg=BG, fg=FG_MUTED).pack(anchor="w", padx=16, pady=(8, 0))
 
         punch_row = tk.Frame(r, bg=BG)
@@ -432,7 +436,7 @@ class IMUSimulatorGUI:
         self._punch_btns: dict[str, tk.Button] = {}
         for label, ptype, color in punch_defs:
             btn = tk.Button(
-                punch_row, text=label, font=(FONT, 9, "bold"),
+                punch_row, text=label, font=(FONT, 11, "bold"),
                 bg=SURFACE2, fg=color,
                 activebackground=color, activeforeground="#000",
                 relief="flat", bd=0, pady=8,
@@ -454,7 +458,7 @@ class IMUSimulatorGUI:
         ]
         for label, seq in combos:
             tk.Button(
-                combo_row, text=label, font=(FONT, 9, "bold"),
+                combo_row, text=label, font=(FONT, 11, "bold"),
                 bg=SURFACE, fg=PRIMARY,
                 activebackground=PRIMARY, activeforeground="#000",
                 relief="flat", bd=0, pady=6, padx=8,
@@ -463,7 +467,7 @@ class IMUSimulatorGUI:
 
         # ── Sequence builder (compact) ──────────────────────────────────
         tk.Frame(r, bg=BORDER, height=1).pack(fill="x", padx=16, pady=(10, 0))
-        tk.Label(r, text="CUSTOM SEQUENCE", font=(FONT, 8, "bold"),
+        tk.Label(r, text="CUSTOM SEQUENCE", font=(FONT, 10, "bold"),
                  bg=BG, fg=FG_MUTED).pack(anchor="w", padx=16, pady=(8, 0))
 
         seq_ctrl = tk.Frame(r, bg=BG)
@@ -504,7 +508,7 @@ class IMUSimulatorGUI:
 
         # ── Teensy live data ────────────────────────────────────────────
         tk.Frame(r, bg=BORDER, height=1).pack(fill="x", padx=16, pady=(8, 0))
-        tk.Label(r, text="TEENSY LIVE DATA", font=(FONT, 8, "bold"),
+        tk.Label(r, text="TEENSY LIVE DATA", font=(FONT, 10, "bold"),
                  bg=BG, fg=FG_MUTED).pack(anchor="w", padx=16, pady=(6, 0))
 
         hw_frame = tk.Frame(r, bg=SURFACE, highlightthickness=0)
@@ -514,19 +518,19 @@ class IMUSimulatorGUI:
         motor_row = tk.Frame(hw_frame, bg=SURFACE)
         motor_row.pack(fill="x", padx=8, pady=(6, 0))
         _motor_names = ["L1", "L2", "R1", "R2"]
-        tk.Label(motor_row, text="Motors", font=(FONT, 9, "bold"),
+        tk.Label(motor_row, text="Motors", font=(FONT, 12, "bold"),
                  bg=SURFACE, fg=FG_DIM).pack(side="left", padx=(0, 6))
         self._hw_pos_labels = []
         self._hw_cur_labels = []
         for i in range(4):
             cell = tk.Frame(motor_row, bg=SURFACE)
             cell.pack(side="left", expand=True, fill="x", padx=2)
-            tk.Label(cell, text=_motor_names[i], font=(FONT, 8),
+            tk.Label(cell, text=_motor_names[i], font=(FONT, 11),
                      bg=SURFACE, fg=FG_MUTED).pack()
-            plbl = tk.Label(cell, text="--", font=(FONT, 10),
+            plbl = tk.Label(cell, text="--", font=(FONT, 13, "bold"),
                             bg=SURFACE, fg=FG)
             plbl.pack()
-            clbl = tk.Label(cell, text="--", font=(FONT, 9),
+            clbl = tk.Label(cell, text="--", font=(FONT, 11),
                             bg=SURFACE, fg=FG_DIM)
             clbl.pack()
             self._hw_pos_labels.append(plbl)
@@ -535,14 +539,13 @@ class IMUSimulatorGUI:
         # IMU accel magnitudes row (per pad) + threshold indicator
         imu_header = tk.Frame(hw_frame, bg=SURFACE)
         imu_header.pack(fill="x", padx=8, pady=(6, 0))
-        tk.Label(imu_header, text="IMU", font=(FONT, 9, "bold"),
+        tk.Label(imu_header, text="IMU", font=(FONT, 12, "bold"),
                  bg=SURFACE, fg=FG_DIM).pack(side="left")
-        # Show the strike threshold (matches V4 IMU Diagnostics: 20 m/s²)
         self._strike_threshold = 20.0
         tk.Label(imu_header, text=f"strike threshold: {self._strike_threshold:.0f} m/s\u00B2",
-                 font=(FONT, 8), bg=SURFACE, fg=FG_MUTED).pack(side="left", padx=(8, 0))
+                 font=(FONT, 10), bg=SURFACE, fg=FG_MUTED).pack(side="left", padx=(8, 0))
         tk.Label(imu_header, text="(gravity-subtracted)",
-                 font=(FONT, 7), bg=SURFACE, fg=FG_MUTED).pack(side="left", padx=(4, 0))
+                 font=(FONT, 9), bg=SURFACE, fg=FG_MUTED).pack(side="left", padx=(4, 0))
 
         imu_row = tk.Frame(hw_frame, bg=SURFACE)
         imu_row.pack(fill="x", padx=8, pady=(2, 6))
@@ -553,27 +556,27 @@ class IMUSimulatorGUI:
         for i in range(4):
             cell = tk.Frame(imu_row, bg=SURFACE)
             cell.pack(side="left", expand=True, fill="x", padx=2)
-            tk.Label(cell, text=_imu_pad_names[i], font=(FONT, 8),
+            tk.Label(cell, text=_imu_pad_names[i], font=(FONT, 11),
                      bg=SURFACE, fg=_imu_pad_colors[i]).pack()
             # Raw magnitude (from motor_feedback, includes gravity)
-            lbl = tk.Label(cell, text="--", font=(FONT, 11, "bold"),
+            lbl = tk.Label(cell, text="--", font=(FONT, 14, "bold"),
                            bg=SURFACE, fg=FG_DIM)
             lbl.pack()
             self._hw_imu_labels.append(lbl)
             # Last detected peak (from /robot/strike_detected, gravity-subtracted)
-            peak_lbl = tk.Label(cell, text="", font=(FONT, 8),
+            peak_lbl = tk.Label(cell, text="", font=(FONT, 10),
                                 bg=SURFACE, fg=FG_MUTED)
             peak_lbl.pack()
             self._hw_imu_peak_labels.append(peak_lbl)
 
         # ── Event log ───────────────────────────────────────────────────
         tk.Frame(r, bg=BORDER, height=1).pack(fill="x", padx=16, pady=(8, 0))
-        tk.Label(r, text="EVENT LOG", font=(FONT, 8, "bold"),
+        tk.Label(r, text="EVENT LOG", font=(FONT, 10, "bold"),
                  bg=BG, fg=FG_MUTED).pack(anchor="w", padx=16, pady=(6, 0))
 
         self._log_text = tk.Text(
-            r, height=5, width=52, bg=SURFACE,
-            fg=FG_DIM, font=(FONT_M, 8),
+            r, height=4, width=60, bg=SURFACE,
+            fg=FG_DIM, font=(FONT_M, 10),
             state="disabled", wrap="word",
             borderwidth=0, highlightthickness=0,
         )
@@ -721,21 +724,21 @@ class IMUSimulatorGUI:
     def _make_pad(self, parent: tk.Frame, label: str,
                   row: int, col: int) -> tk.Button:
         btn = tk.Button(
-            parent, text=label, width=8, height=3,
-            font=(FONT, 10, "bold"),
+            parent, text=label, width=10, height=4,
+            font=(FONT, 14, "bold"),
             bg=PAD_BG, fg=RED,
             activebackground=PAD_FLASH, activeforeground="#FFF",
             relief="flat", bd=0,
             command=lambda: self._on_pad(label.lower()),
         )
-        btn.grid(row=row, column=col, padx=2, pady=2)
+        btn.grid(row=row, column=col, padx=4, pady=4)
         return btn
 
     def _make_arm(self, parent: tk.Frame, label: str,
                   row: int, col: int) -> tk.Button:
         btn = tk.Button(
-            parent, text=label, width=4, height=10,
-            font=(FONT, 14, "bold"),
+            parent, text=label, width=5, height=10,
+            font=(FONT, 18, "bold"),
             bg=ARM_BG, fg=PUNCH_JAB,
             activebackground=ARM_FLASH, activeforeground="#FFF",
             relief="flat", bd=0,

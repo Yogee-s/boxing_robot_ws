@@ -73,10 +73,12 @@ fusion:
   # IMU sensor index -> pad name mapping (must match physical wiring)
   # Teensy V4: IMU0=Wire/0x68, IMU1=Wire/0x69, IMU2=Wire1/0x68, IMU3=Wire1/0x69
   # Matches Boxing_Arm_Control/unified_GUI_V3: 0=Centre, 1=Left, 2=Right, 3=Reserved
+  # Teensy IMU indices → user-perspective pad names
+  # Physical wiring: Teensy index 1 = user's RIGHT pad, index 2 = user's LEFT pad
   imu_pad_map:
     0: "centre"
-    1: "left"
-    2: "right"
+    1: "right"
+    2: "left"
     3: "head"
 
 # -- IMU Node ------------------------------------------------------------------

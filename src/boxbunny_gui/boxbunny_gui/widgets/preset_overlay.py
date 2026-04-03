@@ -268,8 +268,9 @@ class PresetOverlay(QWidget):
         self._username = username
 
     def toggle(self) -> None:
+        # Safety: if animating got stuck (e.g. page navigated during anim), reset it
         if self._animating:
-            return
+            self._animating = False
         if self._visible:
             self.slide_out()
         else:
@@ -337,11 +338,14 @@ class PresetOverlay(QWidget):
         self._update_selection()
 
     def confirm(self) -> None:
-        if not self._visible or not self._presets:
+        if not self._presets:
             return
         preset = self._presets[self._current_idx]
         logger.info("Preset selected: %s", preset["name"])
-        self.slide_out()
+        # Force-close immediately (don't wait for animation)
+        self._visible = False
+        self._animating = False
+        self.hide()
         self._on_select(preset)
 
     @property
