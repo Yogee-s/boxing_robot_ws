@@ -14,20 +14,24 @@ TEENSY_PORT="${1:-/dev/ttyACM0}"
 TEENSY_BAUD="${2:-115200}"
 export DISPLAY="${DISPLAY:-:0}"
 
-# ── Cleanup on exit ──
+# ── Cleanup on exit — kill everything including camera ──
 cleanup() {
     echo ""
     echo "=== Stopping CV + IMU Fusion Test ==="
+    pkill -f "cv_imu_fusion_test" 2>/dev/null
     pkill -f "imu_udp_bridge" 2>/dev/null
     pkill -f "micro_ros_agent.*serial" 2>/dev/null
+    kill -- -$$ 2>/dev/null
     sleep 1
+    pkill -9 -f "cv_imu_fusion_test" 2>/dev/null
     pkill -9 -f "imu_udp_bridge" 2>/dev/null
     pkill -9 -f "micro_ros_agent.*serial" 2>/dev/null
+    kill -9 -- -$$ 2>/dev/null
     echo "All processes stopped."
 }
 trap cleanup EXIT INT TERM
 
-# ── Write the IMU terminal script to a fixed path (not tmpfile) ──
+# ── Write the IMU terminal script ──
 IMU_SCRIPT="$WS/notebooks/scripts/_imu_terminal.sh"
 cat > "$IMU_SCRIPT" << 'EOF'
 #!/bin/bash
@@ -101,6 +105,7 @@ echo ""
 eval "$(conda shell.bash hook 2>/dev/null)"
 conda activate boxing_ai 2>/dev/null || true
 
+cd "$WS"
 python3 notebooks/scripts/cv_imu_fusion_test.py \
     --checkpoint action_prediction/model/best_model.pth \
     --pose-weights action_prediction/model/yolo26n-pose.pt \

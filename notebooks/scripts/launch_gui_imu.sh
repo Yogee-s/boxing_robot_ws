@@ -69,7 +69,6 @@ cleanup() {
     pkill -f "micro_ros_agent.*serial" 2>/dev/null
     pkill -f "unified_GUI_V4.py" 2>/dev/null
     pkill -f "imu_simulator.py" 2>/dev/null
-    # Kill the ROS nodes we started
     [ -n "$IMU_NODE_PID" ] && kill $IMU_NODE_PID 2>/dev/null
     [ -n "$PUNCH_PID" ] && kill $PUNCH_PID 2>/dev/null
     [ -n "$SESSION_PID" ] && kill $SESSION_PID 2>/dev/null
@@ -78,6 +77,7 @@ cleanup() {
     [ -n "$ROBOT_PID" ] && kill $ROBOT_PID 2>/dev/null
     [ -n "$GUI_PID" ] && kill $GUI_PID 2>/dev/null
     [ -n "$SIM_PID" ] && kill $SIM_PID 2>/dev/null
+    kill -- -$$ 2>/dev/null
     sleep 0.5
     pkill -9 -f "imu_node" 2>/dev/null
     pkill -9 -f "punch_processor" 2>/dev/null

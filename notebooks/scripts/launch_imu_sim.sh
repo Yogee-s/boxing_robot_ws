@@ -66,10 +66,12 @@ cleanup() {
     [ -n "$SIM_PID" ] && kill $SIM_PID 2>/dev/null
     [ -n "$V4_PID" ] && kill $V4_PID 2>/dev/null
     pkill -f "micro_ros_agent.*serial" 2>/dev/null
+    kill -- -$$ 2>/dev/null
     sleep 0.5
     pkill -9 -f "imu_simulator.py" 2>/dev/null
     pkill -9 -f "unified_GUI_V4.py" 2>/dev/null
     pkill -9 -f "micro_ros_agent" 2>/dev/null
+    kill -9 -- -$$ 2>/dev/null
     echo "Done."
 }
 trap cleanup EXIT INT TERM

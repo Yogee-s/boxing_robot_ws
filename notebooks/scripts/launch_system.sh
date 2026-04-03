@@ -81,7 +81,10 @@ cleanup() {
     pkill -9 -f 'ros2.launch' 2>/dev/null
     pkill -9 -f 'micro_ros_agent' 2>/dev/null
     pkill -9 -f 'unified_GUI_V4' 2>/dev/null
+    kill -- -$$ 2>/dev/null
     fuser -k 8080/tcp 2>/dev/null
+    sleep 0.5
+    kill -9 -- -$$ 2>/dev/null
     echo "All processes stopped."
 }
 trap cleanup EXIT INT TERM

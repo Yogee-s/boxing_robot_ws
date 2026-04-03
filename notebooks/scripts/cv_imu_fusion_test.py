@@ -491,6 +491,7 @@ class CVIMUFusionTest:
         logger.info("Loading CV model: %s", self._checkpoint)
         engine = InferenceEngine(
             checkpoint_path=self._checkpoint,
+            yolo_model_path=self._pose_weights,
             device=self._device,
         )
         engine.initialize()
