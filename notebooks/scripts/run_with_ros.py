@@ -155,6 +155,9 @@ def main():
                 idx = int(np.argmax(probs))
                 action = labels[idx]
                 conf = float(probs[idx])
+                if conf < 0.2:
+                    action = "idle"
+                    conf = 0.0
                 _ros_node.send(action, conf)
             else:
                 # Fallback to gated prediction during startup

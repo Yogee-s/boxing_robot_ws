@@ -183,11 +183,11 @@ class ImuNode(Node):
         if pad_name is None:
             return
 
-        # Debounce: skip if same pad was hit within 500ms
-        # (a single punch impact can ring above threshold for 300-400ms)
+        # Debounce: skip if same pad was hit within 250ms
+        # (V4 GUI already does hardware-level debouncing)
         now = time.time()
         last = self._last_strike_time.get(pad_name, 0.0)
-        if now - last < 0.5:
+        if now - last < 0.25:
             return
 
         # Classify force level from peak acceleration

@@ -220,10 +220,10 @@ class FusionMonitor:
         pad = PAD_MAP.get(pad_idx, "?")
         accel = data.get("peak_accel", 0.0)
 
-        # Debounce: skip if same pad struck within 300ms
+        # Debounce: skip if same pad struck within 250ms
         now = time.time()
         last = self._last_strike_per_pad.get(pad, 0.0)
-        if now - last < 0.5:
+        if now - last < 0.25:
             return
         self._last_strike_per_pad[pad] = now
 

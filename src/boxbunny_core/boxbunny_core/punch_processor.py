@@ -66,7 +66,7 @@ class PunchProcessorNode(Node):
         # pad-based filtering.  When IMU fires we search this buffer for
         # the best prediction that is valid for the struck pad.
         self._cv_buffer: list[tuple[float, str, float]] = []  # (ts, action, conf)
-        self._cv_buffer_window: float = 1.5  # seconds to keep
+        self._cv_buffer_window: float = 0.8  # seconds to keep
         self._current_cv: str = "idle"
         self._current_cv_conf: float = 0.0
 
@@ -173,9 +173,9 @@ class PunchProcessorNode(Node):
             f"candidates={counts}"
         )
 
-        # Clear buffer after confirming (prevents same prediction matching
-        # a second strike)
-        self._cv_buffer.clear()
+        # Remove predictions up to now (prevents same prediction matching
+        # a second strike) but keep very recent ones for fast combos
+        self._cv_buffer = [e for e in self._cv_buffer if e[0] > ts]
 
         self._emit(
             timestamp=ts, punch_type=cv_action, pad=msg.pad,
