@@ -8,6 +8,7 @@ Launch:  ros2 run boxbunny_core imu_simulator   (or just: python3 tools/imu_simu
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -32,6 +33,8 @@ except ImportError:
         "boxbunny_msgs not found. Build the workspace first:\n"
         "  cd boxing_robot_ws && colcon build --packages-select boxbunny_msgs"
     )
+
+from std_msgs.msg import String as StdString, Float64MultiArray
 
 # ── Constants ────────────────────────────────────────────────────────────
 _TOPIC_PAD = "/boxbunny/imu/pad/impact"
@@ -95,54 +98,124 @@ log = logging.getLogger("imu_simulator")
 
 
 class IMUSimulatorNode(Node):
-    """Thin ROS 2 node with publishers and a robot-command subscriber.
+    """ROS 2 node bridging the IMU simulator to the V4 Arm Control GUI.
 
-    Also subscribes to real hardware topics (motor_feedback, strike_detected)
-    so the simulator mirrors the physical robot state in dev mode.
+    Publishes:
+      - PadImpact, ArmStrike, ConfirmedPunch (BoxBunny IMU topics)
+      - /robot/strike_command   (tells V4 GUI to execute a strike)
+      - /robot/punch_slots      (assigns punch types to V4 GUI slots)
+      - /robot/system_enable    (arms/disarms V4 GUI motor control)
+
+    Subscribes:
+      - /boxbunny/robot/command (incoming drill commands from BoxBunny GUI)
+      - /robot/strike_feedback  (V4 GUI reports strike completion)
+      - /robot/strike_detected  (V4 GUI reports pad IMU strike)
+      - motor_feedback          (Teensy raw positions/currents/IMU)
     """
 
     def __init__(self) -> None:
         super().__init__("imu_simulator")
+
+        # ── BoxBunny IMU topic publishers ────────────────────────────────
         self._pub_pad = self.create_publisher(PadImpact, _TOPIC_PAD, 10)
         self._pub_arm = self.create_publisher(ArmStrike, _TOPIC_ARM, 10)
         self._pub_status = self.create_publisher(IMUStatus, _TOPIC_STATUS, 10)
         self._pub_punch = self.create_publisher(ConfirmedPunch, _TOPIC_PUNCH, 10)
         self.create_timer(1.0, self._publish_status)
 
-        # Publisher for robot punch commands (so simulator can command real arms)
-        self._pub_robot_cmd = self.create_publisher(RobotCommand, _TOPIC_ROBOT_CMD, 10)
+        # ── V4 GUI command publishers ────────────────────────────────────
+        # These topics are what the V4 Arm Control GUI listens to
+        self._pub_strike_cmd = self.create_publisher(
+            StdString, "/robot/strike_command", 10)
+        self._pub_punch_slots = self.create_publisher(
+            StdString, "/robot/punch_slots", 10)
+        self._pub_system_enable = self.create_publisher(
+            StdString, "/robot/system_enable", 10)
 
-        # Subscribe to robot commands so the GUI drill cycling shows up
+        # ── Subscribe to BoxBunny robot commands (from drill cycling) ────
         self.create_subscription(
             RobotCommand, _TOPIC_ROBOT_CMD, self._on_robot_command, 10,
         )
         self._robot_cmd_callback = None  # set by GUI
 
-        # ── Real hardware mirror subscriptions ───────────────────────────
-        # Subscribe to Teensy strike detection so simulator flashes when
-        # real pads are hit (dev mode runs both hardware and simulator)
-        from std_msgs.msg import String as StdString, Float64MultiArray
+        # ── V4 GUI feedback subscriptions ────────────────────────────────
+        # Strike completion from V4 GUI (after FSM execution)
+        self.create_subscription(
+            StdString, "/robot/strike_feedback",
+            self._on_strike_feedback, 10,
+        )
+        self._strike_feedback_callback = None  # set by GUI
+
+        # Pad IMU strike detection from V4 GUI (gravity-calibrated)
         self.create_subscription(
             StdString, "/robot/strike_detected",
             self._on_real_strike, 10,
         )
-        # Subscribe to motor_feedback for real-time IMU accel display
+        self._real_strike_callback = None   # set by GUI
+
+        # Motor feedback from Teensy (positions, currents, raw IMU)
         self.create_subscription(
             Float64MultiArray, "motor_feedback",
             self._on_motor_feedback, 10,
         )
-        self._real_strike_callback = None   # set by GUI
         self._motor_feedback_callback = None  # set by GUI
         self._real_imu_accel = [[0.0, 0.0, 0.0] for _ in range(4)]
         self._teensy_connected = False
 
+        # ── Punch code -> slot mapping ───────────────────────────────────
+        # Maps BoxBunny punch codes ("1"-"6") to V4 GUI slot numbers (1-6)
+        # The V4 GUI needs punch_slots assigned before strikes can execute
+        self._code_to_slot = {
+            "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6,
+        }
+
         self.get_logger().info("IMU simulator node started")
+
+    # ── V4 GUI arm control ───────────────────────────────────────────
+
+    def send_punch_slots(self, slots: dict) -> None:
+        """Assign punch types to V4 GUI slots.
+
+        Args:
+            slots: {1: {"arm": "left", "strike": "Jab"}, ...}
+        """
+        msg = StdString()
+        msg.data = json.dumps({str(k): v for k, v in slots.items()})
+        self._pub_punch_slots.publish(msg)
+        self.get_logger().info(f"Punch slots assigned: {slots}")
+
+    def send_system_enable(self, enable: bool) -> None:
+        """Arm or disarm the V4 GUI motor control."""
+        msg = StdString()
+        msg.data = "enable" if enable else "disable"
+        self._pub_system_enable.publish(msg)
+        self.get_logger().info(f"System {'enabled' if enable else 'disabled'}")
+
+    def send_strike_command(self, slot: int, duration: float = 5.0,
+                            speed: float = None) -> None:
+        """Tell the V4 GUI to execute a strike at the given slot."""
+        from std_msgs.msg import String as StdString
+        cmd = {"slot": slot, "duration": duration}
+        if speed is not None:
+            cmd["speed"] = speed
+        msg = StdString()
+        msg.data = json.dumps(cmd)
+        self._pub_strike_cmd.publish(msg)
+        self.get_logger().info(f"Strike command: slot={slot}, duration={duration}s")
+
+    def _on_strike_feedback(self, msg) -> None:
+        """Handle strike completion feedback from V4 GUI."""
+        try:
+            data = json.loads(msg.data)
+            if self._strike_feedback_callback:
+                self._strike_feedback_callback(data)
+        except Exception:
+            pass
 
     def _on_real_strike(self, msg) -> None:
         """Handle strike detection from real Teensy hardware."""
-        import json as _json
         try:
-            data = _json.loads(msg.data)
+            data = json.loads(msg.data)
             self._teensy_connected = True
             if self._real_strike_callback:
                 self._real_strike_callback(data)
@@ -165,11 +238,21 @@ class IMUSimulatorNode(Node):
             self._motor_feedback_callback(msg.data)
 
     def _on_robot_command(self, msg: RobotCommand) -> None:
-        """Forward incoming robot commands to the GUI for visual flash."""
-        if msg.command_type == "punch" and self._robot_cmd_callback:
-            punch_type = _CODE_TO_PUNCH.get(msg.punch_code, "")
-            if punch_type:
-                self._robot_cmd_callback(punch_type)
+        """Translate BoxBunny RobotCommand → V4 GUI strike_command.
+
+        When the BoxBunny GUI or sparring engine publishes a punch command,
+        forward it to the V4 GUI as a slot-based strike command.
+        """
+        if msg.command_type != "punch":
+            return
+        # Flash on simulator
+        punch_type = _CODE_TO_PUNCH.get(msg.punch_code, "")
+        if punch_type and self._robot_cmd_callback:
+            self._robot_cmd_callback(punch_type)
+        # Forward to V4 GUI as strike_command
+        slot = self._code_to_slot.get(msg.punch_code)
+        if slot:
+            self.send_strike_command(slot, duration=5.0)
 
     def publish_pad(self, pad: str, level: str, accel: float = 0.0) -> None:
         msg = PadImpact()
@@ -250,6 +333,7 @@ class IMUSimulatorGUI:
         # Wire up real hardware mirror callbacks
         node._real_strike_callback = self._on_real_strike_gui
         node._motor_feedback_callback = self._on_motor_feedback_gui
+        node._strike_feedback_callback = self._on_strike_feedback_gui
 
         # IMU pad index -> pad name (matches boxbunny.yaml imu_pad_map)
         self._imu_pad_map = {0: "centre", 1: "left", 2: "right", 3: "head"}
@@ -713,25 +797,27 @@ class IMUSimulatorGUI:
 
     # ── Punch simulator ─────────────────────────────────────────────────
     def _on_punch(self, punch_type: str, color: str) -> None:
-        """Simulate robot arm throwing a punch — publishes RobotCommand to
-        make physical arms move, plus ConfirmedPunch for data tracking."""
+        """Execute a robot punch via the V4 Arm Control GUI.
+
+        Sends /robot/strike_command to the V4 GUI which handles the full
+        FSM execution (alignment, windup, apex, snap-back) and publishes
+        motor_commands to the Teensy.
+        """
         level = self._get_force_level()
         force = self._get_force_normalized()
         self._node.publish_punch(punch_type, level, force)
         arm_side, _ = _PUNCH_TYPES.get(punch_type, ("left", "centre"))
 
-        # Also publish RobotCommand so physical robot arms execute the punch
+        # Send strike command to V4 GUI (slot-based)
         _PUNCH_TO_CODE = {
             "jab": "1", "cross": "2", "l_hook": "3",
             "r_hook": "4", "l_upper": "5", "r_upper": "6",
         }
         code = _PUNCH_TO_CODE.get(punch_type)
         if code:
-            cmd = RobotCommand()
-            cmd.command_type = "punch"
-            cmd.punch_code = code
-            cmd.speed = "medium"
-            self._node._pub_robot_cmd.publish(cmd)
+            slot = self._node._code_to_slot.get(code)
+            if slot:
+                self._node.send_strike_command(slot, duration=5.0)
 
         # Flash the punch button
         if punch_type in self._punch_btns:
@@ -831,11 +917,45 @@ class IMUSimulatorGUI:
         self._log_text.see("end")
         self._log_text.configure(state="disabled")
 
+    # ── V4 GUI strike feedback ─────────────────────────────────────────
+    def _on_strike_feedback_gui(self, data: dict) -> None:
+        """Called from ROS thread when V4 GUI reports strike completion."""
+        self._root.after(0, lambda: self._show_strike_feedback(data))
+
+    def _show_strike_feedback(self, data: dict) -> None:
+        strike = data.get("strike", "?")
+        status = data.get("status", "?")
+        dur = data.get("duration_actual", 0.0)
+        color = GREEN if status == "completed" else (AMBER if status == "overtime" else RED)
+        self._log(f"FB>  {strike:<12s}  {status}  ({dur:.1f}s)")
+
+    # ── Auto-setup V4 GUI slots ────────────────────────────────────────
+    def _setup_v4_slots(self) -> None:
+        """Publish default punch slot assignments to the V4 GUI.
+
+        Maps punch codes 1-6 to the standard strike names that must
+        exist in the V4 GUI's strike library.
+        """
+        default_slots = {
+            1: {"arm": "left",  "strike": "Jab"},
+            2: {"arm": "right", "strike": "Cross"},
+            3: {"arm": "left",  "strike": "Left Hook"},
+            4: {"arm": "right", "strike": "Right Hook"},
+            5: {"arm": "left",  "strike": "Left Uppercut"},
+            6: {"arm": "right", "strike": "Right Uppercut"},
+        }
+        self._node.send_punch_slots(default_slots)
+        self._node.send_system_enable(True)
+        self._log("AUTO  Punch slots assigned to V4 GUI (1-6)")
+        self._log("AUTO  System enabled — V4 GUI ROS Control must be ON")
+
     # ── Run ─────────────────────────────────────────────────────────────
     def spin(self) -> None:
         t = threading.Thread(target=rclpy.spin, args=(self._node,),
                              daemon=True)
         t.start()
+        # Auto-setup V4 GUI slots after a short delay (let ROS topics connect)
+        self._root.after(2000, self._setup_v4_slots)
         try:
             self._root.mainloop()
         finally:
