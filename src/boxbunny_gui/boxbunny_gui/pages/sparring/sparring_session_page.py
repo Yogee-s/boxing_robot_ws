@@ -74,6 +74,7 @@ class SparringSessionPage(QWidget):
         self._total_attacks: int = 0
         self._username: str = ""
         self._session_active: bool = False
+        self._session_id: str = ""
         self._build_ui()
         self._connect_bridge()
 
@@ -242,12 +243,35 @@ class SparringSessionPage(QWidget):
         self._attack_lbl.setText("Waiting...")
         self._punch_counter.set_count(0)
         self._work_time = work_time
+        # Start ROS session so sparring_engine activates
+        self._start_ros_session()
         # 3-second countdown
         self._countdown_remaining = 3
         self._timer.set_time(work_time)
         self._timer.set_overlay("Get Ready")
         QTimer.singleShot(1000, self._countdown_tick)
         logger.debug("SparringSessionPage entered")
+
+    def _start_ros_session(self) -> None:
+        """Start the ROS session for sparring mode."""
+        if self._bridge is None:
+            return
+        import json
+        config_json = json.dumps(self._config, default=str)
+        self._bridge.call_start_session(
+            mode="sparring",
+            difficulty=self._config.get("difficulty", "medium"),
+            config_json=config_json,
+            username=self._username,
+            callback=self._on_session_started,
+        )
+
+    def _on_session_started(
+        self, success: bool, session_id: str, message: str,
+    ) -> None:
+        if success:
+            self._session_id = session_id
+            logger.info("Sparring session started: %s", session_id)
 
     def on_leave(self) -> None:
         self._session_active = False

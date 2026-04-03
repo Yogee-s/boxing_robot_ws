@@ -148,16 +148,24 @@ class ImuNode(Node):
         logger.debug("Nav event: %s -> %s", msg.pad, command)
 
     def _handle_punch_impact(self, msg: PadImpact) -> None:
-        """Convert pad impact to punch event."""
+        """Convert pad impact to punch event.
+
+        Debounces per-pad to prevent duplicate PunchEvents from multiple
+        input paths (V4 GUI strike_detected + direct PadImpact).
+        """
+        now = time.time()
+        last = self._last_strike_time.get(msg.pad, 0.0)
+        if now - last < 0.4:
+            return  # already published for this strike
         punch_msg = PunchEvent()
-        punch_msg.timestamp = msg.timestamp if msg.timestamp > 0 else time.time()
+        punch_msg.timestamp = msg.timestamp if msg.timestamp > 0 else now
         punch_msg.pad = msg.pad
         punch_msg.level = msg.level
         punch_msg.force_normalized = FORCE_MAP.get(msg.level, 0.5)
         punch_msg.accel_magnitude = getattr(msg, "accel_magnitude", 0.0) or 0.0
         self._pub_punch.publish(punch_msg)
         # Track strike timing
-        self._last_strike_time[msg.pad] = punch_msg.timestamp
+        self._last_strike_time[msg.pad] = now
         logger.debug("Punch event: pad=%s level=%s force=%.2f accel=%.1f",
                       msg.pad, msg.level, punch_msg.force_normalized,
                       punch_msg.accel_magnitude)

@@ -154,8 +154,8 @@ free_training:
   # Pad-to-counter-strike mapping: which punches robot throws when each pad is hit
   pad_counter_strikes:
     centre: ["1", "2"]        # jab or cross
-    left: ["3"]               # left hook
-    right: ["4"]              # right hook
+    left: ["3", "5"]          # left hook or left uppercut
+    right: ["4", "6"]         # right hook or right uppercut
     head: ["1", "2"]          # jab or cross
   # Minimum time (ms) between robot counter-punches
   counter_cooldown_ms: 1500

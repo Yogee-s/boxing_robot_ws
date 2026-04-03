@@ -418,8 +418,22 @@ class TrainingSessionPage(QWidget):
                 combos_completed=self._combos_completed,
             )
 
+    def imu_start(self) -> None:
+        """Called by centre pad IMU — triggers START if waiting."""
+        if getattr(self, '_waiting_for_start', False):
+            self._on_pause_resume()
+
     def _on_pause_resume(self) -> None:
         if not self._session_active:
+            return
+        # Handle START press for free training
+        if getattr(self, '_waiting_for_start', False):
+            self._waiting_for_start = False
+            self._btn_pause.setText("PAUSE")
+            self._btn_pause.setStyleSheet("")  # reset to default
+            self._start_ros_session()
+            self._timer.set_overlay("Get Ready")
+            QTimer.singleShot(1000, self._countdown_tick)
             return
         if self._paused:
             # Resume
@@ -483,9 +497,11 @@ class TrainingSessionPage(QWidget):
         if self._bridge is None:
             return
         import json
+        # Free training = no combo tokens, sparring engine needs mode="free"
+        mode = "free" if not self._combo_tokens else "training"
         config_json = json.dumps(self._config, default=str)
         self._bridge.call_start_session(
-            mode="training",
+            mode=mode,
             difficulty=self._difficulty or "beginner",
             config_json=config_json,
             username=self._username,
@@ -646,14 +662,32 @@ class TrainingSessionPage(QWidget):
             self._next_lbl.setText("Free Training — no combo sequence")
 
         self._work_time = work_time
-        # Start the ROS session on the first round
-        if self._current_round == 1:
-            self._start_ros_session()
-        # 3-second countdown before starting
         self._countdown_remaining = 3
         self._timer.set_time(work_time)
-        self._timer.set_overlay("Get Ready")
-        QTimer.singleShot(1000, self._countdown_tick)
+
+        if not self._combo_tokens:
+            # Free training — show START button, don't auto-countdown
+            self._timer.set_overlay("Tap START")
+            self._cue_lbl.setText("FREE TRAINING")
+            self._cue_lbl.setStyleSheet(
+                f"font-size: 32px; font-weight: 800; color: {Color.PRIMARY};"
+                " letter-spacing: 3px;"
+            )
+            self._btn_pause.setText("START")
+            self._btn_pause.setStyleSheet(
+                f"background: {Color.PRIMARY}; color: #fff;"
+                " font-size: 18px; font-weight: bold; border-radius: 12px;"
+                " padding: 12px 32px;"
+            )
+            self._waiting_for_start = True
+        else:
+            # Combo drill — auto-countdown as before
+            self._waiting_for_start = False
+            self._timer.set_overlay("Get Ready")
+            # Start the ROS session on the first round
+            if self._current_round == 1:
+                self._start_ros_session()
+            QTimer.singleShot(1000, self._countdown_tick)
         logger.info(
             "Training round %d/%d (combo=%s, seq=%s)",
             self._current_round, self._total_rounds,

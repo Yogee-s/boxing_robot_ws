@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Dict, List
 
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve
 from PySide6.QtWidgets import (
+    QCheckBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -366,6 +367,24 @@ class SparringConfigPage(QWidget):
         params_row.addWidget(self._diff_tile)
         params_lay.addLayout(params_row)
 
+        # Dynamic counters toggle (robot counter-punches when user hits pads)
+        counter_row = QHBoxLayout()
+        counter_row.setContentsMargins(4, 8, 4, 0)
+        counter_row.setSpacing(8)
+        counter_lbl = QLabel("Dynamic Counters")
+        counter_lbl.setFont(font(Size.TEXT_BODY))
+        counter_lbl.setStyleSheet(f"color: {Color.TEXT_SECONDARY};")
+        counter_lbl.setToolTip("Robot counter-punches when you hit pads")
+        counter_row.addWidget(counter_lbl)
+        counter_row.addStretch()
+        self._counters_cb = QCheckBox("ON")
+        self._counters_cb.setChecked(True)
+        self._counters_cb.setMinimumHeight(40)
+        self._counters_cb.setFont(font(Size.TEXT_BODY))
+        self._counters_cb.setStyleSheet(f"color: {Color.TEXT_SECONDARY};")
+        counter_row.addWidget(self._counters_cb)
+        params_lay.addLayout(counter_row)
+
         root.addWidget(self._params_section)
 
         # Animations
@@ -439,7 +458,7 @@ class SparringConfigPage(QWidget):
         # Expand parameters
         self._params_anim.stop()
         self._params_anim.setStartValue(0)
-        self._params_anim.setEndValue(120)
+        self._params_anim.setEndValue(170)
         self._params_anim.start()
 
     def imu_start(self) -> None:
@@ -462,6 +481,7 @@ class SparringConfigPage(QWidget):
         config = {k: t.value for k, t in self._tiles.items()}
         config["style"] = self._selected_style
         config["difficulty"] = self._diff_tile.value
+        config["counters_enabled"] = self._counters_cb.isChecked()
         logger.info("Starting sparring: %s", config)
         self._router.navigate(
             "sparring_session", config=config, username=self._username,

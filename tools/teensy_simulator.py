@@ -648,20 +648,31 @@ class TeensySimulatorGUI:
 
         # ── Height & Tracking status ────────────────────────────────────
         tk.Frame(r, bg=BORDER, height=1).pack(fill="x", padx=16, pady=(8, 0))
-        status_row = tk.Frame(r, bg=BG)
-        status_row.pack(fill="x", padx=16, pady=(4, 0))
+        tk.Label(r, text="ROBOT STATUS", font=(FONT, 10, "bold"),
+                 bg=BG, fg=FG_MUTED).pack(anchor="w", padx=16, pady=(6, 0))
 
+        status_row = tk.Frame(r, bg=SURFACE, highlightthickness=0)
+        status_row.pack(fill="x", padx=16, pady=(2, 0))
+
+        height_cell = tk.Frame(status_row, bg=SURFACE)
+        height_cell.pack(side="left", expand=True, fill="x", padx=4, pady=6)
+        tk.Label(height_cell, text="Height", font=(FONT, 10),
+                 bg=SURFACE, fg=FG_DIM).pack()
         self._height_lbl = tk.Label(
-            status_row, text="HEIGHT: STOP", font=(FONT_M, 10, "bold"),
-            bg=BG, fg=FG_MUTED, anchor="w",
+            height_cell, text="STOP", font=(FONT, 14, "bold"),
+            bg=SURFACE, fg=FG_MUTED,
         )
-        self._height_lbl.pack(side="left", expand=True, fill="x")
+        self._height_lbl.pack()
 
+        tracking_cell = tk.Frame(status_row, bg=SURFACE)
+        tracking_cell.pack(side="left", expand=True, fill="x", padx=4, pady=6)
+        tk.Label(tracking_cell, text="Tracking", font=(FONT, 10),
+                 bg=SURFACE, fg=FG_DIM).pack()
         self._tracking_lbl = tk.Label(
-            status_row, text="TRACKING: OFFLINE", font=(FONT_M, 10, "bold"),
-            bg=BG, fg=FG_MUTED, anchor="w",
+            tracking_cell, text="OFFLINE", font=(FONT, 14, "bold"),
+            bg=SURFACE, fg=FG_MUTED,
         )
-        self._tracking_lbl.pack(side="left", expand=True, fill="x")
+        self._tracking_lbl.pack()
 
         # ── Sequence builder (compact) ──────────────────────────────────
         tk.Frame(r, bg=BORDER, height=1).pack(fill="x", padx=16, pady=(10, 0))
@@ -816,26 +827,39 @@ class TeensySimulatorGUI:
         self._root.after(0, lambda: self._handle_incoming_cmd(cmd))
 
     def _handle_incoming_cmd(self, cmd: dict) -> None:
-        """Process an incoming robot command on the main thread."""
+        """Process an incoming robot command on the main thread.
+
+        If hardware is connected OR Forward to HW is on, send to V4 GUI.
+        Otherwise use simulated execution (auto or manual).
+        Only one arm at a time — queue if already executing.
+        """
         self._pending_cmd = cmd
         punch_name = _CODE_TO_PUNCH.get(cmd["code"], cmd["code"])
         arm = cmd.get("arm", "?")
         self._pending_lbl.configure(
             text=f"Pending: {punch_name} \u2192 {arm} arm", fg=AMBER)
-        # Update arm labels
+        # Reset both arm labels, then highlight the active one
+        for side, lbl in self._arm_status_lbls.items():
+            prefix = "L" if side == "left" else "R"
+            lbl.configure(text=f"{prefix} ARM: idle", fg=FG_MUTED)
         if arm in ("left", "right"):
             lbl = self._arm_status_lbls.get(arm)
             if lbl:
                 prefix = "L" if arm == "left" else "R"
                 lbl.configure(text=f"{prefix} ARM: pending", fg=AMBER)
 
-        if self._fwd_hardware.get():
+        # Forward to V4 GUI hardware if connected or toggle is on
+        use_hardware = self._fwd_hardware.get() or self._node._teensy_connected
+        if use_hardware:
             slot = cmd.get("slot")
             speed = cmd.get("speed")
             if slot:
                 self._node.send_strike_command(slot, duration=5.0, speed=speed)
+            # V4 GUI handles execution — it will publish strike_feedback when done
+            return
 
-        if self._auto_execute.get():
+        # No hardware — use simulated execution
+        if self._auto_execute.get() and not self._executing:
             self._start_simulated_execution(cmd)
 
     def _manual_execute(self) -> None:
@@ -878,9 +902,14 @@ class TeensySimulatorGUI:
             prefix = "L" if arm == "left" else "R"
             lbl.configure(text=f"{prefix} ARM: idle", fg=FG_MUTED)
         self._pending_lbl.configure(text="Pending: --", fg=FG_MUTED)
-        self._pending_cmd = None
         self._executing = False
         self._log(f"SIM>  {strike_name:<12s}  completed  ({delay_s:.1f}s)")
+        # If another command arrived during execution, process it now
+        if self._pending_cmd and self._pending_cmd != cmd and self._auto_execute.get():
+            self._start_simulated_execution(self._pending_cmd)
+        else:
+            self._pending_cmd = None
+            self._pending_lbl.configure(text="Pending: --", fg=FG_MUTED)
 
     # ── Height & tracking status ──────────────────────────────────────
     def _update_height(self, action: str) -> None:
@@ -894,7 +923,7 @@ class TeensySimulatorGUI:
             "stop": "STOP", "adjust": "AUTO",
         }
         self._height_lbl.configure(
-            text=f"HEIGHT: {labels.get(action, action.upper())}",
+            text=labels.get(action, action.upper()),
             fg=colors.get(action, FG_MUTED),
         )
 
@@ -902,15 +931,14 @@ class TeensySimulatorGUI:
         """Update person tracking direction label."""
         colors = {"left": PUNCH_JAB, "right": PUNCH_UPPER, "centre": GREEN}
         self._tracking_lbl.configure(
-            text=f"TRACKING: {direction.upper()}",
+            text=direction.upper(),
             fg=colors.get(direction, FG_MUTED),
         )
 
     def _check_tracking_offline(self) -> None:
         """Periodically check if tracking direction has gone stale."""
         if time.time() - getattr(self._node, '_last_direction_time', 0.0) > 2.0:
-            self._tracking_lbl.configure(
-                text="TRACKING: OFFLINE", fg=FG_MUTED)
+            self._tracking_lbl.configure(text="OFFLINE", fg=FG_MUTED)
         self._root.after(2000, self._check_tracking_offline)
 
     # ── Real hardware mirror handlers ──────────────────────────────────

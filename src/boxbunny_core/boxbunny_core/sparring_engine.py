@@ -17,6 +17,7 @@ from rclpy.node import Node
 
 from boxbunny_core.constants import PunchType, SessionState as SSConst, Topics
 from boxbunny_core.config_loader import load_config
+from std_msgs.msg import String
 from boxbunny_msgs.msg import ConfirmedPunch, PunchEvent, RobotCommand, SessionState
 
 logger = logging.getLogger("boxbunny.sparring_engine")
@@ -85,12 +86,17 @@ class SparringEngine(Node):
         # Sparring counter-punch probability by difficulty
         self._counter_prob: Dict[str, float] = {"easy": 0.3, "medium": 0.5, "hard": 0.8}
         self._counters_enabled: bool = True
+        # Robot busy flag — only one strike at a time
+        self._robot_busy: bool = False
 
         self._pub_cmd = self.create_publisher(RobotCommand, Topics.ROBOT_COMMAND, 10)
         self.create_subscription(SessionState, Topics.SESSION_STATE, self._on_session, 10)
         self.create_subscription(ConfirmedPunch, Topics.PUNCH_CONFIRMED, self._on_user_punch, 50)
         # Subscribe to IMU punch events for free training reactive mode
         self.create_subscription(PunchEvent, Topics.IMU_PUNCH_EVENT, self._on_imu_punch, 10)
+        self.create_subscription(String, "/boxbunny/session/config_json", self._on_session_config, 10)
+        # Subscribe to strike feedback to know when arm is done
+        self.create_subscription(String, "/robot/strike_feedback", self._on_strike_feedback, 10)
         self.create_timer(0.1, self._tick)
         logger.info("Sparring engine initialised (style=%s, difficulty=%s)",
                      self._style, self._difficulty)
@@ -99,7 +105,7 @@ class SparringEngine(Node):
         """Activate during sparring or free training sessions."""
         was = self._active
         self._mode = msg.mode
-        self._active = msg.state == SSConst.ACTIVE and msg.mode in ("sparring", "free")
+        self._active = msg.state == SSConst.ACTIVE and msg.mode == "sparring"
         if self._active and not was:
             now = time.time()
             self._last_attack = now
@@ -108,42 +114,55 @@ class SparringEngine(Node):
             self._blocked_last = False
             self._switch_at = now
             self._active_style = self._style
-            self._ft_last_counter = 0.0
+            self._ft_last_counter = now  # prevent instant counter on first pad strike
+            self._robot_busy = False
             self._counters_enabled = True  # default ON
             logger.info("Engine activated: mode=%s counters=%s",
                         msg.mode, self._counters_enabled)
+
+    def _on_session_config(self, msg: String) -> None:
+        """Read session config to pick up counters_enabled toggle."""
+        try:
+            import json
+            config = json.loads(msg.data)
+            if "counters_enabled" in config:
+                self._counters_enabled = bool(config["counters_enabled"])
+                logger.info("Sparring counters %s (from config)",
+                            "enabled" if self._counters_enabled else "disabled")
+        except Exception:
+            pass
 
     def set_counters_enabled(self, enabled: bool) -> None:
         """Toggle reactive counter-punches in sparring mode."""
         self._counters_enabled = enabled
         logger.info("Sparring counters %s", "enabled" if enabled else "disabled")
 
+    def _on_strike_feedback(self, msg: String) -> None:
+        """Robot arm finished executing — clear busy flag."""
+        self._robot_busy = False
+
     def _on_user_punch(self, msg: ConfirmedPunch) -> None:
         """Track user punch timestamps for idle detection."""
         self._last_user_punch = msg.timestamp if msg.timestamp > 0 else time.time()
 
     def _on_imu_punch(self, msg: PunchEvent) -> None:
-        """React to user pad strikes with counter-punches.
+        """React to user pad strikes with counter-punches (sparring mode only).
 
-        Free mode: always counter (100% probability).
-        Sparring mode: counter with difficulty-scaled probability, resets
-        the scheduled attack timer so there's no double-up.
+        Free mode does NOT use the sparring engine — the V4 GUI's own
+        handle_strike does counter-punches directly on the hardware.
         """
-        if not self._active:
+        if not self._active or self._mode != "sparring":
             return
-        if self._mode == "sparring" and not self._counters_enabled:
-            return
-        if self._mode not in ("free", "sparring"):
+        if self._robot_busy or not self._counters_enabled:
             return
         now = time.time()
-        if now - self._ft_last_counter < self._ft_cooldown_s:
-            return  # cooldown not elapsed
+        if now - self._ft_last_counter < max(self._ft_cooldown_s, 0.5):
+            return
 
-        # In sparring mode, counter is probabilistic based on difficulty
-        if self._mode == "sparring":
-            prob = self._counter_prob.get(self._difficulty, 0.5)
-            if random.random() > prob:
-                return
+        # Probabilistic counter based on difficulty
+        prob = self._counter_prob.get(self._difficulty, 0.5)
+        if random.random() > prob:
+            return
 
         pad = msg.pad
         strikes = self._ft_counter_strikes.get(pad)
@@ -158,6 +177,7 @@ class SparringEngine(Node):
         cmd.command_type = "punch"
         cmd.punch_code = punch_code
         cmd.speed = speed
+        self._robot_busy = True
         self._pub_cmd.publish(cmd)
         self._ft_last_counter = now
         # Reset scheduled attack timer to prevent double-up
@@ -194,7 +214,14 @@ class SparringEngine(Node):
             self._attack(now)
 
     def _attack(self, now: float) -> None:
-        """Select and publish the next robot punch."""
+        """Select and publish the next robot punch.
+
+        Only one arm at a time — skip if robot is busy or counter just fired.
+        """
+        if self._robot_busy:
+            return
+        if now - self._ft_last_counter < 0.5:
+            return  # counter-punch just fired, skip this tick
         nxt = self._select()
         if self._blocked_last and nxt == self._cur_idx:
             alts = [i for i in range(len(PUNCH_CODES)) if i != nxt]
@@ -206,6 +233,7 @@ class SparringEngine(Node):
         msg.command_type = "punch"
         msg.punch_code = PUNCH_CODES[nxt]
         msg.speed = {"easy": "slow", "medium": "medium", "hard": "fast"}.get(self._difficulty, "medium")
+        self._robot_busy = True
         self._pub_cmd.publish(msg)
         logger.debug("Robot attack: %s (style=%s)", PUNCH_NAMES[nxt], self._active_style)
 

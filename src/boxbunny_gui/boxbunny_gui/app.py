@@ -196,9 +196,9 @@ class BoxBunnyApp:
             if command == "back":
                 self._preset_overlay.slide_out()
             elif command == "prev":
-                self._preset_overlay.navigate_right()
-            elif command == "next":
                 self._preset_overlay.navigate_left()
+            elif command == "next":
+                self._preset_overlay.navigate_right()
             elif command == "enter":
                 self._preset_overlay.confirm()
             return

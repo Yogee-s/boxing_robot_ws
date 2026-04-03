@@ -399,7 +399,7 @@ class SettingsPage(QWidget):
         height_row = QHBoxLayout()
         height_lbl = QLabel("Height Adjust")
         height_lbl.setFont(font(14))
-        height_lbl.setStyleSheet(f"color: {Color.FG_DIM};")
+        height_lbl.setStyleSheet(f"color: {Color.TEXT_SECONDARY};")
         height_row.addWidget(height_lbl)
         height_row.addStretch()
         btn_up = QPushButton("UP")

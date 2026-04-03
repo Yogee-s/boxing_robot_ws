@@ -114,6 +114,7 @@ class SessionManager(Node):
 
         # Publishers
         self._pub_state = self.create_publisher(SessionState, "/boxbunny/session/state", 10)
+        self._pub_config = self.create_publisher(String, "/boxbunny/session/config_json", 10)
         self._pub_summary = self.create_publisher(
             SessionPunchSummary, "/boxbunny/punch/session_summary", 10
         )
@@ -199,6 +200,11 @@ class SessionManager(Node):
         self._height_adjusted = False
         self._countdown_remaining = self._countdown_seconds
         self._set_state("countdown")
+
+        # Publish session config for other nodes (e.g. sparring_engine)
+        cfg_msg = String()
+        cfg_msg.data = request.config_json or "{}"
+        self._pub_config.publish(cfg_msg)
 
         response.success = True
         response.session_id = session_id

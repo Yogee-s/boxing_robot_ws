@@ -321,6 +321,8 @@ Detailed technical documentation is in the `docs/` folder:
 | [data_collection.md](docs/data_collection.md) | Data sources, collection strategy, session summary, database schema |
 | [dashboard_and_llm.md](docs/dashboard_and_llm.md) | Phone dashboard, API endpoints, AI coach, LLM reliability, height control |
 | [sparring_and_training.md](docs/sparring_and_training.md) | Training modes, sparring engine, free mode, robot arm control, person tracking |
+| [gui_and_user_experience.md](docs/gui_and_user_experience.md) | Touchscreen GUI pages, UX design (gloved hands, pattern lock, IMU nav), phone dashboard views, calibration workflow |
+| [testing_and_notebook.md](docs/testing_and_notebook.md) | Notebook sections, pytest suite (171 tests), integration tests, manual testing guide, demo data |
 
 ---
 

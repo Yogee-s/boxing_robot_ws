@@ -107,8 +107,8 @@ class FreeTrainingConfig:
     """Free Training (dynamic sparring) configuration."""
     pad_counter_strikes: dict = field(default_factory=lambda: {
         "centre": ["1", "2"],
-        "left": ["3"],
-        "right": ["4"],
+        "left": ["3", "5"],
+        "right": ["4", "6"],
         "head": ["1", "2"],
     })
     counter_cooldown_ms: int = 1500
