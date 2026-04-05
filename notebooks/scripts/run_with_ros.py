@@ -37,10 +37,13 @@ class _CVPub(Node):
         self._pub = self.create_publisher(PunchDetection, "/boxbunny/cv/detection", 10)
         self._pub_direction = self.create_publisher(
             _StdString, "/boxbunny/cv/person_direction", 10)
+        self._pub_debug = self.create_publisher(
+            _StdString, "/boxbunny/cv/debug_info", 10)
         self._last = "idle"
         self._consec = 0
         self._last_direction = "centre"
         self._frame_width = 960.0
+        self._fps = 0.0
         self.get_logger().info("Publishing CV predictions to /boxbunny/cv/detection")
 
     def send(self, action: str, confidence: float):
@@ -179,6 +182,7 @@ def main():
     # but we need the raw prediction for IMU pad fusion to filter properly.
     def _pub_loop():
         try:
+            import json
             import numpy as np
             probs = getattr(app, 'smooth_probs', None)
             labels = getattr(app, 'labels', None)
@@ -190,6 +194,19 @@ def main():
                     action = "idle"
                     conf = 0.0
                 _ros_node.send(action, conf)
+                # Publish debug_info for GUI display
+                fps = getattr(app, 'fps', 0.0)
+                consec = getattr(app, 'consecutive_frames', 0)
+                debug_msg = _StdString()
+                debug_msg.data = json.dumps({
+                    "action": action,
+                    "confidence": round(conf, 3),
+                    "consecutive": consec,
+                    "raw": action,
+                    "fps": round(float(fps), 1),
+                    "movement_delta": 0.0,
+                })
+                _ros_node._pub_debug.publish(debug_msg)
             else:
                 # Fallback to gated prediction during startup
                 pred = getattr(app, 'current_prediction', None)

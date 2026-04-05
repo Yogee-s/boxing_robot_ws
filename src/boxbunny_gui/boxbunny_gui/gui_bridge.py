@@ -28,6 +28,7 @@ try:
         HeightCommand,
         IMUStatus,
         NavCommand,
+        PunchDetection,
         RobotCommand,
         SessionState,
     )
@@ -53,6 +54,7 @@ class _RosWorker(QObject):
     nav_command = Signal(str)
     imu_status = Signal(dict)
     cv_status = Signal(str)
+    cv_detection = Signal(str, float)  # (punch_type, confidence)
     strike_complete = Signal(dict)
     debug_info = Signal(dict)
 
@@ -108,6 +110,11 @@ class _RosWorker(QObject):
         n.create_subscription(
             StdString, Topics.ROBOT_STRIKE_COMPLETE,
             self._on_strike_complete, 10,
+        )
+        # Raw CV punch detection (for live display)
+        n.create_subscription(
+            PunchDetection, Topics.CV_DETECTION,
+            self._on_cv_detection, 10,
         )
         # CV debug info (lightweight JSON metadata)
         n.create_subscription(
@@ -209,6 +216,9 @@ class _RosWorker(QObject):
         except (json.JSONDecodeError, TypeError):
             pass
 
+    def _on_cv_detection(self, msg: Any) -> None:
+        self.cv_detection.emit(msg.punch_type, msg.confidence)
+
     def _on_debug_info(self, msg: Any) -> None:
         try:
             data = json.loads(msg.data)
@@ -235,6 +245,7 @@ class GuiBridge(QObject):
     nav_command = Signal(str)
     imu_status = Signal(dict)
     cv_status = Signal(str)
+    cv_detection = Signal(str, float)
     strike_complete = Signal(dict)
     debug_info = Signal(dict)
 
@@ -265,6 +276,7 @@ class GuiBridge(QObject):
         self._worker.nav_command.connect(self.nav_command)
         self._worker.imu_status.connect(self.imu_status)
         self._worker.cv_status.connect(self.cv_status)
+        self._worker.cv_detection.connect(self.cv_detection)
         self._worker.strike_complete.connect(self.strike_complete)
         self._worker.debug_info.connect(self.debug_info)
 

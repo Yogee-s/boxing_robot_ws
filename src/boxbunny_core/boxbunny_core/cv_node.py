@@ -82,7 +82,7 @@ class CvNode(Node):
             Image, Topics.CAMERA_DEPTH, self._on_depth, 5
         )
         # Check for direct camera fallback after 5 seconds
-        self.create_timer(5.0, self._check_camera_fallback)
+        # Camera fallback timer removed — inference thread owns the camera
         self.create_subscription(
             SessionState, Topics.SESSION_STATE, self._on_session_state, 10
         )
@@ -110,8 +110,17 @@ class CvNode(Node):
         self._last_direction: str = "centre"
         self._frame_width: float = 960.0  # default, updated from first frame
 
-        # Inference timer (runs at camera rate when active)
-        self.create_timer(1.0 / 30.0, self._inference_tick)
+        # Inference runs in a dedicated thread with a tight loop (like the
+        # standalone cv_imu_fusion_test).  A timer-based approach causes frame
+        # buffering in the RealSense internal queue — if inference takes >33ms,
+        # the next timer tick processes a STALE buffered frame instead of the
+        # latest, corrupting the temporal sliding window.
+        self._inference_running = True
+        import threading
+        self._inference_thread = threading.Thread(
+            target=self._inference_loop, daemon=True,
+        )
+        self._inference_thread.start()
 
         logger.info("CV node initialized (checkpoint=%s, device=%s, debug=%s)",
                      self._checkpoint_path, self._device, self._debug_mode)
@@ -163,77 +172,83 @@ class CvNode(Node):
             self._baseline_bbox_x = None
             self._baseline_depth = None
 
-    def _check_camera_fallback(self) -> None:
-        """If no ROS camera frames after 5s, open camera directly via pyrealsense2."""
-        if self._camera_check_done:
-            return
-        self._camera_check_done = True
-        if self._latest_rgb is not None:
-            logger.info("ROS camera driver is working — no fallback needed")
-            return
-        logger.warning("No ROS camera frames — opening RealSense directly via pyrealsense2")
+    # Camera is owned by _inference_loop thread — no fallback needed
+
+    def _inference_loop(self) -> None:
+        """Tight inference loop in a dedicated thread.
+
+        Mirrors the standalone cv_imu_fusion_test approach: grab a frame,
+        process it immediately, repeat.  This avoids frame buffering that
+        corrupts the model's temporal sliding window.
+        """
+        import pyrealsense2 as rs
+
+        # Wait for lazy init conditions
+        while self._inference_running and not self._enabled:
+            time.sleep(0.1)
+
+        # Open camera directly in this thread
         try:
-            import pyrealsense2 as rs
             pipeline = rs.pipeline()
             config = rs.config()
             config.enable_stream(rs.stream.color, 960, 540, rs.format.bgr8, 30)
             config.enable_stream(rs.stream.depth, 848, 480, rs.format.z16, 30)
             align = rs.align(rs.stream.color)
             pipeline.start(config)
-            self._direct_camera = (pipeline, align)
-            logger.info("Direct camera opened successfully")
+            logger.info("Inference thread: camera opened (960x540@30fps)")
         except Exception as e:
-            logger.error("Failed to open direct camera: %s", e)
-            self._direct_camera = None
-
-    def _grab_direct_frames(self) -> None:
-        """Grab frames from direct pyrealsense2 pipeline."""
-        if self._direct_camera is None:
+            logger.error("Inference thread: failed to open camera: %s", e)
             return
-        pipeline, align = self._direct_camera
+
         try:
-            frames = pipeline.wait_for_frames(timeout_ms=100)
-            aligned = align.process(frames)
-            color_frame = aligned.get_color_frame()
-            depth_frame = aligned.get_depth_frame()
-            if color_frame and depth_frame:
-                self._latest_rgb = np.asanyarray(color_frame.get_data())
-                self._latest_depth = np.asanyarray(depth_frame.get_data())
-                self._frame_width = float(self._latest_rgb.shape[1])
-                # Re-publish frames so other nodes can use them
+            while self._inference_running:
                 try:
-                    color_msg = self._bridge.cv2_to_imgmsg(self._latest_rgb, "bgr8")
-                    depth_msg = self._bridge.cv2_to_imgmsg(self._latest_depth, "passthrough")
+                    frames = pipeline.wait_for_frames(timeout_ms=1000)
+                except Exception:
+                    continue
+                aligned = align.process(frames)
+                color_frame = aligned.get_color_frame()
+                depth_frame = aligned.get_depth_frame()
+                if not color_frame or not depth_frame:
+                    continue
+
+                rgb = np.asanyarray(color_frame.get_data())
+                depth = np.asanyarray(depth_frame.get_data())
+                # Safe to use asanyarray here — frames stay in scope
+                # throughout process_frame
+
+                self._latest_rgb = rgb
+                self._latest_depth = depth
+                self._frame_width = float(rgb.shape[1])
+
+                # Re-publish for other nodes (reaction test, etc.)
+                try:
+                    color_msg = self._bridge.cv2_to_imgmsg(rgb, "bgr8")
+                    depth_msg = self._bridge.cv2_to_imgmsg(depth, "passthrough")
                     self._pub_color.publish(color_msg)
                     self._pub_depth.publish(depth_msg)
                 except Exception:
                     pass
-        except Exception:
-            pass
 
-    def _inference_tick(self) -> None:
-        """Run inference on the latest frame pair."""
-        # Grab from direct camera if ROS driver isn't providing frames
-        if self._direct_camera is not None:
-            self._grab_direct_frames()
-        if self._latest_rgb is None or self._latest_depth is None:
-            return
+                # Run inference immediately on this frame
+                self._process_frame(rgb, depth)
+        finally:
+            pipeline.stop()
+            logger.info("Inference thread: camera closed")
+
+    def _process_frame(self, rgb: np.ndarray, depth: np.ndarray) -> None:
+        """Run inference on a single frame (called from inference thread)."""
         if not self._enabled:
             return
 
         self._frame_count += 1
-        # When no session is active, run inference at reduced rate (every 5th frame)
-        # to free GPU for LLM chat. During sessions, run at full rate.
-        skip = self._inference_interval if self._session_active else max(self._inference_interval, 5)
+        skip = self._inference_interval
         if self._frame_count % skip != 0:
             return
 
         # Initialize on first frame (not gated by session state)
         if not self._lazy_init():
             return
-
-        rgb = self._latest_rgb
-        depth = self._latest_depth
 
         try:
             result = self._engine.process_frame(rgb, depth)

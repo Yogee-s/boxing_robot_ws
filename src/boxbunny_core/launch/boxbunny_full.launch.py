@@ -71,6 +71,12 @@ def generate_launch_description() -> LaunchDescription:
         ),
         Node(
             package="boxbunny_core",
+            executable="free_training_engine",
+            name="free_training_engine",
+            output="screen",
+        ),
+        Node(
+            package="boxbunny_core",
             executable="analytics_node",
             name="analytics_node",
             output="screen",

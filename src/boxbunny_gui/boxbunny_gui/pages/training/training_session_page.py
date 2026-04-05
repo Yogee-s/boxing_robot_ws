@@ -89,6 +89,7 @@ class TrainingSessionPage(QWidget):
         self._difficulty: Optional[str] = None
         self._username: str = ""
         self._session_active: bool = False
+        self._counting_active: bool = False
         self._paused: bool = False
         self._session_id: str = ""
 
@@ -96,6 +97,7 @@ class TrainingSessionPage(QWidget):
         self._combo_tokens: List[str] = []
         self._drill_idx: int = 0
         self._combos_completed: int = 0
+        self._robot_speed: str = "medium"
         self._drill_timer = QTimer(self)
         self._drill_timer.timeout.connect(self._drill_tick)
 
@@ -183,10 +185,40 @@ class TrainingSessionPage(QWidget):
 
         stats_row.addStretch()
 
-        # Combos completed counter
-        combos_box = QWidget()
-        combos_box.setFixedHeight(70)
-        combos_box.setStyleSheet(f"""
+        # Speed selector (free training only)
+        _SPEED_ACCENT = "#C88D2E"
+        self._speed_options = ["Slow", "Medium", "Fast"]
+        self._speed_index = 1
+        self._speed_tile = QPushButton("Speed\nMedium")
+        self._speed_tile.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._speed_tile.setFixedHeight(70)
+        self._speed_tile.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {Color.SURFACE}; color: {Color.TEXT};
+                border: 1px solid {Color.BORDER};
+                border-left: 3px solid {_SPEED_ACCENT};
+                border-radius: {Size.RADIUS}px;
+                font-size: 15px; font-weight: 600; padding: 10px 14px;
+            }}
+            QPushButton:hover {{
+                background-color: {Color.SURFACE_HOVER};
+                border-color: {_SPEED_ACCENT};
+                border-left: 3px solid {_SPEED_ACCENT};
+            }}
+            QPushButton:pressed {{
+                background-color: {_SPEED_ACCENT}; color: #FFFFFF;
+                border-color: {_SPEED_ACCENT};
+                border-left: 3px solid {_SPEED_ACCENT};
+            }}
+        """)
+        self._speed_tile.clicked.connect(self._cycle_speed)
+        self._speed_tile.setVisible(False)
+        stats_row.addWidget(self._speed_tile)
+
+        # Combos completed counter (shown for combo drills)
+        self._combos_box = QWidget()
+        self._combos_box.setFixedHeight(70)
+        self._combos_box.setStyleSheet(f"""
             QWidget {{
                 background-color: #131920;
                 border: 1px solid #1E2832;
@@ -194,7 +226,7 @@ class TrainingSessionPage(QWidget):
                 border-radius: {Size.RADIUS}px;
             }}
         """)
-        combos_lay = QVBoxLayout(combos_box)
+        combos_lay = QVBoxLayout(self._combos_box)
         combos_lay.setContentsMargins(14, 6, 14, 6)
         combos_lay.setSpacing(0)
         combos_hdr = QLabel("COMBOS")
@@ -211,7 +243,69 @@ class TrainingSessionPage(QWidget):
             " background: transparent; border: none;"
         )
         combos_lay.addWidget(self._combos_lbl)
-        stats_row.addWidget(combos_box)
+        stats_row.addWidget(self._combos_box)
+
+        # CV prediction block (free training only)
+        self._cv_box = QWidget()
+        self._cv_box.setFixedHeight(70)
+        self._cv_box.setStyleSheet(f"""
+            QWidget {{
+                background-color: #131920;
+                border: 1px solid #1E2832;
+                border-left: 3px solid {Color.INFO};
+                border-radius: {Size.RADIUS}px;
+            }}
+        """)
+        cv_lay = QVBoxLayout(self._cv_box)
+        cv_lay.setContentsMargins(14, 6, 14, 6)
+        cv_lay.setSpacing(0)
+        self._cv_hdr_lbl = QLabel("CV MODEL")
+        self._cv_hdr_lbl.setAlignment(Qt.AlignCenter)
+        self._cv_hdr_lbl.setStyleSheet(
+            f"font-size: 10px; font-weight: 700; color: {Color.TEXT_DISABLED};"
+            " letter-spacing: 0.8px; background: transparent; border: none;"
+        )
+        cv_lay.addWidget(self._cv_hdr_lbl)
+        self._cv_pred_lbl = QLabel("--")
+        self._cv_pred_lbl.setAlignment(Qt.AlignCenter)
+        self._cv_pred_lbl.setStyleSheet(
+            f"font-size: 16px; font-weight: 700; color: {Color.TEXT_DISABLED};"
+            " background: transparent; border: none;"
+        )
+        cv_lay.addWidget(self._cv_pred_lbl)
+        self._cv_box.setVisible(False)
+        stats_row.addWidget(self._cv_box)
+
+        # FPS block (free training only)
+        self._fps_box = QWidget()
+        self._fps_box.setFixedHeight(70)
+        self._fps_box.setStyleSheet(f"""
+            QWidget {{
+                background-color: #131920;
+                border: 1px solid #1E2832;
+                border-left: 3px solid {Color.WARNING};
+                border-radius: {Size.RADIUS}px;
+            }}
+        """)
+        fps_lay = QVBoxLayout(self._fps_box)
+        fps_lay.setContentsMargins(14, 6, 14, 6)
+        fps_lay.setSpacing(0)
+        fps_hdr = QLabel("FPS")
+        fps_hdr.setAlignment(Qt.AlignCenter)
+        fps_hdr.setStyleSheet(
+            f"font-size: 10px; font-weight: 700; color: {Color.TEXT_DISABLED};"
+            " letter-spacing: 0.8px; background: transparent; border: none;"
+        )
+        fps_lay.addWidget(fps_hdr)
+        self._cv_fps_lbl = QLabel("--")
+        self._cv_fps_lbl.setAlignment(Qt.AlignCenter)
+        self._cv_fps_lbl.setStyleSheet(
+            f"font-size: 24px; font-weight: 700; color: {Color.TEXT};"
+            " background: transparent; border: none;"
+        )
+        fps_lay.addWidget(self._cv_fps_lbl)
+        self._fps_box.setVisible(False)
+        stats_row.addWidget(self._fps_box)
 
         root.addLayout(stats_row)
 
@@ -269,11 +363,69 @@ class TrainingSessionPage(QWidget):
         self._bridge.coach_tip.connect(self._on_coach_tip)
         self._bridge.session_state_changed.connect(self._on_session_state)
         self._bridge.strike_complete.connect(self._on_strike_complete)
+        self._bridge.debug_info.connect(self._on_debug_info)
 
     def _on_punch(self, data: Dict[str, Any]) -> None:
-        if not self._session_active:
+        if not self._counting_active:
             return
         self._punch_counter.increment()
+        # Show fusion-filtered result in the CV box during free training
+        if not self._combo_tokens and self._cv_box.isVisible():
+            pt = data.get("punch_type", "?")
+            color = {
+                "jab": Color.JAB, "cross": Color.CROSS,
+                "left_hook": Color.L_HOOK, "right_hook": Color.R_HOOK,
+                "left_uppercut": Color.L_UPPERCUT, "right_uppercut": Color.R_UPPERCUT,
+            }.get(pt, Color.TEXT)
+            name = pt.upper().replace("_", " ")
+            imu_tag = "IMU" if data.get("imu_confirmed") else "CV"
+            conf = data.get("cv_confidence", 0.0)
+            self._cv_hdr_lbl.setText("FUSION")
+            self._cv_pred_lbl.setText(f"{name} {conf:.0%}")
+            self._cv_pred_lbl.setStyleSheet(
+                f"font-size: 16px; font-weight: 700; color: {color};"
+                " background: transparent; border: none;"
+            )
+
+    def _on_debug_info(self, data: Dict[str, Any]) -> None:
+        """Show raw CV prediction and FPS."""
+        if not self._session_active or not self._cv_box.isVisible():
+            return
+        action = data.get("action", "idle")
+        confidence = data.get("confidence", 0.0)
+        fps = data.get("fps", 0.0)
+        color = {
+            "jab": Color.JAB, "cross": Color.CROSS,
+            "left_hook": Color.L_HOOK, "right_hook": Color.R_HOOK,
+            "left_uppercut": Color.L_UPPERCUT, "right_uppercut": Color.R_UPPERCUT,
+            "block": Color.BLOCK,
+        }.get(action, Color.TEXT_DISABLED)
+        # FPS block
+        fps_color = Color.SUCCESS if fps >= 25 else (Color.WARNING if fps >= 15 else Color.DANGER)
+        self._cv_fps_lbl.setText(f"{fps:.0f}")
+        self._cv_fps_lbl.setStyleSheet(
+            f"font-size: 24px; font-weight: 700; color: {fps_color};"
+            " background: transparent; border: none;"
+        )
+        # CV prediction block — always show raw CV predictions
+        # (header changes to FUSION momentarily when a confirmed punch arrives)
+        if action in ("idle", ""):
+            self._cv_pred_lbl.setText("IDLE")
+            self._cv_pred_lbl.setStyleSheet(
+                f"font-size: 16px; font-weight: 700; color: {Color.TEXT_DISABLED};"
+                " background: transparent; border: none;"
+            )
+            if not self._counting_active:
+                self._cv_hdr_lbl.setText("CV MODEL")
+        else:
+            name = action.upper().replace("_", " ")
+            self._cv_pred_lbl.setText(f"{name} {confidence:.0%}")
+            self._cv_pred_lbl.setStyleSheet(
+                f"font-size: 14px; font-weight: 700; color: {color};"
+                " background: transparent; border: none;"
+            )
+            if not self._counting_active:
+                self._cv_hdr_lbl.setText("CV MODEL")
 
     def _on_drill_progress(self, data: Dict[str, Any]) -> None:
         if not self._session_active:
@@ -394,6 +546,7 @@ class TrainingSessionPage(QWidget):
         if not self._session_active:
             return
         self._session_active = False
+        self._counting_active = False
         self._drill_timer.stop()
         self._score_round()
         if self._current_round < self._total_rounds:
@@ -418,6 +571,16 @@ class TrainingSessionPage(QWidget):
                 combos_completed=self._combos_completed,
             )
 
+    def _cycle_speed(self) -> None:
+        """Cycle through speed options (tap to change, like training config)."""
+        self._speed_index = (self._speed_index + 1) % len(self._speed_options)
+        label = self._speed_options[self._speed_index]
+        self._speed_tile.setText(f"Speed\n{label}")
+        speed_val = {"Slow": "slow", "Medium": "medium", "Fast": "fast"}[label]
+        self._robot_speed = speed_val
+        self._config["Speed"] = label
+        logger.info("Free training speed set to %s", speed_val)
+
     def imu_start(self) -> None:
         """Called by centre pad IMU — triggers START if waiting."""
         if getattr(self, '_waiting_for_start', False):
@@ -429,8 +592,21 @@ class TrainingSessionPage(QWidget):
         # Handle START press for free training
         if getattr(self, '_waiting_for_start', False):
             self._waiting_for_start = False
+            self._speed_tile.setVisible(False)
             self._btn_pause.setText("PAUSE")
-            self._btn_pause.setStyleSheet("")  # reset to default
+            self._btn_pause.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {Color.SURFACE};
+                    color: {Color.TEXT};
+                    font-size: 15px; font-weight: 700;
+                    border: 1px solid {Color.BORDER_LIGHT};
+                    border-radius: {Size.RADIUS}px;
+                }}
+                QPushButton:hover {{
+                    border-color: {Color.WARNING};
+                    background-color: {Color.SURFACE_HOVER};
+                }}
+            """)
             self._start_ros_session()
             self._timer.set_overlay("Get Ready")
             QTimer.singleShot(1000, self._countdown_tick)
@@ -438,6 +614,7 @@ class TrainingSessionPage(QWidget):
         if self._paused:
             # Resume
             self._paused = False
+            self._counting_active = True
             self._timer.resume()
             self._drill_timer.start()
             self._btn_pause.setText("PAUSE")
@@ -458,6 +635,7 @@ class TrainingSessionPage(QWidget):
         else:
             # Pause
             self._paused = True
+            self._counting_active = False
             self._timer.pause()
             self._drill_timer.stop()
             self._btn_pause.setText("RESUME")
@@ -477,6 +655,7 @@ class TrainingSessionPage(QWidget):
 
     def _on_stop(self) -> None:
         self._session_active = False
+        self._counting_active = False
         self._drill_timer.stop()
         self._timer.pause()
         self._score_round()
@@ -561,6 +740,7 @@ class TrainingSessionPage(QWidget):
 
     def _start_round(self) -> None:
         """Begin the round — start the timer and the drill cycling."""
+        self._counting_active = True
         self._timer.clear_overlay()
         self._timer.start(self._work_time)
 
@@ -622,6 +802,7 @@ class TrainingSessionPage(QWidget):
         self._combos_completed = 0
 
         self._session_active = True
+        self._counting_active = False
         self._paused = False
         self._session_id = ""
         self._btn_pause.setText("PAUSE")
@@ -666,7 +847,7 @@ class TrainingSessionPage(QWidget):
         self._timer.set_time(work_time)
 
         if not self._combo_tokens:
-            # Free training — show START button, don't auto-countdown
+            # Free training — show START button + speed selector
             self._timer.set_overlay("Tap START")
             self._cue_lbl.setText("FREE TRAINING")
             self._cue_lbl.setStyleSheet(
@@ -679,10 +860,23 @@ class TrainingSessionPage(QWidget):
                 " font-size: 18px; font-weight: bold; border-radius: 12px;"
                 " padding: 12px 32px;"
             )
+            self._speed_tile.setVisible(True)
+            self._speed_index = 1
+            self._speed_tile.setText("Speed\nMedium")
+            self._robot_speed = "medium"
+            self._combos_box.setVisible(False)
+            self._cv_box.setVisible(True)
+            self._fps_box.setVisible(True)
+            self._cv_pred_lbl.setText("--")
+            self._cv_fps_lbl.setText("--")
             self._waiting_for_start = True
         else:
             # Combo drill — auto-countdown as before
             self._waiting_for_start = False
+            self._speed_tile.setVisible(False)
+            self._combos_box.setVisible(True)
+            self._cv_box.setVisible(False)
+            self._fps_box.setVisible(False)
             self._timer.set_overlay("Get Ready")
             # Start the ROS session on the first round
             if self._current_round == 1:
@@ -696,5 +890,6 @@ class TrainingSessionPage(QWidget):
 
     def on_leave(self) -> None:
         self._session_active = False
+        self._counting_active = False
         self._drill_timer.stop()
         self._timer.pause()

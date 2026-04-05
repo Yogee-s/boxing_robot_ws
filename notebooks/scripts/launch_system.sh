@@ -72,6 +72,7 @@ cleanup() {
     pkill -f "micro_ros_agent.*serial" 2>/dev/null
     pkill -f "unified_GUI_V4.py" 2>/dev/null
     pkill -f "realsense2_camera" 2>/dev/null
+    pkill -f "cv_ros_headless" 2>/dev/null
     pkill -f "teensy_simulator.py" 2>/dev/null
     kill -- -$LAUNCH_PID 2>/dev/null
     sleep 1
@@ -138,12 +139,20 @@ setsid ros2 launch boxbunny_core boxbunny_full.launch.py &
 LAUNCH_PID=$!
 sleep 5
 
-# ── Step 4: ML Nodes (conda Python — PyTorch, pyrealsense2, llama-cpp) ───────
+# ── Step 4: CV Inference (conda Python — same approach as 4c test) ────────────
+# Uses a headless tight-loop script (no Tkinter GUI) that matches the working
+# 4c fusion test exactly: grab frame → process_frame → publish to ROS.
 echo ""
-echo "=== Starting CV Node (conda: boxing_ai) ==="
-CONDA_SP="/home/boxbunny/miniconda3/envs/boxing_ai/lib/python3.10/site-packages"
-PYTHONPATH="${CONDA_SP}:${PYTHONPATH}" ros2 run boxbunny_core cv_node &
-echo "  cv_node started (PyTorch + pyrealsense2)"
+echo "=== Starting CV Inference (headless, conda: boxing_ai) ==="
+eval "$(conda shell.bash hook 2>/dev/null)"
+conda activate boxing_ai 2>/dev/null || true
+source /opt/ros/humble/setup.bash
+source "$WS/install/setup.bash"
+cd "$WS/action_prediction"
+python3 "$WS/notebooks/scripts/cv_ros_headless.py" &
+CV_PID=$!
+cd "$WS"
+echo "  CV inference started (PID: $CV_PID)"
 sleep 3
 
 # ── Step 5: Teensy Simulator (dev mode only) ────────────────────────────────────

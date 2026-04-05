@@ -34,6 +34,7 @@ setup(
             'session_manager = boxbunny_core.session_manager:main',
             'drill_manager = boxbunny_core.drill_manager:main',
             'sparring_engine = boxbunny_core.sparring_engine:main',
+            'free_training_engine = boxbunny_core.free_training_engine:main',
             'analytics_node = boxbunny_core.analytics_node:main',
             'llm_node = boxbunny_core.llm_node:main',
             'gesture_node = boxbunny_core.gesture_node:main',

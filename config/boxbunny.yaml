@@ -157,8 +157,8 @@ free_training:
     left: ["3", "5"]          # left hook or left uppercut
     right: ["4", "6"]         # right hook or right uppercut
     head: ["1", "2"]          # jab or cross
-  # Minimum time (ms) between robot counter-punches
-  counter_cooldown_ms: 1500
+  # Minimum time (ms) after strike completion before next counter-punch
+  counter_cooldown_ms: 300
   # Idle timeout (seconds) before robot returns to guard position
   idle_return_s: 5.0
   # Default robot speed for counter-punches

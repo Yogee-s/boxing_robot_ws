@@ -155,7 +155,7 @@ class ImuNode(Node):
         """
         now = time.time()
         last = self._last_strike_time.get(msg.pad, 0.0)
-        if now - last < 0.4:
+        if now - last < 0.25:
             return  # already published for this strike
         punch_msg = PunchEvent()
         punch_msg.timestamp = msg.timestamp if msg.timestamp > 0 else now

@@ -27,7 +27,7 @@ except ImportError:
 try:
     from boxbunny_msgs.msg import (
         ArmStrike, ConfirmedPunch, HeightCommand, IMUStatus, PadImpact,
-        RobotCommand,
+        RobotCommand, SessionState,
     )
 except ImportError:
     raise SystemExit(
@@ -187,6 +187,15 @@ class TeensySimulatorNode(Node):
         self._real_imu_accel = [[0.0, 0.0, 0.0] for _ in range(4)]
         self._teensy_connected = False
 
+        # ── Session state tracking ───────────────────────────────────────
+        self._session_mode: str = ""  # "free", "training", "sparring", etc.
+        self._session_state: str = "idle"
+        self._session_mode_callback = None  # set by GUI
+        self.create_subscription(
+            SessionState, "/boxbunny/session/state",
+            self._on_session_state, 10,
+        )
+
         # ── Punch code -> slot mapping ───────────────────────────────────
         # Maps BoxBunny punch codes ("1"-"6") to V4 GUI slot numbers (1-6)
         # The V4 GUI needs punch_slots assigned before strikes can execute
@@ -265,6 +274,13 @@ class TeensySimulatorNode(Node):
                 self._real_imu_accel[i] = [msg.data[base], msg.data[base+1], msg.data[base+2]]
         if self._motor_feedback_callback:
             self._motor_feedback_callback(msg.data)
+
+    def _on_session_state(self, msg: SessionState) -> None:
+        """Track current session state and mode for execution behaviour."""
+        self._session_state = msg.state
+        self._session_mode = msg.mode
+        if self._session_mode_callback:
+            self._session_mode_callback(msg.mode, msg.state)
 
     def _on_height_command(self, msg: HeightCommand) -> None:
         """Handle height command from BoxBunny system."""
@@ -396,13 +412,14 @@ class TeensySimulatorGUI:
         self._combo_timeout_id = None
         self._pending_cmd = None  # dict or None
         self._executing = False
+        self._executing_punch = ""
 
         self._root = tk.Tk()
         self._root.title("BoxBunny Teensy Simulator")
         self._root.configure(bg=BG)
         self._root.geometry("600x920")
         self._root.resizable(True, True)
-        self._auto_execute = tk.BooleanVar(value=True)
+        self._auto_execute = tk.BooleanVar(value=False)
         self._fwd_hardware = tk.BooleanVar(value=False)
         self._build()
 
@@ -799,22 +816,28 @@ class TeensySimulatorGUI:
         self._root.after(0, lambda: self._flash_incoming(punch_type))
 
     def _flash_incoming(self, punch_type: str) -> None:
-        """Flash the punch button and arm to show an incoming robot command."""
+        """Flash the punch button, arm, and target pad for an incoming robot command."""
         color_map = {
             "jab": PUNCH_JAB, "cross": PUNCH_CROSS,
             "l_hook": PUNCH_HOOK, "r_hook": PUNCH_HOOK,
             "l_upper": PUNCH_UPPER, "r_upper": PUNCH_UPPER,
         }
         color = color_map.get(punch_type, PRIMARY)
-        arm_side, _ = _PUNCH_TYPES.get(punch_type, ("left", "centre"))
+        arm_side, target_pad = _PUNCH_TYPES.get(punch_type, ("left", "centre"))
 
-        if punch_type in self._punch_btns:
-            btn = self._punch_btns[punch_type]
-            btn.configure(bg=color, fg="#000")
-            btn.after(_FLASH_MS, lambda: btn.configure(bg=SURFACE2, fg=color))
+        # Punch button highlight is handled by _start/_finish_execution
+        # (stays lit for the full execution duration, not just a flash)
 
         if arm_side in self._arm_btns:
             self._flash(self._arm_btns[arm_side], color, ARM_BG, PUNCH_JAB)
+
+        # Flash the target pad briefly — only for hooks (left/right pads).
+        # Jab/cross/uppercuts target "centre" in _PUNCH_TYPES but that's
+        # the user's punch pad, not a meaningful strike destination.
+        if target_pad in ("left", "right") and target_pad in self._pad_btns:
+            padbtn = self._pad_btns[target_pad]
+            padbtn.configure(bg=color, fg="#000")
+            padbtn.after(_FLASH_MS, lambda b=padbtn: b.configure(bg=PAD_BG, fg=RED))
 
         _PUNCH_LABELS = {
             "jab": "Jab", "cross": "Cross", "l_hook": "L Hook",
@@ -850,9 +873,10 @@ class TeensySimulatorGUI:
                 prefix = "L" if arm == "left" else "R"
                 lbl.configure(text=f"{prefix} ARM: pending", fg=AMBER)
 
-        # Forward to V4 GUI hardware if connected or toggle is on
-        use_hardware = self._fwd_hardware.get() or self._node._teensy_connected
-        if use_hardware:
+        # Forward to V4 GUI hardware ONLY via explicit toggle (not auto).
+        # robot_node already forwards RobotCommand -> /robot/strike_command,
+        # so the simulator should NOT also forward to avoid double commands.
+        if self._fwd_hardware.get():
             slot = cmd.get("slot")
             speed = cmd.get("speed")
             if slot:
@@ -861,7 +885,11 @@ class TeensySimulatorGUI:
             return
 
         # No hardware — use simulated execution
-        if self._auto_execute.get() and not self._executing:
+        # Free training mode: always auto-execute (engine needs strike_feedback)
+        # Training mode: respect auto-execute toggle / manual EXECUTE button
+        is_free = self._node._session_mode == "free"
+        should_auto = is_free or self._auto_execute.get()
+        if should_auto and not self._executing:
             self._start_simulated_execution(cmd)
 
     def _manual_execute(self) -> None:
@@ -872,14 +900,31 @@ class TeensySimulatorGUI:
     def _start_simulated_execution(self, cmd: dict) -> None:
         """Begin simulated strike execution with speed-based delay."""
         self._executing = True
+        self._executing_punch = cmd.get("punch_type", "")
         arm = cmd.get("arm", "left")
         lbl = self._arm_status_lbls.get(arm)
         if lbl:
             prefix = "L" if arm == "left" else "R"
             lbl.configure(text=f"{prefix} ARM: EXECUTING", fg=RED)
 
-        speed = self._speed_var.get()
-        delay_s = 10.0 / max(speed, 1.0)
+        # Highlight the punch button for the duration of execution
+        ptype = cmd.get("punch_type", "")
+        if ptype in self._punch_btns:
+            color_map = {
+                "jab": PUNCH_JAB, "cross": PUNCH_CROSS,
+                "l_hook": PUNCH_HOOK, "r_hook": PUNCH_HOOK,
+                "l_upper": PUNCH_UPPER, "r_upper": PUNCH_UPPER,
+            }
+            self._punch_btns[ptype].configure(
+                bg=color_map.get(ptype, PRIMARY), fg="#000")
+
+        # Use command speed (rad/s) if available, otherwise fall back to UI slider
+        cmd_speed = cmd.get("speed")
+        if isinstance(cmd_speed, (int, float)) and cmd_speed > 0:
+            speed = cmd_speed
+        else:
+            speed = self._speed_var.get()
+        delay_s = 10.0 / max(float(speed), 1.0)
         delay_ms = int(delay_s * 1000)
 
         self._root.after(
@@ -887,6 +932,18 @@ class TeensySimulatorGUI:
 
     def _finish_execution(self, cmd: dict, delay_s: float) -> None:
         """Complete simulated strike and publish feedback."""
+        # Reset the punch button highlight
+        ptype = cmd.get("punch_type", "")
+        if ptype in self._punch_btns:
+            color_map = {
+                "jab": PUNCH_JAB, "cross": PUNCH_CROSS,
+                "l_hook": PUNCH_HOOK, "r_hook": PUNCH_HOOK,
+                "l_upper": PUNCH_UPPER, "r_upper": PUNCH_UPPER,
+            }
+            self._punch_btns[ptype].configure(
+                bg=SURFACE2, fg=color_map.get(ptype, PRIMARY))
+        self._executing_punch = ""
+
         slot = cmd.get("slot", 0)
         punch_name = _CODE_TO_PUNCH.get(cmd.get("code", ""), "unknown")
         _STRIKE_NAMES = {
@@ -907,7 +964,9 @@ class TeensySimulatorGUI:
         self._executing = False
         self._log(f"SIM>  {strike_name:<12s}  completed  ({delay_s:.1f}s)")
         # If another command arrived during execution, process it now
-        if self._pending_cmd and self._pending_cmd != cmd and self._auto_execute.get():
+        is_free = self._node._session_mode == "free"
+        should_auto = is_free or self._auto_execute.get()
+        if self._pending_cmd and self._pending_cmd != cmd and should_auto:
             self._start_simulated_execution(self._pending_cmd)
         else:
             self._pending_cmd = None
@@ -1133,15 +1192,15 @@ class TeensySimulatorGUI:
     # ── Pad / Arm handlers ──────────────────────────────────────────────
     def _on_pad(self, pad: str) -> None:
         level = self._get_force_level()
-        force = self._get_force_normalized()
         accel = self._accel_var.get()
+        # Only publish PadImpact — the ROS pipeline handles the rest:
+        # PadImpact -> imu_node -> PunchEvent -> punch_processor -> ConfirmedPunch
         self._node.publish_pad(pad, level, accel=accel)
-        self._node.publish_punch("strike", level, force, pad_override=pad)
         colors = {"light": GREEN, "medium": AMBER, "hard": RED}
         if pad in self._pad_btns:
             self._flash(self._pad_btns[pad], colors[level],
                         PAD_BG, RED)
-        self._log(f"PAD  {pad:<7s}  accel={self._accel_var.get():.1f}  level={level}")
+        self._log(f"PAD  {pad:<7s}  accel={accel:.1f}  level={level}")
 
     def _on_arm(self, event: tk.Event, side: str) -> None:
         contact = not bool(event.state & 0x0001)
@@ -1290,6 +1349,13 @@ class TeensySimulatorGUI:
         dur = data.get("duration_actual", 0.0)
         color = GREEN if status == "completed" else (AMBER if status == "overtime" else RED)
         self._log(f"FB>  {strike:<12s}  {status}  ({dur:.1f}s)")
+        # Reset arm status labels and pending state on strike completion
+        for side, lbl in self._arm_status_lbls.items():
+            prefix = "L" if side == "left" else "R"
+            lbl.configure(text=f"{prefix} ARM: idle", fg=FG_MUTED)
+        self._pending_lbl.configure(text="Pending: --", fg=FG_MUTED)
+        self._executing = False
+        self._pending_cmd = None
         # Advance combo queue on strike completion
         if getattr(self, '_combo_playing', False):
             # Cancel the timeout since we got real feedback

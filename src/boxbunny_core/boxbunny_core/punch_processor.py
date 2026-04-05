@@ -157,10 +157,26 @@ class PunchProcessorNode(Node):
                 best_conf[action] = conf
 
         if not counts:
-            self.get_logger().info(
-                f"SKIP: pad={pad} — no valid CV predictions in buffer "
-                f"(buf_size={len(self._cv_buffer)} valid={valid})"
-            )
+            # IMU-only fallback: no CV predictions in buffer (e.g. CV node
+            # not running, or simulator-only mode).  Infer punch type from
+            # the pad location so ConfirmedPunch is still emitted.
+            inferred = infer_punch_from_pad(pad)
+            if inferred and inferred != "unclassified":
+                self._emit(
+                    timestamp=ts, punch_type=inferred, pad=pad,
+                    level=msg.level, force=msg.force_normalized,
+                    confidence=self._imu_only_conf, imu_confirmed=True,
+                    cv_confirmed=False, accel_magnitude=accel,
+                )
+                self.get_logger().info(
+                    f"IMU-ONLY: {inferred} pad={pad} accel={accel:.1f} "
+                    f"(no CV buffer, inferred from pad)"
+                )
+            else:
+                self.get_logger().info(
+                    f"SKIP: pad={pad} — no valid CV predictions and "
+                    f"cannot infer from pad"
+                )
             return
 
         # Pick the punch type with the most frames (dominant prediction)

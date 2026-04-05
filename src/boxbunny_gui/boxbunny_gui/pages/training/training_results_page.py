@@ -402,13 +402,25 @@ class TrainingResultsPage(QWidget):
         )
 
     def _on_train_again(self) -> None:
-        self._router.navigate(
-            "training_config",
-            combo=self._config.get("combo", {}),
-            difficulty=self._difficulty,
-            curriculum=self._curriculum,
-            username=self._username,
-        )
+        combo = self._config.get("combo", {})
+        is_free = not combo.get("seq", "")
+        if is_free:
+            # Free training — go straight back to session page
+            self._router.navigate(
+                "training_session",
+                config=self._config,
+                combo_id=None,
+                difficulty=self._difficulty,
+                username=self._username,
+            )
+        else:
+            self._router.navigate(
+                "training_config",
+                combo=combo,
+                difficulty=self._difficulty,
+                curriculum=self._curriculum,
+                username=self._username,
+            )
 
     def _request_llm_summary(self) -> None:
         import json
@@ -506,33 +518,51 @@ class TrainingResultsPage(QWidget):
         total_punches = self._total_punches
         combos_done = self._combos_done
 
-        # Populate stat tiles with real session data
-        self._stat_punches.findChild(QLabel, "val").setText(str(total_punches))
-        self._stat_accuracy.findChild(QLabel, "val").setText(
-            f"{combos_done} combos"
-        )
-        rounds = self._config.get("Rounds", "1")
-        self._stat_best.findChild(QLabel, "val").setText(
-            f"{rounds} rounds"
-        )
-        work = self._config.get("Work Time", "--")
-        self._stat_fatigue.findChild(QLabel, "val").setText(work)
+        # Detect free training mode (no combo sequence)
+        combo = self._config.get("combo", {})
+        combo_name = combo.get("name", "")
+        is_free = not combo.get("seq", "")
 
-        # Show combo name in tag
-        combo_name = self._config.get("combo", {}).get("name", "")
-        self._combo_tag.setText(combo_name if combo_name else "Free Training")
+        # Populate stat tiles
+        self._stat_punches.findChild(QLabel, "val").setText(str(total_punches))
+
+        if is_free:
+            # Free training: hide irrelevant tiles, show only punches + speed
+            self._stat_accuracy.findChild(QLabel, "val").setText(
+                self._config.get("Speed", "Medium")
+            )
+            self._stat_best.setVisible(False)
+            self._stat_fatigue.setVisible(False)
+            self._combo_tag.setText("Free Training")
+            self._btn_combos.setVisible(False)
+            self._btn_save.setVisible(False)
+        else:
+            self._stat_accuracy.findChild(QLabel, "val").setText(
+                f"{combos_done} combos"
+            )
+            rounds = self._config.get("Rounds", "1")
+            self._stat_best.findChild(QLabel, "val").setText(
+                f"{rounds} rounds"
+            )
+            work = self._config.get("Work Time", "--")
+            self._stat_fatigue.findChild(QLabel, "val").setText(work)
+            self._stat_best.setVisible(True)
+            self._stat_fatigue.setVisible(True)
+            self._combo_tag.setText(combo_name if combo_name else "Training")
+            self._btn_combos.setVisible(True)
+            self._btn_save.setVisible(True)
 
         self._update_mastery()
         self._request_llm_summary()
 
         # Record session in history
         from boxbunny_gui.session_tracker import get_tracker
-        combo_name = self._config.get("combo", {}).get("name", "Free Training")
+        combo_name = combo_name or "Free Training"
         get_tracker().add_session(
-            mode="Training",
+            mode="Free Training" if is_free else "Training",
             duration=self._config.get("Work Time", "--"),
             punches=str(total_punches),
-            score=f"{combos_done} combos",
+            score=f"{combos_done} combos" if not is_free else f"{total_punches} punches",
         )
         logger.info("TrainingResultsPage entered (combo=%s)", self._combo_id)
 
