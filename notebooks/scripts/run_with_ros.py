@@ -137,6 +137,10 @@ def main():
     args = parser.parse_args()
 
     root = tk.Tk()
+    # Hide the Tkinter window when running as a background service.
+    # The LiveVoxelGUI event loop still runs internally for threading.
+    if os.environ.get("CV_HEADLESS") == "1":
+        root.withdraw()
     app = LiveVoxelGUI(
         root,
         checkpoint_path=args.checkpoint,

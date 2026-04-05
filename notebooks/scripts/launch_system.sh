@@ -73,6 +73,8 @@ cleanup() {
     pkill -f "unified_GUI_V4.py" 2>/dev/null
     pkill -f "realsense2_camera" 2>/dev/null
     pkill -f "cv_ros_headless" 2>/dev/null
+    pkill -f "run_with_ros" 2>/dev/null
+    pkill -f "live_voxelflow" 2>/dev/null
     pkill -f "teensy_simulator.py" 2>/dev/null
     kill -- -$LAUNCH_PID 2>/dev/null
     sleep 1
@@ -139,21 +141,22 @@ setsid ros2 launch boxbunny_core boxbunny_full.launch.py &
 LAUNCH_PID=$!
 sleep 5
 
-# ── Step 4: CV Inference (conda Python — same approach as 4c test) ────────────
-# Uses a headless tight-loop script (no Tkinter GUI) that matches the working
-# 4c fusion test exactly: grab frame → process_frame → publish to ROS.
+# ── Step 4: CV Inference (conda Python — same as working 4c test) ─────────────
+# Uses run_with_ros.py which wraps LiveVoxelGUI (the EXACT same inference
+# that works correctly in the 4c test).  --no-video is default so no camera
+# feed window, just the minimal Tkinter control panel.
 echo ""
-echo "=== Starting CV Inference (headless, conda: boxing_ai) ==="
+echo "=== Starting CV Inference (conda: boxing_ai) ==="
 eval "$(conda shell.bash hook 2>/dev/null)"
 conda activate boxing_ai 2>/dev/null || true
 source /opt/ros/humble/setup.bash
 source "$WS/install/setup.bash"
 cd "$WS/action_prediction"
-python3 "$WS/notebooks/scripts/cv_ros_headless.py" &
+CV_HEADLESS=1 python3 "$WS/notebooks/scripts/run_with_ros.py" &
 CV_PID=$!
 cd "$WS"
-echo "  CV inference started (PID: $CV_PID)"
-sleep 3
+echo "  CV inference started — same as 4c test (PID: $CV_PID)"
+sleep 5
 
 # ── Step 5: Teensy Simulator (dev mode only) ────────────────────────────────────
 if [ "$DEV_MODE" = true ]; then
