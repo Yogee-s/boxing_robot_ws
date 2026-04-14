@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QScrollArea,
+    QScroller,
     QVBoxLayout,
     QWidget,
 )
@@ -179,6 +180,10 @@ class DebugDetectionPanel(QWidget):
         scroll = QScrollArea()
         scroll.setWidget(self._log_widget)
         scroll.setWidgetResizable(True)
+        QScroller.grabGesture(
+            scroll.viewport(),
+            QScroller.ScrollerGestureType.LeftMouseButtonGesture,
+        )
         scroll.setStyleSheet(
             f"QScrollArea {{ background: {Color.SURFACE};"
             f" border: 1px solid {Color.BORDER};"

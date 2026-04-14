@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
+    QScroller,
     QVBoxLayout,
     QWidget,
 )
@@ -197,6 +198,10 @@ class HistoryPage(QWidget):
         self._list_layout.setSpacing(10)
         self._list_layout.setContentsMargins(2, 4, 2, 4)
         scroll.setWidget(self._list_widget)
+        QScroller.grabGesture(
+            scroll.viewport(),
+            QScroller.ScrollerGestureType.LeftMouseButtonGesture,
+        )
         root.addWidget(scroll, stretch=1)
 
     def _set_filter(self, flt: str) -> None:

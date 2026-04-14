@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QScrollArea,
+    QScroller,
     QVBoxLayout,
     QWidget,
 )
@@ -272,6 +273,10 @@ class AccountPickerPage(QWidget):
         self._grid = QGridLayout(self._grid_widget)
         self._grid.setSpacing(Size.SPACING_LG)
         scroll.setWidget(self._grid_widget)
+        QScroller.grabGesture(
+            scroll.viewport(),
+            QScroller.ScrollerGestureType.LeftMouseButtonGesture,
+        )
         root.addWidget(scroll, stretch=1)
 
         # Bottom: sign-up hint

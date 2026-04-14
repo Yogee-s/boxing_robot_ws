@@ -187,7 +187,7 @@ class TrainingSessionPage(QWidget):
         root.addSpacing(6)
 
         # ── Combo sequence with highlight (scrollable) ───────────────────
-        from PySide6.QtWidgets import QScrollArea
+        from PySide6.QtWidgets import QScrollArea, QScroller
         self._combo_scroll = QScrollArea()
         self._combo_scroll.setWidgetResizable(True)
         self._combo_scroll.setFixedHeight(50)
@@ -209,6 +209,10 @@ class TrainingSessionPage(QWidget):
             " padding: 6px 16px;"
         )
         self._combo_scroll.setWidget(self._combo_seq_lbl)
+        QScroller.grabGesture(
+            self._combo_scroll.viewport(),
+            QScroller.ScrollerGestureType.LeftMouseButtonGesture,
+        )
         root.addWidget(self._combo_scroll)
 
         root.addSpacing(10)

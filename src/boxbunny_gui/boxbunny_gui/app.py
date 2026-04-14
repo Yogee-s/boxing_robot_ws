@@ -53,6 +53,9 @@ class BoxBunnyApp:
         self._setup_logging()
 
         # ── Qt application ──────────────────────────────────────────────
+        QApplication.setAttribute(
+            Qt.ApplicationAttribute.AA_CompressHighFrequencyEvents, True
+        )
         self._qapp = QApplication(argv or sys.argv)
         self._qapp.setApplicationName("BoxBunny")
 

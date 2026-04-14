@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QScrollArea,
+    QScroller,
     QSlider,
     QVBoxLayout,
     QWidget,
@@ -522,6 +523,11 @@ class SettingsPage(QWidget):
 
         sections.addStretch()
         scroll.setWidget(container)
+        # Enable finger/touch drag scrolling
+        QScroller.grabGesture(
+            scroll.viewport(),
+            QScroller.ScrollerGestureType.LeftMouseButtonGesture,
+        )
         root.addWidget(scroll, stretch=1)
 
     def _toggle_pattern_panel(self) -> None:

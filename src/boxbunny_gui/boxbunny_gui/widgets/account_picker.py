@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QScrollArea,
+    QScroller,
     QVBoxLayout,
     QWidget,
 )
@@ -130,6 +131,10 @@ class AccountPicker(QWidget):
         self._grid.setSpacing(Size.SPACING_SM)
         self._grid.setContentsMargins(0, 0, 0, 0)
         self._scroll.setWidget(self._grid_widget)
+        QScroller.grabGesture(
+            self._scroll.viewport(),
+            QScroller.ScrollerGestureType.LeftMouseButtonGesture,
+        )
         outer.addWidget(self._scroll, 1)
 
     # -- public API -----------------------------------------------------------

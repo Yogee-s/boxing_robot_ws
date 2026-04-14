@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QScrollArea,
+    QScroller,
     QVBoxLayout,
     QWidget,
 )
@@ -77,6 +78,10 @@ class PresetsPage(QWidget):
         self._list_layout.setSpacing(Size.SPACING_SM)
         self._list_layout.setContentsMargins(0, 0, 0, 0)
         scroll.setWidget(self._list_widget)
+        QScroller.grabGesture(
+            scroll.viewport(),
+            QScroller.ScrollerGestureType.LeftMouseButtonGesture,
+        )
         root.addWidget(scroll, stretch=1)
 
     def _load_presets(self) -> List[Dict[str, Any]]:

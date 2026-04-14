@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
+    QScroller,
     QVBoxLayout,
     QWidget,
 )
@@ -221,6 +222,10 @@ class HomeCoachPage(QWidget):
         self._content_lay.setContentsMargins(0, 8, 0, 0)
         self._content_lay.setSpacing(0)
         scroll.setWidget(scroll_content)
+        QScroller.grabGesture(
+            scroll.viewport(),
+            QScroller.ScrollerGestureType.LeftMouseButtonGesture,
+        )
         root.addWidget(scroll, stretch=1)
 
         # ── IDLE STATE ───────────────────────────────────────────────────

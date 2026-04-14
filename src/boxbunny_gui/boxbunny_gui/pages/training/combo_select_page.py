@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QScroller,
     QVBoxLayout,
     QWidget,
 )
@@ -596,6 +597,10 @@ class ComboSelectPage(QWidget):
 
         content_lay.addStretch()
         scroll.setWidget(content_w)
+        QScroller.grabGesture(
+            scroll.viewport(),
+            QScroller.ScrollerGestureType.LeftMouseButtonGesture,
+        )
         lay.addWidget(scroll, stretch=1)
 
         self._combo_popup.raise_()
