@@ -116,13 +116,14 @@ class _Cam(QObject):
         node.create_subscription(Image, "/camera/color/image_raw", _raw_cb, 1)
 
         try:
-            # Wait up to 2s for pose_frame (main CV model running)
+            # Wait up to 15s for pose_frame (CV model may still be loading)
             t0 = time.time()
-            while pose_frame[0] is None and time.time() - t0 < 2.0 and self._on:
+            while pose_frame[0] is None and raw_frame[0] is None and time.time() - t0 < 15.0 and self._on:
                 executor.spin_once(timeout_sec=0.1)
 
             if pose_frame[0] is not None:
                 # Main CV model is running — use pose_frame (grayscale + dots)
+                logger.info("Using pose_frame from CV pipeline")
                 while self._on:
                     executor.spin_once(timeout_sec=0.01)
                     if pose_frame[0] is not None:
@@ -136,11 +137,37 @@ class _Cam(QObject):
                     if raw_frame[0] is not None:
                         self._proc_bgr(raw_frame[0])
             else:
-                # Standalone mode — try direct camera (skip if not available)
-                if not self._on:
-                    return
-                logger.info("No ROS frames — trying direct camera")
-                self._run_direct_camera(node, executor)
+                # Nothing after 15s — check if CV inference is expected
+                cv_nodes = node.get_node_names()
+                cv_running = any("cv_ros_bridge" in n for n in cv_nodes)
+                if cv_running:
+                    # CV node exists but no frames yet — keep waiting
+                    logger.info("CV node active but no frames yet — waiting for pose_frame")
+                    while self._on:
+                        executor.spin_once(timeout_sec=0.1)
+                        if pose_frame[0] is not None:
+                            logger.info("pose_frame now available")
+                            break
+                        if raw_frame[0] is not None:
+                            break
+                    # Process whichever stream appeared
+                    if pose_frame[0] is not None:
+                        while self._on:
+                            executor.spin_once(timeout_sec=0.01)
+                            if pose_frame[0] is not None:
+                                self._proc(pose_frame[0])
+                    elif raw_frame[0] is not None:
+                        self._load_yolo()
+                        while self._on:
+                            executor.spin_once(timeout_sec=0.01)
+                            if raw_frame[0] is not None:
+                                self._proc_bgr(raw_frame[0])
+                else:
+                    # Standalone mode — no CV node, try direct camera
+                    if not self._on:
+                        return
+                    logger.info("No ROS frames and no CV node — trying direct camera")
+                    self._run_direct_camera(node, executor)
         finally:
             node.destroy_node()
             ctx.try_shutdown()
@@ -374,6 +401,24 @@ class ReactionTestPage(QWidget):
         rl.addLayout(self._res_cards_row)
         rl.addSpacing(8)
 
+        # AI Coach analysis
+        ai_box = QWidget()
+        ai_box.setStyleSheet(f"background:{Color.SURFACE};border-radius:12px;padding:12px;")
+        ai_lay = QVBoxLayout(ai_box); ai_lay.setContentsMargins(14, 10, 14, 10); ai_lay.setSpacing(4)
+        ai_title = QLabel("AI COACH")
+        ai_title.setStyleSheet(
+            f"font-size: 10px; font-weight: 700; color: {Color.INFO};"
+            " letter-spacing: 1px;"
+        )
+        ai_lay.addWidget(ai_title)
+        self._coach_lbl = QLabel("")
+        self._coach_lbl.setStyleSheet(f"font-size: 14px; color: {Color.TEXT};")
+        self._coach_lbl.setWordWrap(True)
+        self._coach_lbl.setMinimumHeight(40)
+        ai_lay.addWidget(self._coach_lbl)
+        rl.addWidget(ai_box)
+        rl.addSpacing(8)
+
         # Buttons
         br = QHBoxLayout(); br.setSpacing(10)
         retry = BigButton("Try Again", stylesheet=PRIMARY_BTN)
@@ -408,6 +453,7 @@ class ReactionTestPage(QWidget):
         self._trial = 0; self._times.clear()
         for i,c in enumerate(self._cards): c.setText(f"{_ord(i+1)}\n--"); c.setStyleSheet(f"font-size:22px;font-weight:700;color:{Color.TEXT_DISABLED};background:{Color.SURFACE};border-radius:12px;")
         self._btn.setVisible(False); self._res.setVisible(False)
+        self._coach_lbl.setText("")
         self._cam_area.setVisible(True); self._vid.setVisible(True); self._cards_w.setVisible(True)
         self._replay_timer.stop(); self._rbtn.setVisible(False)
         self._start_ros_session()
@@ -537,6 +583,82 @@ class ReactionTestPage(QWidget):
         self._msg.setText("")
         self._res.setVisible(True)
 
+        self._request_llm_summary(avg, tn, self._times)
+
+    # ── AI Coach ─────────────────────────────────────────────────────────
+
+    def _request_llm_summary(
+        self, avg: float, tier: str, times: List[float],
+    ) -> None:
+        import json
+
+        best = min(times)
+        worst = max(times)
+        spread = worst - best
+
+        session_desc = (
+            f"The user completed a {_TRIALS}-trial reaction time test. "
+            f"Individual times: {', '.join(f'{t:.0f}ms' for t in times)}. "
+            f"Average: {avg:.0f}ms ({tier} tier). "
+            f"Best: {best:.0f}ms, worst: {worst:.0f}ms, spread: {spread:.0f}ms."
+        )
+
+        if self._bridge is None:
+            self._coach_lbl.setText(self._local_summary(avg, tier, times))
+            return
+
+        context = {
+            "test_type": "reaction_time",
+            "num_trials": _TRIALS,
+            "times_ms": [round(t, 1) for t in times],
+            "avg_ms": round(avg, 1),
+            "best_ms": round(best, 1),
+            "worst_ms": round(worst, 1),
+            "spread_ms": round(spread, 1),
+            "tier": tier,
+        }
+        self._coach_lbl.setText("AI analysis loading...")
+        self._bridge.call_generate_llm(
+            prompt=(
+                f"Give a brief 2-sentence coaching analysis of this reaction test. "
+                f"Be specific about the actual numbers and give one actionable tip. "
+                f"{session_desc}"
+            ),
+            context_json=json.dumps(context),
+            system_prompt_key="coach_summary",
+            callback=self._on_llm_response,
+        )
+
+    @staticmethod
+    def _local_summary(avg: float, tier: str, times: List[float]) -> str:
+        """Fallback summary when LLM is unavailable."""
+        best = min(times)
+        spread = max(times) - best
+        if spread > 80:
+            consistency = "Your times varied quite a bit — focus on staying relaxed and consistent between attempts."
+        elif spread > 40:
+            consistency = "Decent consistency across attempts — keep working on making every rep feel the same."
+        else:
+            consistency = "Very consistent times — great focus and composure."
+        return (
+            f"Average: {avg:.0f}ms ({tier}), best attempt: {best:.0f}ms. "
+            f"{consistency}"
+        )
+
+    def _on_llm_response(
+        self, success: bool, response: str, gen_time: float,
+    ) -> None:
+        if success and response.strip():
+            self._coach_lbl.setText(response.strip())
+        else:
+            self._coach_lbl.setText(
+                self._local_summary(
+                    sum(self._times) / max(len(self._times), 1),
+                    _tier(sum(self._times) / max(len(self._times), 1))[0],
+                    self._times,
+                )
+            )
+
     # ── Replay ───────────────────────────────────────────────────────────
 
     def _rtoggle(self):
@@ -589,14 +711,20 @@ class ReactionTestPage(QWidget):
         self._cam_w.frame.connect(self._on_frame); self._cam_w.motion.connect(self._on_motion)
         self._cam_t.started.connect(self._cam_w.run); self._cam_t.start()
 
+    _orphaned_threads: list = []  # prevent GC of still-running QThreads
+
     def _stop_cam(self):
         if self._cam_w:
             self._cam_w.stop()
         if self._cam_t:
             self._cam_t.quit()
-            # Don't block the GUI — give 500ms then detach
-            if not self._cam_t.wait(500):
-                logger.info("Camera thread still running — detaching")
+            if not self._cam_t.wait(2000):
+                logger.info("Camera thread still running — parking to avoid QThread crash")
+                # Keep a reference so Qt doesn't destroy the C++ thread object
+                self._orphaned_threads.append(self._cam_t)
+                self._cam_t.finished.connect(
+                    lambda t=self._cam_t: self._orphaned_threads.remove(t)
+                )
             self._cam_t = None
             self._cam_w = None
 

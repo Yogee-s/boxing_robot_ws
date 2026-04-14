@@ -197,6 +197,23 @@ class StaminaTestPage(QWidget):
         res_row.addWidget(self._stat_fatigue)
         res_lay.addLayout(res_row)
 
+        # AI Coach analysis
+        ai_box = QWidget()
+        ai_box.setStyleSheet(f"background:{Color.SURFACE};border-radius:12px;padding:12px;")
+        ai_lay = QVBoxLayout(ai_box); ai_lay.setContentsMargins(14, 10, 14, 10); ai_lay.setSpacing(4)
+        ai_title = QLabel("AI COACH")
+        ai_title.setStyleSheet(
+            f"font-size: 10px; font-weight: 700; color: {Color.INFO};"
+            " letter-spacing: 1px;"
+        )
+        ai_lay.addWidget(ai_title)
+        self._coach_lbl = QLabel("")
+        self._coach_lbl.setStyleSheet(f"font-size: 14px; color: {Color.TEXT};")
+        self._coach_lbl.setWordWrap(True)
+        self._coach_lbl.setMinimumHeight(40)
+        ai_lay.addWidget(self._coach_lbl)
+        res_lay.addWidget(ai_box)
+
         btn_done = BigButton("Done", stylesheet=PRIMARY_BTN)
         btn_done.setFixedHeight(70)
         btn_done.clicked.connect(
@@ -449,6 +466,102 @@ class StaminaTestPage(QWidget):
         )
         self._end_ros_session()
         self._results_widget.setVisible(True)
+        self._request_llm_summary()
+
+    def _request_llm_summary(self) -> None:
+        import json
+        punches = self._punch_count
+        elapsed = self._elapsed
+        peak_rate = self._peak_rate
+        target = _TARGET_OPTIONS[self._target_idx]
+        duration = _DEFAULT_DURATION
+
+        avg_rate = (punches / (elapsed / 60.0)) if elapsed > 0 else 0.0
+        stopped_early = elapsed < duration
+
+        parts = []
+        if stopped_early:
+            parts.append(
+                f"The user stopped the stamina test early at {elapsed}s "
+                f"(out of {duration}s)."
+            )
+        else:
+            parts.append(
+                f"The user completed the full {duration}s stamina test."
+            )
+        parts.append(
+            f"They threw {punches} punches (avg {avg_rate:.0f}/min, "
+            f"peak {peak_rate:.0f}/min)."
+        )
+        if target is not None:
+            if punches >= target:
+                parts.append(f"They hit their target of {target} punches.")
+            else:
+                parts.append(
+                    f"They missed their target of {target} punches by "
+                    f"{target - punches}."
+                )
+
+        session_desc = " ".join(parts)
+
+        if self._bridge is None:
+            self._coach_lbl.setText(self._local_stamina_summary(
+                punches, elapsed, peak_rate, target, stopped_early,
+            ))
+            return
+
+        context = {
+            "test_type": "stamina",
+            "total_punches": punches,
+            "elapsed_sec": elapsed,
+            "duration_sec": duration,
+            "avg_rate_per_min": round(avg_rate, 1),
+            "peak_rate_per_min": round(peak_rate, 1),
+            "target": target,
+            "target_hit": target is not None and punches >= target,
+            "stopped_early": stopped_early,
+        }
+        self._coach_lbl.setText("AI analysis loading...")
+        self._bridge.call_generate_llm(
+            prompt=(
+                f"Give a brief 2-sentence coaching analysis of this stamina test. "
+                f"Be specific about the actual numbers. {session_desc}"
+            ),
+            context_json=json.dumps(context),
+            system_prompt_key="coach_summary",
+            callback=self._on_llm_response,
+        )
+
+    @staticmethod
+    def _local_stamina_summary(
+        punches: int, elapsed: int, peak_rate: float,
+        target: int | None, stopped_early: bool,
+    ) -> str:
+        if punches == 0:
+            if stopped_early:
+                return "Test stopped early with no punches thrown."
+            return "No punches recorded during the test."
+        parts = [f"{punches} punches in {elapsed}s (peak: {peak_rate:.0f}/min)."]
+        if target is not None:
+            if punches >= target:
+                parts.append(f"Target of {target} reached!")
+            else:
+                parts.append(f"Fell {target - punches} short of {target} target.")
+        if stopped_early:
+            parts.append("Try going the full duration next time for a true stamina read.")
+        return " ".join(parts)
+
+    def _on_llm_response(
+        self, success: bool, response: str, gen_time: float,
+    ) -> None:
+        if success and response.strip():
+            self._coach_lbl.setText(response.strip())
+        else:
+            target = _TARGET_OPTIONS[self._target_idx]
+            self._coach_lbl.setText(self._local_stamina_summary(
+                self._punch_count, self._elapsed, self._peak_rate,
+                target, self._elapsed < _DEFAULT_DURATION,
+            ))
 
     def _start_ros_session(self) -> None:
         """Start a ROS session so the imu_node switches to TRAINING mode."""
@@ -497,6 +610,7 @@ class StaminaTestPage(QWidget):
         self._btn_action.setStyleSheet(PRIMARY_BTN)
         self._btn_action.setVisible(True)
         self._results_widget.setVisible(False)
+        self._coach_lbl.setText("")
         self._punch_counter.set_count(0)
         self._rate_lbl.setText("0")
         self._duration_badge.setText("2:00")

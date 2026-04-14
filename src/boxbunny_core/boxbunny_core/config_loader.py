@@ -36,6 +36,8 @@ class CVConfig:
 class FusionConfig:
     """CV + IMU fusion configuration."""
     fusion_window_ms: int = 200
+    cv_match_window_ms: int = 300
+    fusion_delay_ms: int = 150
     cv_unconfirmed_confidence_penalty: float = 0.3
     reclassify_min_secondary_confidence: float = 0.25
     imu_debounce_ms: int = 150

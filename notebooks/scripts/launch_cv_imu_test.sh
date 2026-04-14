@@ -14,11 +14,21 @@
 # Requires: conda boxing_ai, Teensy connected, calibration (A2), RealSense.
 # =============================================================================
 set +e
+# Ensure this script leads its own process group so cleanup can kill children
+# (trap on EXIT catches both clean exit and Jupyter interrupt)
+set -m
 
 WS="/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws"
 cd "$WS"
 
 TEENSY_PORT="${1:-/dev/ttyACM0}"
+# Collect extra flags (skip positional args for port and baud)
+CV_EXTRA_ARGS=()
+for arg in "$@"; do
+    case "$arg" in
+        --show-video|--no-video) CV_EXTRA_ARGS+=("$arg") ;;
+    esac
+done
 DATA_DIR="$WS/Boxing_Arm_Control/ros2_ws/unified_v4/data"
 export DISPLAY="${DISPLAY:-:0}"
 
@@ -30,6 +40,9 @@ echo "=== Checking Calibration Status ==="
 echo ""
 
 # ── Cleanup ─────────────────────────────────────────────────────────────────
+_PIDFILE="/tmp/boxbunny_cv_imu_test.pid"
+echo $$ > "$_PIDFILE"
+
 cleanup() {
     echo ""
     echo "=== Stopping all processes ==="
@@ -45,6 +58,8 @@ cleanup() {
     pkill -f "punch_processor" 2>/dev/null
     pkill -f "cv_node" 2>/dev/null
     pkill -f "_v4_gui_launcher" 2>/dev/null
+    # Close gnome-terminal windows we opened
+    wmctrl -c "V4 Arm Control GUI" 2>/dev/null
     # Kill entire process group
     kill -- -$$ 2>/dev/null
     sleep 1
@@ -61,6 +76,7 @@ cleanup() {
     kill -9 -- -$$ 2>/dev/null
     # Release camera if still held
     fuser -k /dev/video* 2>/dev/null
+    rm -f "$_PIDFILE"
     echo "Done."
 }
 trap cleanup EXIT INT TERM
@@ -151,7 +167,7 @@ echo "  Close the CV window to stop everything."
 echo ""
 
 cd "$WS/action_prediction"
-python3 "$WS/notebooks/scripts/run_with_ros.py" 2>&1
+python3 "$WS/notebooks/scripts/run_with_ros.py" "${CV_EXTRA_ARGS[@]}" 2>&1
 
 echo ""
 echo "=== Test Complete ==="

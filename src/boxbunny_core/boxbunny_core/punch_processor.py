@@ -67,6 +67,9 @@ class PunchProcessorNode(Node):
         # the best prediction that is valid for the struck pad.
         self._cv_buffer: list[tuple[float, str, float]] = []  # (ts, action, conf)
         self._cv_buffer_window: float = 0.8  # seconds to keep
+        self._cv_match_window: float = fc.cv_match_window_ms / 1000.0
+        self._fusion_delay: float = fc.fusion_delay_ms / 1000.0
+        self._pending_imu: list[tuple[float, PendingIMU]] = []  # (fuse_at, data)
         self._current_cv: str = "idle"
         self._current_cv_conf: float = 0.0
 
@@ -113,73 +116,84 @@ class PunchProcessorNode(Node):
         self._current_cv = msg.punch_type
         self._current_cv_conf = msg.confidence
 
+        # Always prune old entries — including during idle periods so
+        # stale predictions from a previous punch don't persist.
+        cutoff = ts - self._cv_buffer_window
+        self._cv_buffer = [e for e in self._cv_buffer if e[0] >= cutoff]
+
         # Buffer non-idle predictions so IMU can search for best valid match
         if msg.punch_type not in (PunchType.IDLE, PunchType.BLOCK, ""):
             self._cv_buffer.append((ts, msg.punch_type, msg.confidence))
-            # Prune old entries
-            cutoff = ts - self._cv_buffer_window
-            self._cv_buffer = [
-                e for e in self._cv_buffer if e[0] >= cutoff
-            ]
 
     # -- IMU punch ------------------------------------------------------
 
     def _on_imu(self, msg: PunchEvent) -> None:  # type: ignore[name-defined]
-        """IMU strike detected — use the pad to filter CV predictions.
+        """IMU strike detected — queue for delayed fusion.
 
-        CV is the primary source of punch classification. The pad tells us
-        which punches are physically possible:
-          - centre: jab / cross
-          - left:   left_hook / left_uppercut
-          - right:  right_hook / right_uppercut
-          - head:   any offensive punch
-
-        We search the recent CV buffer for predictions that are valid for
-        this pad, count frames per type, and pick the one with the most
-        frames (i.e. the dominant prediction, not a 1-frame false positive).
+        The CV model uses a temporal window (~12 frames / 400ms) so its
+        prediction lags behind the physical punch.  We delay fusion by
+        fusion_delay_ms to let the model's window catch up to the new
+        action before we classify.
         """
         ts = msg.timestamp if msg.timestamp > 0.0 else time.time()
         accel = getattr(msg, "accel_magnitude", 0.0) or 0.0
-        pad = msg.pad
+        fuse_at = time.time() + self._fusion_delay
+        self._pending_imu.append((fuse_at, {
+            "timestamp": ts, "pad": msg.pad, "level": msg.level,
+            "force": msg.force_normalized, "accel": accel,
+        }))
 
+    def _fuse_pending(self) -> None:
+        """Process pending IMU events whose delay has elapsed."""
+        now = time.time()
+        still_pending = []
+        for fuse_at, imu in self._pending_imu:
+            if now < fuse_at:
+                still_pending.append((fuse_at, imu))
+                continue
+            self._do_fuse(imu)
+        self._pending_imu = still_pending
+
+    def _do_fuse(self, imu: dict) -> None:
+        """Match a single IMU event against the CV buffer."""
         from boxbunny_core.constants import PadLocation
+        ts = imu["timestamp"]
+        pad = imu["pad"]
+        accel = imu["accel"]
         valid = PadLocation.VALID_PUNCHES.get(pad)
 
-        # Search the CV buffer for predictions valid on this pad
-        # Count frames per valid punch type and track best confidence
+        # Find the most recent burst of predictions.  The buffer only
+        # stores non-idle entries, so between two punches there's a time
+        # gap (idle predictions are filtered).  Walk backward and stop
+        # at the first gap > threshold to isolate the current punch.
+        gap_threshold = self._cv_match_window
         counts: dict[str, int] = {}
         best_conf: dict[str, float] = {}
-        for _ts, action, conf in self._cv_buffer:
+        prev_ts = None
+        for _ts, action, conf in reversed(self._cv_buffer):
+            if prev_ts is not None and (prev_ts - _ts) > gap_threshold:
+                break
+            prev_ts = _ts
             if valid is not None and action not in valid:
-                continue  # false positive — wrong punch for this pad
+                continue
             counts[action] = counts.get(action, 0) + 1
             if conf > best_conf.get(action, 0.0):
                 best_conf[action] = conf
 
         if not counts:
-            # IMU-only fallback: no CV predictions in buffer (e.g. CV node
-            # not running, or simulator-only mode).  Infer punch type from
-            # the pad location so ConfirmedPunch is still emitted.
+            # IMU-only fallback
             inferred = infer_punch_from_pad(pad)
             if inferred and inferred != "unclassified":
                 self._emit(
                     timestamp=ts, punch_type=inferred, pad=pad,
-                    level=msg.level, force=msg.force_normalized,
+                    level=imu["level"], force=imu["force"],
                     confidence=self._imu_only_conf, imu_confirmed=True,
                     cv_confirmed=False, accel_magnitude=accel,
                 )
                 self.get_logger().info(
-                    f"IMU-ONLY: {inferred} pad={pad} accel={accel:.1f} "
-                    f"(no CV buffer, inferred from pad)"
-                )
-            else:
-                self.get_logger().info(
-                    f"SKIP: pad={pad} — no valid CV predictions and "
-                    f"cannot infer from pad"
-                )
+                    f"IMU-ONLY: {inferred} pad={pad} accel={accel:.1f}")
             return
 
-        # Pick the punch type with the most frames (dominant prediction)
         cv_action = max(counts, key=lambda a: counts[a])
         cv_conf = best_conf[cv_action]
 
@@ -189,13 +203,12 @@ class PunchProcessorNode(Node):
             f"candidates={counts}"
         )
 
-        # Remove predictions up to now (prevents same prediction matching
-        # a second strike) but keep very recent ones for fast combos
+        # Clear matched predictions so they can't match a second strike
         self._cv_buffer = [e for e in self._cv_buffer if e[0] > ts]
 
         self._emit(
-            timestamp=ts, punch_type=cv_action, pad=msg.pad,
-            level=msg.level, force=msg.force_normalized,
+            timestamp=ts, punch_type=cv_action, pad=pad,
+            level=imu["level"], force=imu["force"],
             confidence=cv_conf, imu_confirmed=True, cv_confirmed=True,
             accel_magnitude=accel,
         )
@@ -216,8 +229,9 @@ class PunchProcessorNode(Node):
     # -- Expiry timer ---------------------------------------------------
 
     def _tick_expiry(self) -> None:
-        """Only used for defense window timeout now.
-        CV+IMU fusion is instant (no buffering/expiry needed)."""
+        """Process pending fusions and defense window timeouts."""
+        if self._pending_imu:
+            self._fuse_pending()
         now = time.time()
         if self._def_win and now - self._def_win.open_time >= self._dw_s:
             self._close_defense()

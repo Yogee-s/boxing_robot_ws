@@ -424,8 +424,27 @@ class LlmNode(Node):
 
         # Try LLM first, fall back to pre-written tips
         if self._available:
-            context = f"Mode: {self._session_mode}, Punches: {self._session_punches}"
-            prompt = f"Give a brief 1-sentence coaching tip. {context}"
+            # Build context from actual recent events
+            recent = self._recent_events[-10:] if self._recent_events else []
+            punch_types = [e.split(":")[1] for e in recent if e.startswith("punch:")]
+            misses = sum(1 for e in recent if e == "combo_missed")
+            hits = [e for e in recent if e.startswith("combo_ok")]
+
+            parts = [f"Mode: {self._session_mode}, Total punches so far: {self._session_punches}."]
+            if punch_types:
+                parts.append(f"Recent punches: {', '.join(punch_types[-5:])}.")
+            if misses:
+                parts.append(f"Missed {misses} combos recently.")
+            if hits:
+                parts.append(f"Completed combos recently: {', '.join(hits[-3:])}.")
+            if not punch_types and self._session_punches == 0:
+                parts.append("No punches thrown yet.")
+
+            context = " ".join(parts)
+            prompt = (
+                f"Give a brief 1-sentence coaching tip based on this live data. "
+                f"Only reference what the data shows. {context}"
+            )
             tip_text = self._generate(prompt, SYSTEM_PROMPT, max_tokens=50)
         else:
             tip_text = ""

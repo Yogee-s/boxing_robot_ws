@@ -365,6 +365,25 @@ class PowerTestPage(QWidget):
         )
         res_lay.addWidget(overall_sub)
 
+        res_lay.addSpacing(10)
+
+        # AI Coach analysis
+        ai_box = QWidget()
+        ai_box.setStyleSheet(f"background:{Color.SURFACE};border-radius:12px;padding:12px;")
+        ai_lay = QVBoxLayout(ai_box); ai_lay.setContentsMargins(14, 10, 14, 10); ai_lay.setSpacing(4)
+        ai_title = QLabel("AI COACH")
+        ai_title.setStyleSheet(
+            f"font-size: 10px; font-weight: 700; color: {Color.INFO};"
+            " letter-spacing: 1px;"
+        )
+        ai_lay.addWidget(ai_title)
+        self._coach_lbl = QLabel("")
+        self._coach_lbl.setStyleSheet(f"font-size: 14px; color: {Color.TEXT};")
+        self._coach_lbl.setWordWrap(True)
+        self._coach_lbl.setMinimumHeight(40)
+        ai_lay.addWidget(self._coach_lbl)
+        res_lay.addWidget(ai_box)
+
         res_lay.addStretch(1)
 
         btn_done = BigButton("Done", stylesheet=PRIMARY_BTN)
@@ -492,6 +511,77 @@ class PowerTestPage(QWidget):
         )
         self._end_ros_session()
         self._set_state(_STATE_RESULTS)
+        self._request_llm_summary(peaks, overall)
+
+    def _request_llm_summary(self, peaks: list, overall: float) -> None:
+        import json
+        pad_names = ["left", "centre", "right"]
+        pad_data = {
+            name: round(peak, 1) for name, peak in zip(pad_names, peaks) if peak > 0
+        }
+
+        # Determine balance
+        valid = [p for p in peaks if p > 0]
+        if len(valid) >= 2:
+            spread = max(valid) - min(valid)
+            balance_desc = f"Spread between pads: {spread:.1f} m/s\u00B2."
+        else:
+            balance_desc = ""
+
+        session_desc = (
+            f"The user completed a power test ({_PUNCHES_PER_PAD} punches per pad, "
+            f"{len(_PADS)} pads). "
+            f"Peak accelerations — left: {peaks[0]:.1f}, centre: {peaks[1]:.1f}, "
+            f"right: {peaks[2]:.1f} m/s\u00B2. "
+            f"Overall peak: {overall:.1f} m/s\u00B2. {balance_desc}"
+        )
+
+        if self._bridge is None:
+            self._coach_lbl.setText(self._local_power_summary(peaks, overall))
+            return
+
+        context = {
+            "test_type": "power",
+            "pad_peaks_ms2": pad_data,
+            "overall_peak_ms2": round(overall, 1),
+            "punches_per_pad": _PUNCHES_PER_PAD,
+        }
+        self._coach_lbl.setText("AI analysis loading...")
+        self._bridge.call_generate_llm(
+            prompt=(
+                f"Give a brief 2-sentence coaching analysis of this power test. "
+                f"Be specific about the actual numbers. {session_desc}"
+            ),
+            context_json=json.dumps(context),
+            system_prompt_key="coach_summary",
+            callback=self._on_llm_response,
+        )
+
+    @staticmethod
+    def _local_power_summary(peaks: list, overall: float) -> str:
+        valid = [p for p in peaks if p > 0]
+        if not valid:
+            return "No punches were recorded. Try again!"
+        pad_names = ["left", "centre", "right"]
+        best_idx = peaks.index(max(peaks))
+        weakest_idx = peaks.index(min(p for p in peaks if p > 0))
+        if best_idx == weakest_idx:
+            return f"Peak power: {overall:.1f} m/s\u00B2. Keep training to build explosive power!"
+        return (
+            f"Strongest on {pad_names[best_idx]} pad ({peaks[best_idx]:.1f} m/s\u00B2), "
+            f"weakest on {pad_names[weakest_idx]} ({peaks[weakest_idx]:.1f} m/s\u00B2). "
+            f"Work on balancing power across both sides."
+        )
+
+    def _on_llm_response(
+        self, success: bool, response: str, gen_time: float,
+    ) -> None:
+        if success and response.strip():
+            self._coach_lbl.setText(response.strip())
+        else:
+            peaks = [c.peak for c in self._pad_cards]
+            overall = max(peaks) if peaks else 0
+            self._coach_lbl.setText(self._local_power_summary(peaks, overall))
 
     def _on_back(self) -> None:
         self._countdown.reset()
@@ -501,6 +591,7 @@ class PowerTestPage(QWidget):
     def on_enter(self, **kwargs: Any) -> None:
         for card in self._pad_cards:
             card.reset()
+        self._coach_lbl.setText("")
         self._set_state(_STATE_INSTRUCTIONS)
         logger.debug("PowerTestPage entered")
 

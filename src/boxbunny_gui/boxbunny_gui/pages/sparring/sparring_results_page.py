@@ -282,37 +282,96 @@ class SparringResultsPage(QWidget):
         import json
         style = self._config.get("style", "Sparring")
         difficulty = self._config.get("difficulty", "medium")
+        total = self._total_punches
+        attacks = self._robot_attacks
+        blocks = self._blocks_detected
+        defense = self._defense_rate
+
+        if total == 0 and attacks == 0:
+            self._ai_lbl.setText(
+                "Session ended early — no punches were thrown and no robot "
+                "attacks occurred. No data to analyse."
+            )
+            return
+
+        # Build an accurate description of what happened
+        dist_str = ", ".join(
+            f"{k}: {v}" for k, v in self._punch_dist.items() if v > 0
+        ) or "none recorded"
+
+        if total == 0:
+            session_desc = (
+                f"The user started a sparring session against {style} style "
+                f"at {difficulty} difficulty but threw no punches. "
+                f"The robot attacked {attacks} times and the user blocked "
+                f"{blocks} ({defense:.0%} defense rate)."
+            )
+        else:
+            session_desc = (
+                f"The user sparred against {style} style at {difficulty} difficulty. "
+                f"They threw {total} punches ({dist_str}). "
+                f"The robot attacked {attacks} times, the user blocked {blocks} "
+                f"({defense:.0%} defense rate)."
+            )
 
         if self._bridge is None:
-            self._ai_lbl.setText(
-                f"Sparring session against {style} ({difficulty}) completed. "
-                "Connect the AI Coach for detailed analysis."
-            )
+            self._ai_lbl.setText(self._local_summary(
+                total, attacks, blocks, defense, style,
+            ))
             return
 
         context = {
             "style": style,
             "difficulty": difficulty,
+            "total_punches": total,
+            "punch_distribution": {k: v for k, v in self._punch_dist.items() if v > 0},
+            "robot_attacks": attacks,
+            "blocks_detected": blocks,
+            "defense_rate": round(defense, 3),
         }
+        self._ai_lbl.setText("AI analysis loading...")
         self._bridge.call_generate_llm(
             prompt=(
                 f"Give a brief 2-sentence coaching analysis of this sparring session. "
-                f"The user sparred against {style} style at {difficulty} difficulty."
+                f"Be specific about the actual numbers and give one actionable tip. "
+                f"{session_desc}"
             ),
             context_json=json.dumps(context),
             system_prompt_key="coach_summary",
             callback=self._on_llm,
         )
 
+    @staticmethod
+    def _local_summary(
+        total: int, attacks: int, blocks: int, defense: float, style: str,
+    ) -> str:
+        """Fallback summary when LLM is unavailable."""
+        if total == 0:
+            return (
+                f"Sparring session against {style} ended with no punches thrown. "
+                "Try to be more aggressive next round!"
+            )
+        parts = [f"You threw {total} punches against {style} style"]
+        if attacks > 0:
+            parts.append(f" and blocked {blocks}/{attacks} robot attacks ({defense:.0%})")
+        parts.append(".")
+        if defense < 0.4 and attacks > 0:
+            parts.append(" Focus on keeping your guard up between combos.")
+        elif defense > 0.7 and attacks > 0:
+            parts.append(" Great defensive awareness — keep it up!")
+        else:
+            parts.append(" Keep working on mixing offense and defense.")
+        return "".join(parts)
+
     def _on_llm(self, success: bool, response: str, _time: float) -> None:
         if success and response.strip():
             self._ai_lbl.setText(response.strip())
         else:
-            style = self._config.get("style", "Sparring")
-            self._ai_lbl.setText(
-                f"Sparring session against {style} completed. "
-                "Keep working on your defense and counter-punching!"
-            )
+            self._ai_lbl.setText(self._local_summary(
+                self._total_punches, self._robot_attacks,
+                self._blocks_detected, self._defense_rate,
+                self._config.get("style", "Sparring"),
+            ))
 
     def on_enter(self, **kwargs: Any) -> None:
         self._config = kwargs.get("config", {})
@@ -322,6 +381,13 @@ class SparringResultsPage(QWidget):
         blocks_detected = kwargs.get("blocks_detected", 0)
         punch_dist = kwargs.get("punch_dist", {})
         defense_rate = kwargs.get("defense_rate", 0.0)
+
+        # Store for LLM access
+        self._total_punches = total_punches
+        self._robot_attacks = robot_attacks
+        self._blocks_detected = blocks_detected
+        self._punch_dist = punch_dist
+        self._defense_rate = defense_rate
 
         style = self._config.get("style", "Sparring")
         self._style_tag.setText(style)

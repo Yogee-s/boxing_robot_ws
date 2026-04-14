@@ -245,7 +245,7 @@ def main():
     parser.add_argument('--checkpoint', default='model/best_model.pth')
     parser.add_argument('--pose-weights', dest='fusion_pose_weights', default='model/yolo26n-pose.engine')
     parser.add_argument('--device', default='cuda:0')
-    parser.add_argument('--show-video', action='store_false', dest='no_video')
+    parser.add_argument('--show-video', action='store_true', default=False)
     parser.add_argument('--no-video', action='store_true', default=True)
     parser.add_argument('--optimize-gpu', action='store_true', default=True)
     parser.add_argument('--no-optimize-gpu', action='store_false', dest='optimize_gpu')
@@ -317,7 +317,7 @@ def main():
         yolo_checkpoint=args.yolo_checkpoint,
         use_yolo=not args.no_yolo,
         yolo_interval=args.yolo_interval,
-        no_video=args.no_video,
+        no_video=not args.show_video and args.no_video,
         fusion_pose_weights=args.fusion_pose_weights,
         optimize_gpu=args.optimize_gpu,
         ema_alpha=args.ema_alpha,
@@ -328,18 +328,49 @@ def main():
     # Poll LiveVoxelGUI state and publish everything to ROS at ~30Hz
     def _pub_loop():
         # ── Predictions ──────────────────────────────────────────────
+        # Publish the RAW model prediction (before EMA smoothing) for
+        # fusion.  smooth_probs transitions slowly between classes due
+        # to EMA + windowed mean, which causes the fusion node to see
+        # stale predictions (e.g. "jab" when you're already throwing a
+        # "cross").  The fusion node has its own frame-counting to
+        # handle single-frame noise, so it doesn't need pre-smoothed
+        # input.  The GUI still uses smooth_probs for stable display.
         try:
-            probs = getattr(app, 'smooth_probs', None)
             labels = getattr(app, 'labels', None)
-            if probs is not None and labels is not None and len(probs) == len(labels):
-                idx = int(np.argmax(probs))
+            # Use raw (unsmoothed) probs for ROS fusion publishing
+            raw_deque = getattr(app, 'recent_probs', None)
+            raw_probs = None
+            if raw_deque and len(raw_deque) > 0:
+                raw_probs = raw_deque[-1]
+
+            if raw_probs is not None and labels is not None and len(raw_probs) == len(labels):
+                idx = int(np.argmax(raw_probs))
                 action = labels[idx]
-                conf = float(probs[idx])
+                conf = float(raw_probs[idx])
                 if conf < 0.2:
                     action = "idle"
                     conf = 0.0
                 _ros_node.send(action, conf)
-                # Compute actual inference FPS from timestamps
+            elif labels is not None:
+                # Fallback to smooth_probs if raw not available yet
+                probs = getattr(app, 'smooth_probs', None)
+                if probs is not None and len(probs) == len(labels):
+                    idx = int(np.argmax(probs))
+                    action = labels[idx]
+                    conf = float(probs[idx])
+                    if conf < 0.2:
+                        action = "idle"
+                        conf = 0.0
+                    _ros_node.send(action, conf)
+                else:
+                    pred = getattr(app, 'current_prediction', None)
+                    conf = getattr(app, 'current_confidence', 0.0)
+                    if pred and isinstance(pred, str) and pred != "Initializing...":
+                        _ros_node.send(pred, conf)
+
+            # Debug info (always uses smooth for stable FPS display)
+            probs = getattr(app, 'smooth_probs', None)
+            if probs is not None and labels is not None and len(probs) == len(labels):
                 inf_hist = getattr(app, 'inference_time_history', None)
                 fps = 0.0
                 if inf_hist and len(inf_hist) >= 2:
@@ -347,13 +378,15 @@ def main():
                     t1 = float(inf_hist[-1])
                     if t1 > t0:
                         fps = (len(inf_hist) - 1) / (t1 - t0)
+                # Show the smoothed prediction in debug (matches GUI)
+                s_idx = int(np.argmax(probs))
+                s_action = labels[s_idx]
+                s_conf = float(probs[s_idx])
+                if s_conf < 0.2:
+                    s_action = "idle"
+                    s_conf = 0.0
                 consec = _ros_node._consec
-                _ros_node.send_debug(action, conf, fps, consec)
-            else:
-                pred = getattr(app, 'current_prediction', None)
-                conf = getattr(app, 'current_confidence', 0.0)
-                if pred and isinstance(pred, str) and pred != "Initializing...":
-                    _ros_node.send(pred, conf)
+                _ros_node.send_debug(s_action, s_conf, fps, consec)
         except Exception:
             pass
 

@@ -43,6 +43,14 @@ fusion:
   # Time window (ms) to match CV detections with IMU impacts
   # Wider window (500ms) to account for latency between CV inference and IMU detection
   fusion_window_ms: 500
+  # Short window (ms) searched first when fusing — only the most recent
+  # predictions are considered so a previous punch doesn't dominate.
+  # Falls back to the full buffer if nothing matches.
+  cv_match_window_ms: 300
+  # Delay (ms) between IMU impact and fusion match. Gives the CV model's
+  # temporal window time to see the new action before we classify.
+  # 150ms = ~5 frames at 30fps — enough for the model to transition.
+  fusion_delay_ms: 150
   # Confidence penalty applied to CV-only (unconfirmed by IMU) detections
   cv_unconfirmed_confidence_penalty: 0.3
   # Minimum secondary class confidence to trigger reclassification

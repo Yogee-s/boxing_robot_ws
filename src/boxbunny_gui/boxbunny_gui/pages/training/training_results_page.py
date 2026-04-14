@@ -503,24 +503,38 @@ class TrainingResultsPage(QWidget):
         work_time = self._config.get("Work Time", "90s")
         difficulty = self._difficulty or "beginner"
 
+        # Build CV punch distribution string
+        cv_dist = ""
+        cv_data = getattr(self, "_cv_summary", {})
+        if cv_data:
+            cv_parts = []
+            for ptype, data in sorted(
+                cv_data.items(), key=lambda x: x[1]["count"], reverse=True,
+            ):
+                if data["count"] > 0:
+                    cv_parts.append(f"{ptype}: {data['count']}")
+            if cv_parts:
+                cv_dist = f" CV-detected punch types: {', '.join(cv_parts)}."
+
         # Build an accurate description of what happened
         if punches == 0 and combos == 0:
             session_desc = (
                 f"The user started a {difficulty} training session "
                 f"with combo '{combo_name}' but ended it early without "
-                f"throwing any punches or completing any combos."
+                f"throwing any punches or completing any combos. "
+                f"Do NOT fabricate stats or praise their performance."
             )
         elif punches > 0 and combos == 0:
             session_desc = (
                 f"The user did a {difficulty} session with combo '{combo_name}'. "
                 f"They threw {punches} punches but didn't complete any full combo cycles. "
-                f"Config: {rounds_cfg} rounds, {work_time} work time."
+                f"Config: {rounds_cfg} rounds, {work_time} work time.{cv_dist}"
             )
         else:
             session_desc = (
                 f"The user completed a {difficulty} session with combo '{combo_name}'. "
                 f"They threw {punches} punches and completed {combos} full combo cycles. "
-                f"Config: {rounds_cfg} rounds, {work_time} work time."
+                f"Config: {rounds_cfg} rounds, {work_time} work time.{cv_dist}"
             )
 
         # If no bridge or LLM unavailable, generate a local summary
@@ -536,9 +550,15 @@ class TrainingResultsPage(QWidget):
             "rounds": rounds_cfg,
             "work_time": work_time,
         }
+        if cv_data:
+            context["cv_punch_distribution"] = {
+                k: v["count"] for k, v in cv_data.items() if v["count"] > 0
+            }
+        self._coach_lbl.setText("AI analysis loading...")
         self._bridge.call_generate_llm(
             prompt=(
                 f"Give a brief 2-sentence coaching analysis of this session. "
+                f"Only reference stats that are provided — do not invent numbers. "
                 f"Be specific about what happened and give one tip. "
                 f"{session_desc}"
             ),
@@ -626,6 +646,7 @@ class TrainingResultsPage(QWidget):
 
         # CV detection summary
         cv_summary = kwargs.get("cv_summary", {})
+        self._cv_summary = cv_summary
         self._show_cv_summary(cv_summary)
 
         self._update_mastery()
