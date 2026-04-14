@@ -94,9 +94,14 @@ class BoxBunnyApp:
         self._view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._view.setFrameShape(QGraphicsView.Shape.NoFrame)
         self._view.setStyleSheet(f"background-color: {Color.BG}; border: none;")
-        self._view.setRenderHints(
-            QPainter.RenderHint.Antialiasing
-            | QPainter.RenderHint.SmoothPixmapTransform
+        self._view.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        self._view.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
+        self._view.setOptimizationFlag(
+            QGraphicsView.OptimizationFlag.DontAdjustForAntialiasing, True
+        )
+        self._view.setCacheMode(QGraphicsView.CacheModeFlag.CacheBackground)
+        self._view.setViewportUpdateMode(
+            QGraphicsView.ViewportUpdateMode.MinimalViewportUpdate
         )
         # Allow touch/mouse events to pass through to embedded widgets
         self._view.setInteractive(True)
@@ -111,6 +116,18 @@ class BoxBunnyApp:
         self._router = PageRouter(self._stack, parent=self._window)
         self._sound = SoundManager(self._resolve_assets_dir())
         self._imu_nav = ImuNavHandler(parent=self._window)
+
+        # ── Virtual keyboard for touchscreen text input ────────────────
+        from boxbunny_gui.widgets.virtual_keyboard import (
+            VirtualKeyboard,
+            VirtualKeyboardManager,
+        )
+        self._virtual_kb = VirtualKeyboard(self._window)
+        self._vkbd = VirtualKeyboardManager(
+            self._virtual_kb, self._proxy, parent=self._window,
+        )
+        self._vkbd.install(self._qapp)
+        self._router.page_changed.connect(self._vkbd.on_page_changed)
 
         # ── Keyboard nav filter (dev convenience) ───────────────────────
         self._kb_filter = KeyboardNavFilter(self._imu_nav, parent=self._window)
@@ -176,7 +193,7 @@ class BoxBunnyApp:
         # ── Remote command polling (phone dashboard control) ────────────
         from PySide6.QtCore import QTimer
         self._remote_timer = QTimer()
-        self._remote_timer.setInterval(100)  # 10Hz for responsive height control
+        self._remote_timer.setInterval(500)  # 2Hz polling — reduces main-thread I/O
         self._remote_timer.timeout.connect(self._poll_remote_commands)
         self._remote_timer.start()
 
@@ -554,6 +571,7 @@ class BoxBunnyApp:
 
     def _shutdown(self) -> None:
         """Clean up subsystems on exit."""
+        self._vkbd.shutdown()
         self._sound.stop_all()
         self._bridge.shutdown()
         logger.info("BoxBunnyApp shut down")

@@ -524,8 +524,9 @@ class SettingsPage(QWidget):
         sections.addStretch()
         scroll.setWidget(container)
         # Enable finger/touch drag scrolling
+        self._scroll_viewport = scroll.viewport()
         QScroller.grabGesture(
-            scroll.viewport(),
+            self._scroll_viewport,
             QScroller.ScrollerGestureType.LeftMouseButtonGesture,
         )
         root.addWidget(scroll, stretch=1)
@@ -537,11 +538,18 @@ class SettingsPage(QWidget):
             self._pat_anim.setStartValue(0)
             self._pat_anim.setEndValue(220)
             self._pat_toggle_btn.setText("Cancel")
+            # Disable touch-scroll so drags work on the pattern grid
+            QScroller.ungrabGesture(self._scroll_viewport)
         else:
             self._pat_anim.setStartValue(self._pat_panel.height())
             self._pat_anim.setEndValue(0)
             self._pat_toggle_btn.setText("Set / Change Pattern")
             self._pattern_grid.reset()
+            # Re-enable touch-scroll
+            QScroller.grabGesture(
+                self._scroll_viewport,
+                QScroller.ScrollerGestureType.LeftMouseButtonGesture,
+            )
         self._pat_anim.start()
 
     @staticmethod
@@ -577,6 +585,11 @@ class SettingsPage(QWidget):
                 self._pat_anim.setEndValue(0)
                 self._pat_anim.start()
                 self._pat_toggle_btn.setText("Set / Change Pattern")
+                # Re-enable touch-scroll after pattern panel collapses
+                QScroller.grabGesture(
+                    self._scroll_viewport,
+                    QScroller.ScrollerGestureType.LeftMouseButtonGesture,
+                )
                 logger.info("Pattern updated for user: %s", self._username)
             else:
                 self._set_status("Failed to update pattern")
@@ -638,6 +651,11 @@ class SettingsPage(QWidget):
         self._pat_panel.setMaximumHeight(0)
         self._pat_toggle_btn.setText("Set / Change Pattern")
         self._pw_status.setText("")
+        # Ensure touch-scroll is re-enabled when entering the page
+        QScroller.grabGesture(
+            self._scroll_viewport,
+            QScroller.ScrollerGestureType.LeftMouseButtonGesture,
+        )
 
         # Update live status indicators
         self._update_status()

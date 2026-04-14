@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import QStackedWidget, QWidget
 
 logger = logging.getLogger(__name__)
@@ -84,11 +84,7 @@ class PageRouter(QObject):
         self._page_kwargs[name] = kwargs
         new_widget = self._pages[name]
         self._stack.setCurrentWidget(new_widget)
-        if isinstance(new_widget, Routable):
-            try:
-                new_widget.on_enter(**kwargs)
-            except Exception:
-                logger.exception("Error in on_enter for '%s'", name)
+        self._deferred_enter(name, new_widget, kwargs)
 
         self.page_changed.emit(name)
         logger.debug("Navigated to: %s", name)
@@ -111,11 +107,7 @@ class PageRouter(QObject):
         self._current = name
         new_widget = self._pages[name]
         self._stack.setCurrentWidget(new_widget)
-        if isinstance(new_widget, Routable):
-            try:
-                new_widget.on_enter(**kwargs)
-            except Exception:
-                logger.exception("Error in on_enter for '%s'", name)
+        self._deferred_enter(name, new_widget, kwargs)
 
         self.page_changed.emit(name)
         logger.debug("Replaced to: %s", name)
@@ -139,15 +131,35 @@ class PageRouter(QObject):
         widget = self._pages[prev]
         self._stack.setCurrentWidget(widget)
         saved_kwargs = self._page_kwargs.get(prev, {})
-        if isinstance(widget, Routable):
-            try:
-                widget.on_enter(**saved_kwargs)
-            except Exception:
-                logger.exception("Error in on_enter for '%s'", prev)
+        self._deferred_enter(prev, widget, saved_kwargs)
 
         self.page_changed.emit(prev)
         logger.debug("Back to: %s", prev)
         return True
+
+    # ── Helpers ─────────────────────────────────────────────────────────
+
+    def _deferred_enter(
+        self, name: str, widget: QWidget, kwargs: Dict[str, Any],
+    ) -> None:
+        """Call on_enter after Qt has painted the new page.
+
+        Using QTimer.singleShot(0) lets the event loop process the
+        widget switch and repaint before running potentially heavy
+        on_enter logic (database queries, file I/O, etc.).
+        """
+        if not isinstance(widget, Routable):
+            return
+
+        def _call() -> None:
+            if self._current != name:
+                return  # user already navigated away
+            try:
+                widget.on_enter(**kwargs)
+            except Exception:
+                logger.exception("Error in on_enter for '%s'", name)
+
+        QTimer.singleShot(0, _call)
 
     # ── Queries ─────────────────────────────────────────────────────────
 

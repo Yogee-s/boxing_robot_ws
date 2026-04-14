@@ -64,11 +64,13 @@ class SparringSessionPage(QWidget):
         self,
         router: PageRouter,
         bridge: Optional[GuiBridge] = None,
+        sound: Optional[Any] = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._router = router
         self._bridge = bridge
+        self._sound = sound
         self._config: Dict[str, Any] = {}
         self._total_attacks: int = 0
         self._blocks_detected: int = 0
@@ -279,6 +281,8 @@ class SparringSessionPage(QWidget):
     def _on_timer_done(self) -> None:
         if not self._session_active:
             return
+        if self._sound:
+            self._sound.play("bell_end")
         self._session_active = False
         self._end_session()
         self._go_results()
@@ -313,6 +317,8 @@ class SparringSessionPage(QWidget):
             QTimer.singleShot(1000, self._countdown_tick)
         else:
             self._timer.set_overlay("GO!")
+            if self._sound:
+                self._sound.play("bell_start")
             QTimer.singleShot(500, self._start_round)
 
     def _start_round(self) -> None:
