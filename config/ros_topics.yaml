@@ -269,9 +269,21 @@ robot:
 
   height_remote: "/boxbunny/robot/height_remote"
     # Message type: std_msgs/msg/String
-    # Publisher:    BoxBunny GUI, phone dashboard (via GUI file poll)
-    # Subscriber:   V4 GUI HeightTab (calls _move() with ramp-down)
+    # Publisher:    (deprecated — no publisher as of the BLE migration)
+    # Subscriber:   V4 GUI HeightTab, teensy_simulator (legacy path only)
     # Fields:       "UP", "DOWN", "STOP"
+    # Notes: DEPRECATED. Height control now flows via /boxbunny/robot/height
+    #        (HeightCommand) → ble_bridge_node → BLE to Arduino. This topic
+    #        name is reserved; safe to remove once all legacy subs are gone.
+
+  ble_status: "/boxbunny/ble/status"
+    # Message type: std_msgs/msg/String (JSON payload)
+    # Publisher:    ble_bridge_node (1 Hz)
+    # Subscriber:   BoxBunny GUI (for the tracking status badge)
+    # Fields:       JSON {connected: bool, tracking: bool, last_cmd: str,
+    #                     near_range_m: float}
+    # Notes: Consumed by TrainingConfigPage to show BLE connection state
+    #        next to the Start/Stop Tracking button.
 
   yaw_cmd: "/robot/yaw_cmd"
     # Message type: std_msgs/msg/String
@@ -486,3 +498,18 @@ services:
     # Notes: system_prompt_key selects the prompt style:
     #        "drill_feedback", "session_analysis", "technique_tips",
     #        "drill_suggestions", "general"
+
+  tracking_start: "/boxbunny/ble/tracking_start"
+    # Service type: std_srvs/srv/Trigger
+    # Server:       ble_bridge_node
+    # Clients:      BoxBunny GUI (TrainingConfigPage)
+    # Notes: Enables CV→BLE rotation forwarding. Near-range gated by
+    #        config/boxbunny.yaml ble_tracking.near_range_m.
+
+  tracking_stop: "/boxbunny/ble/tracking_stop"
+    # Service type: std_srvs/srv/Trigger
+    # Server:       ble_bridge_node
+    # Clients:      BoxBunny GUI (TrainingConfigPage + safety hooks in
+    #               TrainingSessionPage _on_stop/on_leave)
+    # Notes: Immediately sends 'S' over BLE and disables tracking
+    #        forwarding. Critical for motor safety on session end.

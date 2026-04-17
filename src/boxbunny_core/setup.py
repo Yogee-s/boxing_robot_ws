@@ -18,7 +18,7 @@ setup(
         # launch files
         ('share/' + package_name + '/launch', glob('launch/*')),
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'bleak', 'pyyaml'],
     zip_safe=True,
     maintainer='boxbunny',
     maintainer_email='boxbunny@todo.com',
@@ -38,6 +38,7 @@ setup(
             'analytics_node = boxbunny_core.analytics_node:main',
             'llm_node = boxbunny_core.llm_node:main',
             'gesture_node = boxbunny_core.gesture_node:main',
+            'ble_bridge_node = boxbunny_core.ble_bridge_node:main',
         ],
     },
 )

@@ -85,6 +85,14 @@ def generate_launch_description() -> LaunchDescription:
         ),
         Node(
             package="boxbunny_core",
+            executable="ble_bridge_node",
+            name="ble_bridge_node",
+            output="screen",
+            respawn=True,
+            respawn_delay=3.0,
+        ),
+        Node(
+            package="boxbunny_core",
             executable="llm_node",
             name="llm_node",
             output="screen",

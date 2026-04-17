@@ -33,6 +33,7 @@ try:
         SessionState,
     )
     from boxbunny_msgs.srv import EndSession, GenerateLlm, StartSession
+    from std_srvs.srv import Trigger
     from boxbunny_core.constants import Topics, Services
 
     ROS_AVAILABLE = True
@@ -57,6 +58,7 @@ class _RosWorker(QObject):
     cv_detection = Signal(str, float)  # (punch_type, confidence)
     strike_complete = Signal(dict)
     debug_info = Signal(dict)
+    ble_status_changed = Signal(dict)
 
     def __init__(self) -> None:
         super().__init__()
@@ -125,18 +127,24 @@ class _RosWorker(QObject):
         self._robot_cmd_pub = n.create_publisher(
             RobotCommand, Topics.ROBOT_COMMAND, 10,
         )
-        # Publisher for height commands (HeightCommand for robot_node)
+        # Publisher for height commands (HeightCommand → ble_bridge_node → BLE)
         self._height_pub = n.create_publisher(
             HeightCommand, Topics.ROBOT_HEIGHT, 10,
         )
-        # Height remote — tells V4 GUI HeightTab to move/stop
-        self._height_remote_pub = n.create_publisher(
-            StdString, '/boxbunny/robot/height_remote', 10,
+        # BLE status subscription — ble_bridge_node publishes connection state
+        n.create_subscription(
+            StdString, '/boxbunny/ble/status', self._on_ble_status, 10,
         )
         # Pre-create service clients so they're ready when needed
         self._cli_start = n.create_client(StartSession, Services.START_SESSION)
         self._cli_end = n.create_client(EndSession, Services.END_SESSION)
         self._cli_llm = n.create_client(GenerateLlm, Services.GENERATE_LLM)
+        self._cli_track_start = n.create_client(
+            Trigger, '/boxbunny/ble/tracking_start',
+        )
+        self._cli_track_stop = n.create_client(
+            Trigger, '/boxbunny/ble/tracking_stop',
+        )
 
     def publish_robot_command(
         self, punch_code: str, speed: str = "medium",
@@ -153,21 +161,18 @@ class _RosWorker(QObject):
         self._robot_cmd_pub.publish(msg)
 
     def publish_height_command(self, action: str) -> None:
-        """Publish height command to V4 GUI HeightTab.
-
-        Sends to /boxbunny/robot/height_remote which the V4 GUI subscribes
-        to and calls HeightTab._move() — same ramp-down, same PWM, same
-        motor control as pressing buttons on the V4 GUI directly.
+        """Publish a HeightCommand for ble_bridge_node to forward over BLE.
 
         Args:
             action: "manual_up", "manual_down", or "stop"
         """
-        _ACTION_MAP = {"manual_up": "UP", "manual_down": "DOWN", "stop": "STOP"}
-        cmd = _ACTION_MAP.get(action)
-        if cmd and hasattr(self, '_height_remote_pub') and self._height_remote_pub:
-            msg = StdString()
-            msg.data = cmd
-            self._height_remote_pub.publish(msg)
+        if self._height_pub is None or action not in (
+            "manual_up", "manual_down", "stop",
+        ):
+            return
+        msg = HeightCommand()
+        msg.action = action
+        self._height_pub.publish(msg)
 
     # ── Callbacks ───────────────────────────────────────────────────────
 
@@ -237,6 +242,13 @@ class _RosWorker(QObject):
         except (json.JSONDecodeError, TypeError):
             pass
 
+    def _on_ble_status(self, msg: Any) -> None:
+        try:
+            data = json.loads(msg.data)
+            self.ble_status_changed.emit(data)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
 
 # ── Public bridge (main-thread object) ─────────────────────────────────────
 
@@ -259,6 +271,7 @@ class GuiBridge(QObject):
     cv_detection = Signal(str, float)
     strike_complete = Signal(dict)
     debug_info = Signal(dict)
+    ble_status_changed = Signal(dict)
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
@@ -290,6 +303,7 @@ class GuiBridge(QObject):
         self._worker.cv_detection.connect(self.cv_detection)
         self._worker.strike_complete.connect(self.strike_complete)
         self._worker.debug_info.connect(self.debug_info)
+        self._worker.ble_status_changed.connect(self.ble_status_changed)
 
         self._thread.started.connect(self._worker.start_spinning)
         self._thread.start()
@@ -404,6 +418,48 @@ class GuiBridge(QObject):
         if not self._is_ready():
             return
         self._worker.publish_height_command(action)
+
+    def call_tracking_start(
+        self, callback: Optional[Callable[[bool, str], None]] = None,
+    ) -> None:
+        """Ask the BLE bridge to start forwarding CV → rotation commands."""
+        if not self._is_ready():
+            if callback is not None:
+                callback(False, "ROS offline")
+            return
+        cli = self._worker._cli_track_start
+        req = Trigger.Request()
+        future = cli.call_async(req)
+        if callback is not None:
+            future.add_done_callback(
+                lambda f: self._safe_callback(
+                    f,
+                    lambda r: (r.success, r.message),
+                    (False, "Service call failed"),
+                    callback,
+                )
+            )
+
+    def call_tracking_stop(
+        self, callback: Optional[Callable[[bool, str], None]] = None,
+    ) -> None:
+        """Ask the BLE bridge to halt rotation and stop forwarding CV."""
+        if not self._is_ready():
+            if callback is not None:
+                callback(False, "ROS offline")
+            return
+        cli = self._worker._cli_track_stop
+        req = Trigger.Request()
+        future = cli.call_async(req)
+        if callback is not None:
+            future.add_done_callback(
+                lambda f: self._safe_callback(
+                    f,
+                    lambda r: (r.success, r.message),
+                    (False, "Service call failed"),
+                    callback,
+                )
+            )
 
     # ── Helpers ─────────────────────────────────────────────────────────
 

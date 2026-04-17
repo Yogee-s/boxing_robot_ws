@@ -5,6 +5,16 @@
 # Uncomment and modify values to override defaults.
 # =============================================================================
 
+# -- BLE Base-Tracking --------------------------------------------------------
+# Consumed by boxbunny_core/ble_bridge_node.py.
+# The base motor rotates toward the user only while the user is closer
+# than `near_range_m`. `hysteresis_m` adds slack so someone hovering at
+# the threshold doesn't make the motor chatter on/off.
+ble_tracking:
+  near_range_m: 0.8    # engage below this depth (metres)
+  hysteresis_m: 0.15   # disengage above near_range_m + hysteresis_m
+  rpm: 500             # rotation speed sent to the Arduino (L:/R: payload)
+
 # -- Computer Vision Pipeline -------------------------------------------------
 cv:
   # Path to action recognition model checkpoint

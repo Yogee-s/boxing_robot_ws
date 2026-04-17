@@ -102,6 +102,11 @@ class TrainingSessionPage(QWidget):
         self._paused: bool = False
         self._session_id: str = ""
 
+        # Tracking state — must exist before _connect_bridge() because
+        # ble_status_changed can fire immediately after signal connection
+        # and _on_ble_status reads these attributes.
+        self._tracking_active: bool = False
+
         # Drill cycling state
         self._combo_tokens: List[str] = []
         self._seq_boundaries: List[int] = []  # cumulative end indices per sequence
@@ -361,6 +366,39 @@ class TrainingSessionPage(QWidget):
 
         root.addSpacing(10)
 
+        # ── Free-training tracking row (visible only in free training) ──
+        # User can connect the base motor to live person-tracking from here.
+        # Auto-stops on session end via _safety_stop_tracking().
+        self._track_row = QWidget()
+        track_lay = QHBoxLayout(self._track_row)
+        track_lay.setContentsMargins(0, 0, 0, 0)
+        track_lay.setSpacing(12)
+        track_title = QLabel("Base Tracking")
+        track_title.setStyleSheet(
+            f"font-size: 14px; font-weight: 700; color: {Color.TEXT};"
+            " background: transparent; border: none;"
+        )
+        track_lay.addWidget(track_title)
+        self._track_status_lbl = QLabel("BLE: …")
+        self._track_status_lbl.setStyleSheet(
+            f"font-size: 12px; color: {Color.TEXT_SECONDARY};"
+            " background: transparent; border: none;"
+        )
+        track_lay.addWidget(self._track_status_lbl)
+        track_lay.addStretch()
+        self._btn_track = QPushButton("Start Tracking")
+        self._btn_track.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_track.setFixedHeight(40)
+        self._btn_track.setMinimumWidth(160)
+        self._btn_track.setEnabled(False)  # locked until BLE connects
+        self._btn_track.clicked.connect(self._on_track_toggle)
+        track_lay.addWidget(self._btn_track)
+        self._track_row.setVisible(False)
+        self._ble_connected: bool = False
+        root.addWidget(self._track_row)
+
+        root.addSpacing(10)
+
         # Pause + Stop buttons — centered
         btn_row = QHBoxLayout()
         btn_row.addStretch()
@@ -414,6 +452,79 @@ class TrainingSessionPage(QWidget):
         self._bridge.session_state_changed.connect(self._on_session_state)
         self._bridge.strike_complete.connect(self._on_strike_complete)
         self._bridge.debug_info.connect(self._on_debug_info)
+        self._bridge.ble_status_changed.connect(self._on_ble_status)
+
+    def _on_ble_status(self, status: Dict[str, Any]) -> None:
+        self._ble_connected = bool(status.get("connected"))
+        self._track_status_lbl.setText(
+            "BLE: connected" if self._ble_connected else "BLE: disconnected"
+        )
+        # Safety: never let the user request tracking when BLE is dead.
+        # If we lose the link mid-session, force the local state back to
+        # idle so the next status flip starts in a sane spot.
+        if not self._ble_connected and self._tracking_active:
+            self._tracking_active = False
+        self._apply_track_button_style(active=self._tracking_active)
+
+    def _apply_track_button_style(self, *, active: bool) -> None:
+        # Disable while BLE is offline — user can't start tracking the
+        # base motor if there's nothing to send commands to.
+        self._btn_track.setEnabled(self._ble_connected)
+        if active:
+            self._btn_track.setText("Stop Tracking")
+            self._btn_track.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {Color.WARNING}; color: #FFFFFF;
+                    font-size: 13px; font-weight: 700;
+                    border: none; border-radius: {Size.RADIUS}px;
+                    padding: 0 16px;
+                }}
+                QPushButton:hover {{ background-color: {Color.WARNING_DARK}; }}
+                QPushButton:disabled {{
+                    background-color: {Color.SURFACE};
+                    color: {Color.TEXT_DISABLED};
+                }}
+            """)
+        else:
+            self._btn_track.setText("Start Tracking")
+            self._btn_track.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {Color.PRIMARY}; color: #FFFFFF;
+                    font-size: 13px; font-weight: 700;
+                    border: none; border-radius: {Size.RADIUS}px;
+                    padding: 0 16px;
+                }}
+                QPushButton:hover {{ background-color: {Color.PRIMARY_DARK}; }}
+                QPushButton:disabled {{
+                    background-color: {Color.SURFACE};
+                    color: {Color.TEXT_DISABLED};
+                }}
+            """)
+
+    def _on_track_toggle(self) -> None:
+        if self._bridge is None:
+            logger.warning("Tracking toggled but GUI bridge is offline")
+            return
+        if self._tracking_active:
+            self._bridge.call_tracking_stop(self._on_track_stop_result)
+        else:
+            self._bridge.call_tracking_start(self._on_track_start_result)
+
+    def _on_track_start_result(self, success: bool, message: str) -> None:
+        if success:
+            self._tracking_active = True
+            self._apply_track_button_style(active=True)
+            logger.info("Tracking started: %s", message)
+        else:
+            logger.warning("Tracking start failed: %s", message)
+
+    def _on_track_stop_result(self, success: bool, message: str) -> None:
+        self._tracking_active = False
+        self._apply_track_button_style(active=False)
+        if success:
+            logger.info("Tracking stopped: %s", message)
+        else:
+            logger.warning("Tracking stop reported failure: %s", message)
 
     def _on_punch(self, data: Dict[str, Any]) -> None:
         if not self._counting_active:
@@ -821,6 +932,7 @@ class TrainingSessionPage(QWidget):
         self._timer.pause()
         self._score_round()
         self._end_ros_session()
+        self._safety_stop_tracking()
         logger.info("Training session stopped by user")
         self._router.replace(
             "training_results", config=self._config,
@@ -970,6 +1082,11 @@ class TrainingSessionPage(QWidget):
         )
         self._difficulty = kwargs.get("difficulty")
         self._username = kwargs.get("username", "")
+        # Safety: remember whether tracking was enabled so on_leave / _on_stop
+        # can explicitly halt it. Motor must not run once the session ends.
+        # Always start each session with tracking off — the user must
+        # explicitly press Start Tracking.
+        self._tracking_active = False
         work_time = self._parse_seconds(self._config.get("Work Time", "90s"))
 
         # Parse combo sequence
@@ -1061,6 +1178,9 @@ class TrainingSessionPage(QWidget):
             self._btn_back.setVisible(True)
             self._btn_stop.setVisible(False)
             self._waiting_for_start = True
+            # Tracking row is only meaningful in free training
+            self._track_row.setVisible(True)
+            self._apply_track_button_style(active=False)
         else:
             # Combo drill — auto-countdown as before
             self._round_lbl.setVisible(True)
@@ -1071,6 +1191,7 @@ class TrainingSessionPage(QWidget):
             self._fps_box.setVisible(False)
             self._btn_back.setVisible(False)
             self._btn_stop.setVisible(True)
+            self._track_row.setVisible(False)
             self._timer.set_overlay("Get Ready")
             # Start the ROS session on the first round
             if self._current_round == 1:
@@ -1088,3 +1209,19 @@ class TrainingSessionPage(QWidget):
         self._drill_timer.stop()
         self._timer.pause()
         self._end_ros_session()
+        self._safety_stop_tracking()
+
+    def _safety_stop_tracking(self) -> None:
+        """Always halt base-tracking when leaving/stopping the session.
+
+        Safety: motor must not keep running once training ends. Called
+        unconditionally so even spurious paths that missed setting
+        ``_tracking_active`` still halt the motor.
+        """
+        if self._bridge is None:
+            return
+        try:
+            self._bridge.call_tracking_stop()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to stop tracking: %s", exc)
+        self._tracking_active = False
