@@ -35,6 +35,22 @@ _WS = Path(__file__).resolve().parents[5]
 _YOLO = _WS / "action_prediction" / "model" / "yolo26n-pose.pt"
 _MOTION_PX = 20.0
 
+# ── Foreground-user gate ─────────────────────────────────────────────────────
+# The reaction test rejects motion/punch events unless the primary tracked
+# user is inside this gate. Without it, background walkers in a busy gym
+# trip the trigger while the user is standing still. cv_node picks the
+# largest + most centred person per frame and publishes UserTracking.
+_CAM_WIDTH_PX = 960.0
+# Middle 40% of the frame horizontally (x in [288, 672] for 960px).
+_CENTRE_HALF_WIDTH_PX = _CAM_WIDTH_PX * 0.2
+# Max depth (metres) at which a user is "close enough" to the camera.
+# 2.0 m comfortably covers an arm-length-plus setup; raise if the test
+# is run from further back.
+_MAX_USER_DEPTH_M = 2.0
+# Tracking freshness — if no UserTracking message in this window, treat
+# the gate as closed (better to miss an event than accept a false one).
+_TRACKING_STALE_S = 0.5
+
 _TIERS = [(150, "Lightning", "#56D364"), (200, "Fast", "#58A6FF"),
           (280, "Average", "#FF6B35"), (380, "Developing", "#FFAB40"),
           (9999, "Slow", "#FF5C5C")]
@@ -315,8 +331,13 @@ class ReactionTestPage(QWidget):
         self._countdown_n = 0; self._state = "idle"
         self._replay_timer = QTimer(self); self._replay_timer.setInterval(120); self._replay_timer.timeout.connect(self._rtick)
         self._rframes: list = []; self._ri = 0
+        # Foreground-user gate state — updated by cv_node UserTracking.
+        self._user_ok: bool = False
+        self._user_last_ts: float = 0.0
         self._build()
-        if self._bridge: self._bridge.punch_confirmed.connect(self._on_punch)
+        if self._bridge:
+            self._bridge.punch_confirmed.connect(self._on_punch)
+            self._bridge.user_tracking_changed.connect(self._on_user_tracking)
 
     def _build(self):
         root = QVBoxLayout(self); root.setContentsMargins(24,8,24,12); root.setSpacing(0)
@@ -484,10 +505,41 @@ class ReactionTestPage(QWidget):
         self._phase("PUNCH!", bg="#1B8C3D", sz=80)
 
     def _on_motion(self, m):
-        if self._stim_on and m > _MOTION_PX: self._record()
+        if self._stim_on and m > _MOTION_PX and self._user_gate_open():
+            self._record()
 
     def _on_punch(self, d):
-        if self._stim_on: self._record()
+        if self._stim_on and self._user_gate_open():
+            self._record()
+
+    def _on_user_tracking(self, data: Dict[str, Any]) -> None:
+        """Update the foreground-user gate from cv_node tracking.
+
+        Accepts only a user who is present, close to the camera, and
+        roughly centred in the frame. Background walkers fail one of
+        these checks and are filtered out.
+        """
+        self._user_last_ts = time.monotonic()
+        if not data.get("user_detected"):
+            self._user_ok = False
+            return
+        depth = float(data.get("depth", 0.0))
+        if depth <= 0.0 or depth > _MAX_USER_DEPTH_M:
+            self._user_ok = False
+            return
+        cx = float(data.get("bbox_centre_x", 0.0))
+        if abs(cx - _CAM_WIDTH_PX / 2.0) > _CENTRE_HALF_WIDTH_PX:
+            self._user_ok = False
+            return
+        self._user_ok = True
+
+    def _user_gate_open(self) -> bool:
+        """True iff the primary user is present, close, centred, and fresh."""
+        if not self._user_ok:
+            return False
+        if time.monotonic() - self._user_last_ts > _TRACKING_STALE_S:
+            return False
+        return True
 
     def _record(self):
         if not self._stim_on: return

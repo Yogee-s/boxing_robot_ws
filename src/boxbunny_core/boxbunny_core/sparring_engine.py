@@ -88,8 +88,13 @@ class SparringEngine(Node):
         # Sparring counter-punch probability by difficulty
         self._counter_prob: Dict[str, float] = {"easy": 0.3, "medium": 0.5, "hard": 0.8}
         self._counters_enabled: bool = True
-        # Robot busy flag — only one strike at a time
+        # Robot busy flag — only one strike at a time. Cleared on
+        # strike_feedback OR after a timeout if feedback never arrives
+        # (prevents the engine locking up when V4 GUI / teensy_simulator
+        # isn't running to ack the strike).
         self._robot_busy: bool = False
+        self._busy_since: float = 0.0
+        self._busy_timeout_s: float = 6.0
         # User-configured counter speed (None = use difficulty-based default)
         self._counter_speed_override: Optional[str] = None
 
@@ -121,6 +126,7 @@ class SparringEngine(Node):
             self._active_style = self._style
             self._ft_last_counter = now  # prevent instant counter on first pad strike
             self._robot_busy = False
+            self._busy_since = 0.0
             self._counters_enabled = True  # default ON
             logger.info("Engine activated: mode=%s counters=%s",
                         msg.mode, self._counters_enabled)
@@ -159,6 +165,7 @@ class SparringEngine(Node):
     def _on_strike_feedback(self, msg: String) -> None:
         """Robot arm finished executing — clear busy flag."""
         self._robot_busy = False
+        self._busy_since = 0.0
 
     def _on_user_punch(self, msg: ConfirmedPunch) -> None:
         """Track user punch timestamps for idle detection."""
@@ -172,6 +179,7 @@ class SparringEngine(Node):
         """
         if not self._active or self._mode != "sparring":
             return
+        self._clear_stale_busy()
         if self._robot_busy or not self._counters_enabled:
             return
         now = time.time()
@@ -199,12 +207,41 @@ class SparringEngine(Node):
         cmd.punch_code = punch_code
         cmd.speed = speed
         cmd.source = "counter"
-        self._robot_busy = True
+        self._set_busy(now)
         self._ft_last_counter = now
         self._pub_cmd.publish(cmd)
         # Reset scheduled attack timer to prevent double-up
         self._last_attack = now
-        logger.debug("Counter-punch (%s): pad=%s -> code=%s", self._mode, pad, punch_code)
+        logger.info(
+            "Counter-punch (%s): pad=%s -> code=%s speed=%s",
+            self._mode, pad, punch_code, speed,
+        )
+
+    def _set_busy(self, now: float) -> None:
+        """Mark the robot as executing a strike; arms the busy-timeout watchdog."""
+        self._robot_busy = True
+        self._busy_since = now
+
+    def _clear_stale_busy(self) -> None:
+        """Release the busy flag if feedback never arrived (watchdog).
+
+        V4 GUI / teensy_simulator normally publishes /robot/strike_feedback
+        when a strike completes. If that message is missed or the node
+        isn't running, _robot_busy would stick True forever and block every
+        subsequent counter. This timeout is the fallback release.
+        """
+        if not self._robot_busy:
+            return
+        if self._busy_since == 0.0:
+            return
+        if time.time() - self._busy_since > self._busy_timeout_s:
+            logger.warning(
+                "Busy-flag stuck for >%.1fs without strike_feedback — "
+                "auto-releasing (is V4 GUI / teensy_simulator running?)",
+                self._busy_timeout_s,
+            )
+            self._robot_busy = False
+            self._busy_since = 0.0
 
     def update_weakness_profile(self, profile: Dict[str, float]) -> None:
         """Set weakness profile (punch_name -> miss_rate) for targeting bias."""
@@ -227,7 +264,10 @@ class SparringEngine(Node):
                            now - self._last_session_msg)
             self._active = False
             self._robot_busy = False
+            self._busy_since = 0.0
             return
+        # Release a stale busy flag if the strike_feedback ack was missed.
+        self._clear_stale_busy()
         interval = DIFF_INTERVAL.get(self._difficulty, 1.2)
         # Style switching for 'switch' mode
         if self._style == "switch" and now - self._switch_at >= self._switch_interval:
@@ -261,7 +301,7 @@ class SparringEngine(Node):
         msg.punch_code = PUNCH_CODES[nxt]
         msg.source = "scheduled"
         msg.speed = {"easy": "slow", "medium": "medium", "hard": "fast"}.get(self._difficulty, "medium")
-        self._robot_busy = True
+        self._set_busy(now)
         self._pub_cmd.publish(msg)
         logger.info("Robot attack: %s (style=%s, diff=%s)",
                     PUNCH_NAMES[nxt], self._active_style, self._difficulty)

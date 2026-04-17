@@ -31,6 +31,7 @@ try:
         PunchDetection,
         RobotCommand,
         SessionState,
+        UserTracking,
     )
     from boxbunny_msgs.srv import EndSession, GenerateLlm, StartSession
     from std_srvs.srv import Trigger
@@ -59,6 +60,14 @@ class _RosWorker(QObject):
     strike_complete = Signal(dict)
     debug_info = Signal(dict)
     ble_status_changed = Signal(dict)
+    # Fires the instant a RobotCommand is issued. Tag-carrying — the sparring
+    # UI uses this for the COUNTERS counter because the strike_complete
+    # pipeline loses the "source" tag when the V4 GUI publishes its own
+    # (stripped) copy of the same topic.
+    robot_command_issued = Signal(dict)
+    # Per-frame primary-user tracking from cv_node — bbox + depth + detected.
+    # Used by pages that need to gate on "is the foreground user present".
+    user_tracking_changed = Signal(dict)
 
     def __init__(self) -> None:
         super().__init__()
@@ -112,6 +121,19 @@ class _RosWorker(QObject):
         n.create_subscription(
             StdString, Topics.ROBOT_STRIKE_COMPLETE,
             self._on_strike_complete, 10,
+        )
+        # Direct RobotCommand stream — used by sparring UI to count
+        # counter-punches at issue time (not strike-completion time).
+        n.create_subscription(
+            RobotCommand, Topics.ROBOT_COMMAND,
+            self._on_robot_command_issued, 10,
+        )
+        # Primary-user tracking — the reaction test uses this to ignore
+        # background walkers. cv_node already picks the closest + most
+        # centred person per frame.
+        n.create_subscription(
+            UserTracking, Topics.CV_USER_TRACKING,
+            self._on_user_tracking, 10,
         )
         # Raw CV punch detection (for live display)
         n.create_subscription(
@@ -249,6 +271,26 @@ class _RosWorker(QObject):
         except (json.JSONDecodeError, TypeError):
             pass
 
+    def _on_robot_command_issued(self, msg: Any) -> None:
+        """Fire whenever sparring_engine / drill_manager publishes a command."""
+        self.robot_command_issued.emit({
+            "command_type": msg.command_type,
+            "punch_code": msg.punch_code,
+            "speed": msg.speed,
+            "source": msg.source,
+        })
+
+    def _on_user_tracking(self, msg: Any) -> None:
+        """Emit primary-user tracking payload for pages that need it."""
+        self.user_tracking_changed.emit({
+            "user_detected": bool(msg.user_detected),
+            "bbox_centre_x": float(msg.bbox_centre_x),
+            "bbox_centre_y": float(msg.bbox_centre_y),
+            "bbox_width": float(msg.bbox_width),
+            "bbox_height": float(msg.bbox_height),
+            "depth": float(msg.depth),
+        })
+
 
 # ── Public bridge (main-thread object) ─────────────────────────────────────
 
@@ -272,6 +314,8 @@ class GuiBridge(QObject):
     strike_complete = Signal(dict)
     debug_info = Signal(dict)
     ble_status_changed = Signal(dict)
+    robot_command_issued = Signal(dict)
+    user_tracking_changed = Signal(dict)
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
@@ -304,6 +348,8 @@ class GuiBridge(QObject):
         self._worker.strike_complete.connect(self.strike_complete)
         self._worker.debug_info.connect(self.debug_info)
         self._worker.ble_status_changed.connect(self.ble_status_changed)
+        self._worker.robot_command_issued.connect(self.robot_command_issued)
+        self._worker.user_tracking_changed.connect(self.user_tracking_changed)
 
         self._thread.started.connect(self._worker.start_spinning)
         self._thread.start()

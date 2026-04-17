@@ -183,6 +183,11 @@ class SparringSessionPage(QWidget):
         self._bridge.defense_event.connect(self._on_defense)
         self._bridge.debug_info.connect(self._on_debug_info)
         self._bridge.strike_complete.connect(self._on_strike_complete)
+        # Counter-punches: listen to RobotCommand directly so the counter
+        # ticks the instant sparring_engine fires, bypassing the
+        # strike_complete pipeline (V4 GUI publishes a duplicate payload
+        # without the source tag, which used to mask counters).
+        self._bridge.robot_command_issued.connect(self._on_robot_command_issued)
 
     _PT_DISPLAY = {
         "jab": "Jab", "cross": "Cross",
@@ -212,10 +217,6 @@ class SparringSessionPage(QWidget):
         if not self._session_active:
             return
         self._total_attacks += 1
-        # Count counter-punches using the source tag from sparring engine
-        if data.get("source") == "counter":
-            self._counter_count += 1
-            self._counters_lbl.setText(str(self._counter_count))
         _PUNCH_NAMES = {
             "1": "JAB", "2": "CROSS", "3": "L HOOK", "4": "R HOOK",
             "5": "L UPPER", "6": "R UPPER",
@@ -223,6 +224,17 @@ class SparringSessionPage(QWidget):
         code = data.get("punch_code", "")
         name = _PUNCH_NAMES.get(code, code)
         self._attack_lbl.setText(name)
+
+    def _on_robot_command_issued(self, data: Dict[str, Any]) -> None:
+        """Tick the COUNTERS counter the moment sparring_engine fires one."""
+        if not self._session_active:
+            return
+        if data.get("command_type") != "punch":
+            return
+        if data.get("source") != "counter":
+            return
+        self._counter_count += 1
+        self._counters_lbl.setText(str(self._counter_count))
 
     def _on_debug_info(self, data: Dict[str, Any]) -> None:
         """Show raw CV prediction + FPS."""
