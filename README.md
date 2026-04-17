@@ -1,8 +1,10 @@
 # BoxBunny — AI-Powered Boxing Training Robot
 
-> A real-time boxing training system combining computer vision, IMU sensor fusion, a 2-DOF robot punching arm, and a local AI coach — all running on-device with no internet required.
+> A real-time boxing training system combining computer vision, IMU sensor fusion, a 2-DOF robot punching arm, a BLE-driven base (rotation + height), and a local multimodal AI coach — all running on-device with no internet required.
 
 **Final-year engineering project** | Jetson Orin NX | ROS 2 Humble | 96.6% punch detection accuracy | 8-class classification at ~42 fps
+
+**Handing this over?** Start at [`docs/README.md`](docs/README.md) — it's the navigation guide for every other document.
 
 ---
 
@@ -32,7 +34,7 @@ BoxBunny is a production-grade boxing training system built on the NVIDIA Jetson
 
 1. **Detects** what punch was thrown using a fused CV + IMU pipeline (FusionVoxelPoseTransformerModel, 96.6% accuracy, 8 classes)
 2. **Responds** with a 2-DOF robot arm that throws back using Markov chain attack patterns across 5 AI fighting styles
-3. **Coaches** in real-time via a local LLM (Qwen2.5-3B-Instruct) that provides technique tips, post-session analysis, and conversational Q&A
+3. **Coaches** in real-time via a local multimodal LLM (Gemma 4 E2B via llama.cpp) that provides technique tips, post-session analysis, and conversational Q&A (text + image)
 4. **Tracks** performance across sessions with gamification (XP, ranks, achievements, streaks) and population benchmarking
 
 Everything runs locally on-device. The touchscreen GUI is designed for gloved hands (60px touch targets, pattern lock auth, IMU pad navigation), and a companion phone dashboard provides detailed analytics, AI chat, and coach station management over the local network.
@@ -58,16 +60,18 @@ Everything runs locally on-device. The touchscreen GUI is designed for gloved ha
 - **IMU Sensors**: 4 pad IMUs (force classification: light/medium/hard) + 2 arm IMUs (defense tracking) via Teensy 4.1 microcontroller
 - **Fusion Engine**: CV predictions buffered over 0.8s window; when an IMU pad strike fires, the system searches the buffer for the most frequent valid prediction using pad-constraint filtering (e.g., centre pad = jab/cross only, left pad = left hook/left uppercut only)
 - **Defense Detection**: Block via CV model, slip/dodge via depth-based tracking
-- **Person Tracking**: YOLO bounding box centre drives left/right/centre direction with 20px hysteresis for robot yaw motor tracking
+- **Person Tracking**: YOLO bounding box centre drives left/right/centre direction with 20px hysteresis; near-range depth gating (0.8 m) keeps background walkers from triggering rotation
+- **Base Rotation + Height via BLE**: base-control Arduino (`BoxBunny Base`) handles yaw and the lead-screw height motor. Jetson-side `ble_bridge_node` owns the single BLE link and multiplexes height commands (from GUI / phone) with live tracking rotation. Two watchdog layers keep the height motor safe: 250 ms firmware refresh-window + 500 ms Jetson deadman.
 
 ### AI Coach (Local LLM)
 
-- Qwen2.5-3B-Instruct running locally in GGUF format (Q4_K_M, ~2 GB) — no cloud APIs
+- Gemma 4 E2B (unsloth GGUF, Q4_K_M, ~3 GB) running locally via llama.cpp — multimodal text + image, no cloud APIs
 - Real-time coaching tips during sessions (every 18s, context-aware)
 - Post-session AI analysis with personalized drill suggestions
-- Chat interface on phone dashboard for boxing Q&A
-- 54 fallback tips (technique, encouragement, correction, suggestion) when LLM is unavailable
+- Chat interface on phone dashboard for boxing Q&A (image uploads supported)
+- Pre-written fallback tips when LLM is unavailable
 - Adaptive GPU sharing: CV node drops to 6 Hz when idle, freeing GPU for LLM inference
+- Tuning: `flash_attn=True`, `n_threads=6` on Jetson Orin NX — without these Gemma 4 runs at ~0.3 tok/s; with them, ~16-20 tok/s
 
 ### Touchscreen GUI
 
@@ -164,8 +168,12 @@ Everything runs locally on-device. The touchscreen GUI is designed for gloved ha
  │  │ SQLite (main + per-user)   │<── FastAPI ──> Vue 3 Phone Dashboard  │
  │  └────────────────────────────┘     :8080       (WebSocket real-time)  │
  │                                                                        │
+ │  ble_bridge_node ──BLE──► Arduino "BoxBunny Base" (rotation + height)  │
+ │                                                                        │
  └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+Note: the arm (Damiao motors via Teensy) and the base (rotation + height via Arduino BLE) are two *independent* embedded subsystems that don't talk to each other. `robot_node` bridges arm commands to the V4 Arm Control GUI; `ble_bridge_node` bridges height + tracking to the base Arduino. See [docs/hardware/](docs/hardware/) for the physical layout.
 
 ### ROS 2 Nodes
 
@@ -181,11 +189,12 @@ Everything runs locally on-device. The touchscreen GUI is designed for gloved ha
 | `analytics_node` | Statistics computation, trend analysis, population benchmarks |
 | `llm_node` | Local LLM coaching tips + post-session analysis |
 | `gesture_node` | MediaPipe hand gesture navigation (optional) |
+| `ble_bridge_node` | Owns the single BLE link to the base Arduino; multiplexes height + rotation-tracking commands. Safety watchdogs on both sides. |
 
 ### Message and Service Interfaces
 
-- **21 custom ROS messages**: PunchDetection, PunchEvent, ConfirmedPunch, DefenseEvent, SessionState, DrillProgress, CoachTip, RobotCommand, UserTracking, PersonDirection, and more
-- **6 custom ROS services**: StartSession, EndSession, StartDrill, GenerateLlm, SetImuMode, CalibrateImuPunch
+- **22+ custom ROS messages**: PunchDetection, PunchEvent, ConfirmedPunch, DefenseEvent, SessionState, DrillProgress, CoachTip, RobotCommand, HeightCommand, UserTracking, and more
+- **8 custom + std services**: StartSession, EndSession, StartDrill, GenerateLlm, SetImuMode, CalibrateImuPunch, plus `std_srvs/Trigger` for `/boxbunny/ble/tracking_start` and `/boxbunny/ble/tracking_stop`
 
 ---
 
@@ -195,10 +204,12 @@ Everything runs locally on-device. The touchscreen GUI is designed for gloved ha
 |-----------|---------|
 | **Compute** | NVIDIA Jetson Orin NX (8 GB), Ubuntu 22.04, CUDA |
 | **Camera** | Intel RealSense D435i (RGB 960x540, Depth 848x480 @ 30 fps). Opened directly via pyrealsense2 (not ROS driver) due to D435i HID bug on Jetson |
-| **IMU Sensors** | 6x MPU6050 on Teensy 4.1 — 4 pads (centre, left, right, head) + 2 arms |
-| **Robot Arm** | 2-DOF arm with Dynamixel servos, 6 punch types, IK-safe Bezier motion paths |
-| **Height Motor** | Auto-adjusts to user height via YOLO person detection; manual control from GUI or phone |
-| **Yaw Motor** | Tracks user left/right/centre position via CV person direction |
+| **IMU Sensors** | 6x MPU6050 on Teensy 4.0 — 4 pads (centre, left, right, head) + 2 arms |
+| **Robot Arm** | 2 × 2-DOF arms, 4× Damiao DM-J4310-2EC BLDC motors (CAN-bus MIT mode), 6 punch types, joint-space strike library with Bezier paths |
+| **Arm Firmware** | Teensy 4.0 running `teensy_firmware_V4` at 200 Hz, micro-ROS bridge to Jetson |
+| **Base Arduino** | Arduino Uno R4 WiFi running `ble_control.ino` — yaw rotation motor (CAN) + lead-screw height motor (MDDS10 driver), exposed over BLE as `BoxBunny Base` |
+| **Height Motor** | Open-loop PWM; auto-adjusts to user height via YOLO bbox top; manual control from GUI or phone; firmware refresh-window watchdog (250 ms) for runaway safety |
+| **Yaw Motor** | Tracks user left/right/centre via CV person direction, gated by near-range depth (default 0.8 m) so background walkers don't trigger rotation |
 | **Display** | 7" touchscreen (1024x600), gloved-hand optimized |
 
 ---
@@ -207,12 +218,13 @@ Everything runs locally on-device. The touchscreen GUI is designed for gloved ha
 
 | Layer | Technology |
 |-------|-----------|
-| **Middleware** | ROS 2 Humble (10 nodes, 21 messages, 6 services) |
+| **Middleware** | ROS 2 Humble (12 nodes, 22+ messages, 8 services) |
 | **CV / ML** | PyTorch, TensorRT FP16, YOLO (ultralytics), ONNX Runtime |
 | **Touchscreen GUI** | PySide6 (24 pages, 11 widgets, dark theme) |
 | **Phone Dashboard** | FastAPI backend (7 API modules) + Vue 3 / Tailwind CSS frontend (10 views, 8 components) |
 | **Database** | SQLite, 2-tier: main DB (users, sessions, auth) + per-user DBs (XP, streaks, records) |
-| **AI Coach** | Qwen2.5-3B-Instruct (GGUF Q4_K_M, ~2 GB), llama-cpp-python with CUDA |
+| **AI Coach** | Gemma 4 E2B (GGUF Q4_K_M, ~3 GB) + mmproj vision adapter, llama-cpp-python with CUDA + flash-attn |
+| **Base BLE** | bleak (Python async BLE client) on the Jetson, Arduino Uno R4 WiFi on the base |
 | **Sensors** | pyrealsense2 (D435i), pyserial (Teensy 4.1) |
 | **Build** | colcon (ROS 2 build tool), Vite (Vue 3 frontend) |
 
@@ -401,28 +413,24 @@ Seed these accounts with: `python3 tools/demo_data_seeder.py`
 
 ## Documentation
 
-Detailed technical documentation is in the `docs/` folder:
+**Start here for handover**: [`docs/README.md`](docs/README.md) — reading-order navigation guide organised by role (new developer, hardware, training modes, CV/IMU debug, recent changes).
 
-| Document | Contents |
-|----------|----------|
-| [architecture.md](docs/architecture.md) | System overview, node architecture, ROS topic graph, data flows, design philosophy |
-| [cv_pipeline.md](docs/cv_pipeline.md) | CV model, inference pipeline, CV+IMU fusion algorithm, person tracking |
-| [teensy_simulator.md](docs/teensy_simulator.md) | Simulator GUI, execute/auto mode, hardware forwarding, combo system |
-| [data_collection.md](docs/data_collection.md) | Data sources, collection strategy, session summary, database schema |
-| [dashboard_and_llm.md](docs/dashboard_and_llm.md) | Phone dashboard, API endpoints, AI coach, LLM reliability, height control |
-| [sparring_and_training.md](docs/sparring_and_training.md) | Training modes, sparring engine, free mode, robot arm control |
-| [gui_and_user_experience.md](docs/gui_and_user_experience.md) | GUI pages, UX design (gloved hands, pattern lock, IMU nav), calibration workflow |
-| [testing_and_notebook.md](docs/testing_and_notebook.md) | Notebook sections, pytest suite, integration tests, manual testing guide |
+The full `docs/` folder is laid out as:
 
-Additional documentation organized by subsystem:
-
-| Folder | Contents |
-|--------|----------|
-| `docs/gui/` | GUI architecture, page inventory, design system |
-| `docs/dashboard/` | Backend API reference, frontend views, WebSocket protocol |
-| `docs/system/` | ROS architecture, integration details, communication patterns |
-| `docs/training/` | Training mode logic, sparring AI, combo drill design |
-| `docs/data/` | Database schema, data collection pipeline |
+| Path | Contents |
+|------|----------|
+| [docs/README.md](docs/README.md) | How this documentation is organised + recommended reading order |
+| [docs/system/](docs/system/) | `architecture.md`, `integration.md`, `technical-deep-dive.md` — ROS graph, node roles, integration details |
+| [docs/hardware/](docs/hardware/) | `boxing_arm_control.md`, `ble_bridge.md` — arm subsystem (Teensy + Damiao) and base subsystem (Arduino + BLE) |
+| [docs/gui/](docs/gui/) | PySide6 app architecture + design system |
+| [docs/dashboard/](docs/dashboard/) | FastAPI backend + Vue 3 frontend reference |
+| [docs/training/](docs/training/) | Modes: combo drills, sparring AI, free training, performance tests, coach station |
+| [docs/data/](docs/data/) | SQLite schema (main + per-user DBs) |
+| [docs/node_graphs/](docs/node_graphs/) | Quick-reference cards: full system map, CV/IMU fusion path, session state machine, GUI/dashboard comms |
+| [docs/deployment.md](docs/deployment.md) | Build, launch, hardware bring-up, troubleshooting |
+| [docs/testing.md](docs/testing.md) | Unit tests, integration tests, notebook smoke tests |
+| [docs/new_changes.md](docs/new_changes.md) | Changelog of bigger shifts (LLM upgrade, BLE bridge, base tracking, sparring + reaction fixes) |
+| `docs/_archive/` | Old docs preserved for reference — do not rely on |
 
 ### Dashboard API Reference
 

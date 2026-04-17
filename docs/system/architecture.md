@@ -319,6 +319,33 @@ BoxBunny is a boxing robot training system running on an **NVIDIA Jetson Orin NX
 
 ---
 
+### 2.12 ble_bridge_node
+
+**Purpose**: owns the single BLE link to the base-rotation Arduino (`BoxBunny Base`). Multiplexes two command streams over the one connection: height-motor commands from the GUI/phone, and live person-tracking rotation commands from CV.
+
+**Key behaviour**:
+- Auto-connects on startup via a background asyncio thread (`bleak`). Reconnects with 2 s backoff on drop.
+- Subscribes to `/boxbunny/robot/height` (HeightCommand) and translates to `HUP:<pwm>` / `HDOWN:<pwm>` / `HSTOP`.
+- When tracking is enabled via the `tracking_start` service, forwards `/boxbunny/cv/person_direction` as `L:<rpm>` / `R:<rpm>` / `S`, gated by `/boxbunny/cv/user_tracking.depth` (default threshold 0.8 m with 0.15 m hysteresis).
+- Publishes `/boxbunny/ble/status` at 1 Hz (JSON `{connected, tracking, last_cmd, near_range_m}`) for the GUI to read.
+- Height safety (belt-and-braces):
+  - 500 ms Jetson-side deadman — re-issues `HSTOP` if height publishers go silent.
+  - 250 ms refresh-window watchdog inside `ble_control.ino` — zeroes PWM if *any* command stream stops. This is the authoritative safety layer.
+- On every BLE disconnect, the bridge drains the queued commands so a stale backlog of `HUP:200` doesn't flood the motor on reconnect.
+
+See [hardware/ble_bridge.md](../hardware/ble_bridge.md) for the full protocol and design rationale.
+
+| Direction | Topic / Service | Message Type |
+|---|---|---|
+| Subscribes | `/boxbunny/robot/height` | HeightCommand |
+| Subscribes | `/boxbunny/cv/person_direction` | std_msgs/String |
+| Subscribes | `/boxbunny/cv/user_tracking` | UserTracking |
+| Publishes | `/boxbunny/ble/status` | std_msgs/String (JSON) |
+| Service | `/boxbunny/ble/tracking_start` | std_srvs/Trigger |
+| Service | `/boxbunny/ble/tracking_stop` | std_srvs/Trigger |
+
+---
+
 ### 2.11 gesture_node (Optional)
 
 **Purpose**: MediaPipe hand gesture recognition for touchless GUI navigation. Disabled by default.
@@ -367,7 +394,7 @@ BoxBunny is a boxing robot training system running on an **NVIDIA Jetson Orin NX
 | 20 | **DrillProgress** | `timestamp`, `combos_completed`, `combos_remaining`, `overall_accuracy`, `current_streak`, `best_streak` |
 | 21 | **CoachTip** | `timestamp`, `tip_text`, `tip_type` (technique/encouragement/correction/suggestion), `trigger`, `priority` (0-2) |
 
-### 3.2 Services (boxbunny_msgs/srv)
+### 3.2 Services (boxbunny_msgs/srv + std_srvs)
 
 | # | Service | Request | Response |
 |---|---------|---------|----------|
@@ -377,6 +404,8 @@ BoxBunny is a boxing robot training system running on an **NVIDIA Jetson Orin NX
 | 4 | **SetImuMode** | `mode` (navigation/training) | `success`, `current_mode` |
 | 5 | **CalibrateImuPunch** | `pad` (left/centre/right/head/all) | `success`, `message` |
 | 6 | **GenerateLlm** | `prompt`, `context_json`, `system_prompt_key` | `success`, `response`, `generation_time_sec` |
+| 7 | **tracking_start** (std_srvs/Trigger) | — | `success`, `message` — enables `ble_bridge_node` CV→BLE rotation forwarding |
+| 8 | **tracking_stop** (std_srvs/Trigger) | — | `success`, `message` — sends `S` and disables forwarding |
 
 ---
 

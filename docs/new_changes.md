@@ -1,8 +1,95 @@
-# BoxBunny LLM Upgrade & Image Chat Feature
+# BoxBunny — Notable Changes Log
 
-Date: 2026-04-13
+Running log of the larger changes shipped to BoxBunny. Newest entries go at the top.
 
 ---
+
+# 2026-04-17 — BLE base control, live person-tracking, sparring & reaction-test fixes
+
+One integrated set of changes across the Jetson, the base Arduino, and the GUI.
+
+## 1. BLE bridge — height + base rotation via Arduino
+
+The base has two motors (yaw rotation + height lead-screw) wired to an Arduino Uno R4 WiFi running `ble_control.ino`. Before this change, height control flowed through the old V4 GUI / Teensy path (`/boxbunny/robot/height_remote`). Now:
+
+- New ROS node **`ble_bridge_node`** ([src/boxbunny_core/boxbunny_core/ble_bridge_node.py](../src/boxbunny_core/boxbunny_core/ble_bridge_node.py)) owns the single BLE link to `BoxBunny Base`.
+- Main GUI (Settings page press-and-hold) and phone dashboard (`POST /api/remote/height`) both publish `HeightCommand` on `/boxbunny/robot/height`; the bridge translates to `HUP:<pwm>`, `HDOWN:<pwm>`, `HSTOP` over BLE.
+- Teensy simulator already subscribes to `/boxbunny/robot/height` — unchanged, still works.
+
+**Height motor safety — two stacked watchdogs**:
+
+- **Arduino firmware** (`ble_control.ino`): 250 ms refresh-window watchdog. Every `HUP`/`HDOWN` stamps `lastHeightCmdMs`. If silent for 250 ms, firmware zeroes the PWM. Motor can only run while commands are actively arriving. BLE drop, Jetson crash, unplugged cable — all safe.
+- **Jetson `ble_bridge_node`**: 500 ms deadman. If the publisher goes silent mid-motion while the link is still up, the bridge re-issues `HSTOP`.
+
+Full detail: [hardware/ble_bridge.md](hardware/ble_bridge.md).
+
+## 2. Live person-tracking integrated into Free Training and Sparring
+
+Replaces the standalone `notebooks/scripts/test_base_tracking.py` workflow.
+
+- `ble_bridge_node` subscribes to `/boxbunny/cv/person_direction` + `/boxbunny/cv/user_tracking` and emits `L:<rpm>/R:<rpm>/S` when tracking is enabled.
+- Toggled via two new services: `/boxbunny/ble/tracking_start` and `/boxbunny/ble/tracking_stop` (both `std_srvs/Trigger`).
+- **Near-range gating** (`config/boxbunny.yaml → ble_tracking:`): default `near_range_m = 0.8` with `hysteresis_m = 0.15`. A user at 2 m produces no rotation commands even if they're the only one in frame. Stops background walkers from driving the motor.
+- **Centre dead-zone tightened**: `run_with_ros.py:send_direction` shrunk from middle 30% to middle 10% of the frame, so the robot tracks lateral movement sooner. 20 px hysteresis kept.
+
+UI:
+- **Sparring Setup page** and **Sparring Session page** both have a Start/Stop Tracking button.
+- **Free Training Session page** has the same toggle.
+- All three share state via `/boxbunny/ble/status` (1 Hz JSON). Buttons are disabled until BLE is connected.
+- **Safety**: every session-end path (`_on_stop`, `_on_timer_done`, `on_leave`, BLE disconnect) calls `tracking_stop` → motor halts. The motor cannot be left running after a session.
+
+## 3. Sparring — counter counter was stuck at 0 (two bugs, both fixed)
+
+### Bug A — source tag lost in strike_complete
+
+The V4 Arm Control GUI publishes its own `strike_complete` payload on `/boxbunny/robot/strike_complete` *without* the `source` field, racing with `robot_node`'s correctly-tagged version. The sparring UI's `_on_strike_complete` was checking `data.get("source") == "counter"` and getting `None` half the time, so the COUNTERS counter barely ticked.
+
+**Fix**: [gui_bridge.py](../src/boxbunny_gui/boxbunny_gui/gui_bridge.py) now also subscribes to `/boxbunny/robot/command` directly and emits a new `robot_command_issued(dict)` Qt signal. The sparring session page increments the counter **the instant `sparring_engine` fires** a RobotCommand with `source="counter"` — bypasses the broken pipeline entirely and ticks ~5 s sooner than before.
+
+### Bug B — `_robot_busy` sticking True
+
+`sparring_engine._robot_busy` only cleared on `/robot/strike_feedback`. If the V4 GUI wasn't running, or a message dropped, the flag stayed True after the first attack and blocked every subsequent counter.
+
+**Fix**: added a 6 s busy-timeout watchdog (`_clear_stale_busy`) in [sparring_engine.py](../src/boxbunny_core/boxbunny_core/sparring_engine.py). Auto-releases the flag if feedback never arrives, with a warning log telling you to check whether V4/teensy_simulator is up.
+
+## 4. Reaction Test — too sensitive with background people
+
+Both trigger paths (local pose-motion delta, ROS-fused `punch_confirmed`) fired on *any* movement in the frame. In a busy gym, background walkers tripped the timer.
+
+**Fix**: subscribes to `/boxbunny/cv/user_tracking` (cv_node already picks the largest + most centred person per frame) and gates triggers on four conditions:
+- `user_detected == True`
+- `0 < depth ≤ 2.0 m`
+- bbox centre within the middle 40% of the 960 px frame
+- tracking message within the last 500 ms (fail-safe on stale data)
+
+Constants are at the top of [reaction_test_page.py](../src/boxbunny_gui/boxbunny_gui/pages/performance/reaction_test_page.py) — tune tighter if needed.
+
+## 5. File / config changes (quick reference)
+
+- **NEW** `src/boxbunny_core/boxbunny_core/ble_bridge_node.py`
+- **NEW** `docs/hardware/boxing_arm_control.md`, `docs/hardware/ble_bridge.md`
+- `config/boxbunny.yaml` — added `ble_tracking:` section.
+- `config/ros_topics.yaml` — added `ble_status`, `tracking_start`, `tracking_stop`; marked `height_remote` deprecated; updated `person_direction` note.
+- `src/boxbunny_core/setup.py` + `boxbunny_full.launch.py` — register/launch `ble_bridge_node`.
+- `src/boxbunny_core/boxbunny_core/sparring_engine.py` — busy-timeout watchdog + `_set_busy`/`_clear_stale_busy`.
+- `src/boxbunny_gui/boxbunny_gui/gui_bridge.py` — new signals: `ble_status_changed`, `robot_command_issued`, `user_tracking_changed`; new services: `call_tracking_start`, `call_tracking_stop`.
+- `src/boxbunny_gui/boxbunny_gui/pages/sparring/sparring_config_page.py` — tracking card, accepts `bridge` kwarg.
+- `src/boxbunny_gui/boxbunny_gui/pages/sparring/sparring_session_page.py` — tracking row, listens to `robot_command_issued` for COUNTERS.
+- `src/boxbunny_gui/boxbunny_gui/pages/training/training_session_page.py` — tracking row in free-training mode, safety stop hooks.
+- `src/boxbunny_gui/boxbunny_gui/pages/performance/reaction_test_page.py` — foreground-user gating.
+- `src/boxbunny_dashboard/boxbunny_dashboard/api/remote.py` — phone height endpoint publishes `HeightCommand`.
+- `Boxing_Arm_Control/ros2_ws/ble_control/ble_control.ino` — 5-line height watchdog addition.
+
+## 6. How to operate (for the next person)
+
+- **Launch the stack**: `ros2 launch boxbunny_core boxbunny_full.launch.py` (or `colcon build --symlink-install` first). `ble_bridge_node` auto-starts. Power-cycle the Arduino if it doesn't reconnect within ~10 s.
+- **Height**: press & hold Up/Down in GUI Settings or phone dashboard. Arduino firmware refresh-window is 250 ms — under normal load (10 Hz publish = 100 ms interval), one dropped BLE packet won't stutter the motor.
+- **Tracking**: go to Sparring Setup *or* any session page, press Start Tracking. Disabled until BLE is up (status label shows `BLE: connected`). Stops automatically on session end — you never need to remember.
+- **Known-safe failure modes**: GUI crash mid-hold (firmware stops in 250 ms), BLE drop mid-tracking (bridge forces tracking off locally, firmware stops motor), Jetson reboot (Arduino is standalone, motor stops the moment commands stop arriving).
+
+---
+
+# 2026-04-13 — LLM Upgrade & Image Chat Feature
 
 ## 1. LLM Model Switch: Qwen 2.5-3B -> Gemma 4 E2B
 

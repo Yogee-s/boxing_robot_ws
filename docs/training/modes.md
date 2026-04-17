@@ -135,6 +135,19 @@ After each sparring session, the following is persisted to `sparring_sessions`:
 - Punch distribution (JSON breakdown by type)
 - Defense breakdown (JSON: blocks, slips, dodges, hits, unknowns)
 
+### Base Tracking (optional)
+
+Sparring sessions can engage live **person-tracking** — the base rotates to keep the user centred while they move around. Toggle it from either:
+
+- **Sparring Setup page** (pre-configure) — button disabled until BLE is connected.
+- **Session page** (start/stop mid-session).
+
+Both surfaces call `/boxbunny/ble/tracking_start` and `/boxbunny/ble/tracking_stop` on `ble_bridge_node`. The bridge listens to `/boxbunny/cv/person_direction` + `/boxbunny/cv/user_tracking` and emits `L:<rpm>/R:<rpm>/S` over BLE to the base Arduino. Near-range gating (default 0.8 m ± 0.15 m hysteresis) means background walkers do not drive the motor.
+
+**Safety**: session end (STOP button, timer hitting zero, or navigating away) always calls `tracking_stop` — the motor can never be left running after a session. BLE disconnect mid-session also forces the local flag off.
+
+Full detail: [../hardware/ble_bridge.md](../hardware/ble_bridge.md).
+
 ---
 
 ## 3. Free Training
@@ -166,6 +179,10 @@ When the user hits a pad, the robot responds with a contextually appropriate cou
 3. User defends or evades the counter, then continues punching.
 4. After 5 seconds of inactivity, the robot resets to guard.
 5. Session continues until the user or timer ends it.
+
+### Base Tracking (optional)
+
+Free Training has the same **Start/Stop Tracking** button as sparring, on the free-training session page (next to Tap START). Identical pipeline: `/boxbunny/ble/tracking_start` → `ble_bridge_node` → BLE → base motor rotates to follow the user inside the near-range engagement zone. `tracking_stop` always fires on session end.
 
 ---
 
@@ -211,6 +228,8 @@ Performance tests are standalone assessments that measure specific physical attr
 1. The system presents **3 trials** of visual stimulus.
 2. Detection uses the camera with YOLO pose detection to identify when the user throws a punch.
 3. Reaction time is measured from stimulus presentation to detected punch initiation.
+
+**Foreground-user gating**: triggers are rejected unless the primary tracked user is (a) detected, (b) within `_MAX_USER_DEPTH_M` (default 2.0 m) of the camera, and (c) roughly centred horizontally (middle 40% of the 960 px frame). Background walkers in a busy gym no longer trip the trigger. Tunable constants at the top of [`src/boxbunny_gui/boxbunny_gui/pages/performance/reaction_test_page.py`](../../src/boxbunny_gui/boxbunny_gui/pages/performance/reaction_test_page.py).
 
 **Recorded Metrics:**
 - `num_trials` -- Number of trials (default 10, but the standard test uses 3).

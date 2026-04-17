@@ -6,11 +6,11 @@
 
 ## 1. System Overview
 
-- **12 ROS 2 nodes** on Jetson Orin NX
-- **21 custom message types**, **6 services**, **40+ topics**
+- **12 ROS 2 nodes** on Jetson Orin NX (cv, imu, punch_processor, session_manager, drill_manager, sparring_engine, free_training_engine, analytics, llm, robot, gesture, ble_bridge)
+- **22+ custom message types**, **8 services**, **45+ topics**
 - **1 PySide6 GUI** (touchscreen) bridged to ROS via background thread
 - **1 FastAPI dashboard** (phone) communicating via IPC files + 1 ROS service
-- **Hardware:** RealSense D435i, Teensy 4.1 (4 pad IMUs, 2 arm IMUs, 4 motors, height motor, yaw motor), 7" touchscreen
+- **Hardware:** RealSense D435i, Teensy 4.0 (arms — 4 pad IMUs, 2 arm IMUs, 4 Damiao motors), Arduino Uno R4 WiFi (base — rotation + height motors via BLE), 7" touchscreen
 
 ---
 
@@ -158,6 +158,22 @@
 - **Timer:** Status 1 Hz
 - **Hardware:** Dynamixel servos (4 motors), height motor, yaw motor — all via Teensy
 
+### 2.12 ble_bridge_node — Base Arduino BLE Bridge
+- **Subscribes:**
+  - `/boxbunny/robot/height` (HeightCommand) ← GUI settings, phone dashboard (translates to `HUP:/HDOWN:/HSTOP`)
+  - `/boxbunny/cv/person_direction` (String) ← cv_node (forwards as `L:/R:/S` when tracking enabled)
+  - `/boxbunny/cv/user_tracking` (UserTracking) ← cv_node (depth gating for tracking)
+- **Publishes:**
+  - `/boxbunny/ble/status` (String JSON, 1 Hz) → GUI (connected/tracking/last_cmd state)
+- **Services:**
+  - Server: `/boxbunny/ble/tracking_start` (std_srvs/Trigger) — enable CV→BLE rotation forwarding
+  - Server: `/boxbunny/ble/tracking_stop` (std_srvs/Trigger) — send `S` and disable forwarding
+- **Timers:** Status 1 Hz, height deadman 10 Hz
+- **Transport:** BLE (bleak async client on a daemon thread) to Arduino Uno R4 WiFi advertising as "BoxBunny Base"
+- **Near-range gating:** `near_range_m=0.8` with `hysteresis_m=0.15` (both in `config/boxbunny.yaml`)
+- **Safety:** 500 ms Jetson deadman on height, paired with 250 ms firmware-side refresh-window watchdog in `ble_control.ino`
+- **Single-owner:** classic BLE peripheral accepts one central at a time. Do not run `notebooks/scripts/test_base_tracking.py` alongside this node.
+
 ### 2.11 gesture_node — Hand Gesture Recognition (disabled by default)
 - **Subscribes:**
   - `/camera/color/image_raw` (Image BGR8) ← cv_node/camera
@@ -179,14 +195,19 @@
   - `/boxbunny/punch/confirmed`, `/boxbunny/punch/defense`
   - `/boxbunny/drill/progress`, `/boxbunny/session/state`
   - `/boxbunny/coach/tip`, `/boxbunny/imu/nav_event`
-  - `/boxbunny/imu/status`, `/robot/strike_feedback`
+  - `/boxbunny/imu/status`, `/boxbunny/robot/strike_complete`
   - `/boxbunny/cv/detection`, `/boxbunny/cv/debug_info`
+  - `/boxbunny/cv/user_tracking` (gates reaction test against background walkers)
+  - `/boxbunny/ble/status` (enables tracking-button when link is up)
+  - `/boxbunny/robot/command` (counter-punch tag — sparring UI uses this for the COUNTERS counter)
 - **Publishes (via bridge):**
   - `/boxbunny/robot/command` (RobotCommand)
   - `/boxbunny/robot/height` (HeightCommand)
 - **Service clients:**
   - `/boxbunny/session/start` (StartSession)
   - `/boxbunny/session/end` (EndSession)
+  - `/boxbunny/llm/generate` (GenerateLlm)
+  - `/boxbunny/ble/tracking_start` + `/boxbunny/ble/tracking_stop` (Trigger)
   - `/boxbunny/llm/generate` (GenerateLlm)
 - **Input:** Touch, IMU pad navigation, keyboard fallback
 - **Display:** 1024x600, 24 pages (home, training, sparring, results, settings, etc.)
