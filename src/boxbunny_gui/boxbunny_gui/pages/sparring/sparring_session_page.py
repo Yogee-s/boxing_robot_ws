@@ -80,6 +80,10 @@ class SparringSessionPage(QWidget):
         self._username: str = ""
         self._session_active: bool = False
         self._session_id: str = ""
+        # Base-tracking state — must exist before _connect_bridge() because
+        # ble_status_changed can fire immediately after signals are wired.
+        self._tracking_active: bool = False
+        self._ble_connected: bool = False
         self._build_ui()
         self._connect_bridge()
 
@@ -157,6 +161,38 @@ class SparringSessionPage(QWidget):
 
         root.addSpacing(10)
 
+        # ── Base-tracking row ────────────────────────────────────────────
+        # Lets the user stop/restart tracking during the session (a toggle
+        # also lives on the setup page for pre-configuring). Motor
+        # auto-stops on session end via _safety_stop_tracking().
+        self._track_row = QWidget()
+        track_lay = QHBoxLayout(self._track_row)
+        track_lay.setContentsMargins(0, 0, 0, 0)
+        track_lay.setSpacing(12)
+        track_title = QLabel("Base Tracking")
+        track_title.setStyleSheet(
+            f"font-size: 14px; font-weight: 700; color: {Color.TEXT};"
+            " background: transparent; border: none;"
+        )
+        track_lay.addWidget(track_title)
+        self._track_status_lbl = QLabel("BLE: …")
+        self._track_status_lbl.setStyleSheet(
+            f"font-size: 12px; color: {Color.TEXT_SECONDARY};"
+            " background: transparent; border: none;"
+        )
+        track_lay.addWidget(self._track_status_lbl)
+        track_lay.addStretch()
+        self._btn_track = QPushButton("Start Tracking")
+        self._btn_track.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_track.setFixedHeight(40)
+        self._btn_track.setMinimumWidth(160)
+        self._btn_track.setEnabled(False)  # locked until BLE connects
+        self._btn_track.clicked.connect(self._on_track_toggle)
+        track_lay.addWidget(self._btn_track)
+        root.addWidget(self._track_row)
+
+        root.addSpacing(10)
+
         # ── Stop button ──────────────────────────────────────────────────
         bottom = QHBoxLayout()
         bottom.addStretch()
@@ -188,6 +224,96 @@ class SparringSessionPage(QWidget):
         # strike_complete pipeline (V4 GUI publishes a duplicate payload
         # without the source tag, which used to mask counters).
         self._bridge.robot_command_issued.connect(self._on_robot_command_issued)
+        self._bridge.ble_status_changed.connect(self._on_ble_status)
+
+    # ── Base tracking controls ──────────────────────────────────────────
+
+    def _on_ble_status(self, status: Dict[str, Any]) -> None:
+        self._ble_connected = bool(status.get("connected"))
+        self._track_status_lbl.setText(
+            "BLE: connected" if self._ble_connected else "BLE: disconnected"
+        )
+        # If tracking was already engaged remotely (e.g. started on the
+        # setup page before the session began), reflect that locally. The
+        # bridge publishes tracking=True as part of the status payload.
+        remote_tracking = bool(status.get("tracking"))
+        if self._ble_connected and remote_tracking:
+            self._tracking_active = True
+        if not self._ble_connected and self._tracking_active:
+            self._tracking_active = False
+        self._apply_track_button_style(active=self._tracking_active)
+
+    def _apply_track_button_style(self, *, active: bool) -> None:
+        # Disable while BLE is offline — no point sending commands to nothing.
+        self._btn_track.setEnabled(self._ble_connected)
+        if active:
+            self._btn_track.setText("Stop Tracking")
+            self._btn_track.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {Color.WARNING}; color: #FFFFFF;
+                    font-size: 13px; font-weight: 700;
+                    border: none; border-radius: {Size.RADIUS}px;
+                    padding: 0 16px;
+                }}
+                QPushButton:hover {{ background-color: {Color.WARNING_DARK}; }}
+                QPushButton:disabled {{
+                    background-color: {Color.SURFACE};
+                    color: {Color.TEXT_DISABLED};
+                }}
+            """)
+        else:
+            self._btn_track.setText("Start Tracking")
+            self._btn_track.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {Color.PRIMARY}; color: #FFFFFF;
+                    font-size: 13px; font-weight: 700;
+                    border: none; border-radius: {Size.RADIUS}px;
+                    padding: 0 16px;
+                }}
+                QPushButton:hover {{ background-color: {Color.PRIMARY_DARK}; }}
+                QPushButton:disabled {{
+                    background-color: {Color.SURFACE};
+                    color: {Color.TEXT_DISABLED};
+                }}
+            """)
+
+    def _on_track_toggle(self) -> None:
+        if self._bridge is None:
+            logger.warning("Tracking toggled but GUI bridge is offline")
+            return
+        if self._tracking_active:
+            self._bridge.call_tracking_stop(self._on_track_stop_result)
+        else:
+            self._bridge.call_tracking_start(self._on_track_start_result)
+
+    def _on_track_start_result(self, success: bool, message: str) -> None:
+        if success:
+            self._tracking_active = True
+            self._apply_track_button_style(active=True)
+            logger.info("Tracking started: %s", message)
+        else:
+            logger.warning("Tracking start failed: %s", message)
+
+    def _on_track_stop_result(self, success: bool, message: str) -> None:
+        self._tracking_active = False
+        self._apply_track_button_style(active=False)
+        if success:
+            logger.info("Tracking stopped: %s", message)
+        else:
+            logger.warning("Tracking stop reported failure: %s", message)
+
+    def _safety_stop_tracking(self) -> None:
+        """Always halt base-tracking when leaving/stopping the session.
+
+        Safety: motor must not keep running once the session ends.
+        """
+        if self._bridge is None:
+            return
+        try:
+            self._bridge.call_tracking_stop()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to stop tracking: %s", exc)
+        self._tracking_active = False
 
     _PT_DISPLAY = {
         "jab": "Jab", "cross": "Cross",
@@ -297,12 +423,14 @@ class SparringSessionPage(QWidget):
             self._sound.play("bell_end")
         self._session_active = False
         self._end_session()
+        self._safety_stop_tracking()
         self._go_results()
 
     def _on_stop(self) -> None:
         self._session_active = False
         self._timer.pause()
         self._end_session()
+        self._safety_stop_tracking()
         logger.info("Sparring stopped by user")
         self._go_results()
 
@@ -344,6 +472,11 @@ class SparringSessionPage(QWidget):
     def on_enter(self, **kwargs: Any) -> None:
         self._config = kwargs.get("config", {})
         self._username = kwargs.get("username", "")
+        # If the user started tracking on the setup page, carry the flag
+        # over so the session-page button opens in the correct state
+        # without waiting for the 1 Hz ble/status tick.
+        if kwargs.get("tracking_active"):
+            self._tracking_active = True
         rounds = self._config.get("Rounds", "3")
         work_time = self._parse_seconds(
             self._config.get("Duration", self._config.get("Work", "90s"))
@@ -363,6 +496,10 @@ class SparringSessionPage(QWidget):
         self._cv_fps_lbl.setText("--")
         # cv_hdr_lbl is part of the _stat_box header — no separate handle needed
         self._punch_counter.set_count(0)
+        # Reflect whatever tracking state currently exists — the bridge
+        # publishes ble/status at 1 Hz and _on_ble_status will sync us if
+        # tracking was already started on the setup page.
+        self._apply_track_button_style(active=self._tracking_active)
         self._work_time = work_time
         # Start ROS session so sparring_engine activates
         self._start_ros_session()
@@ -402,3 +539,4 @@ class SparringSessionPage(QWidget):
         self._session_active = False
         self._timer.pause()
         self._end_session()
+        self._safety_stop_tracking()

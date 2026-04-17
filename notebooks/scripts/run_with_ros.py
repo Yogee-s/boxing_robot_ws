@@ -122,7 +122,10 @@ class _CVPub(Node):
 
     def send_direction(self, bbox_cx: float, frame_width: float):
         w = frame_width
-        left_b, right_b = w * 0.35, w * 0.65
+        # Centre dead-zone = middle 10% of the frame. Tighter than before
+        # (was 30%) so the robot tracks lateral movement earlier.
+        # Hysteresis of 20 px still prevents chatter at the boundary.
+        left_b, right_b = w * 0.45, w * 0.55
         hyst = 20.0
         d = self._last_direction
         if d == "centre":

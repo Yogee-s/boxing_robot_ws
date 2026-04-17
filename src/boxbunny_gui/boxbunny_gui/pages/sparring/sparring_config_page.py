@@ -6,7 +6,7 @@ Step 2: Parameters slide in, description hides, Start button appears
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer
 from PySide6.QtWidgets import (
@@ -28,6 +28,7 @@ from boxbunny_gui.theme import (
 from boxbunny_gui.widgets import BigButton
 
 if TYPE_CHECKING:
+    from boxbunny_gui.gui_bridge import GuiBridge
     from boxbunny_gui.nav.router import PageRouter
 
 logger = logging.getLogger(__name__)
@@ -370,15 +371,27 @@ def _make_info_box(label: str, value: str, bg: str, border: str) -> QWidget:
 
 
 class SparringConfigPage(QWidget):
-    def __init__(self, router: PageRouter, parent=None) -> None:
+    def __init__(
+        self,
+        router: PageRouter,
+        bridge: Optional["GuiBridge"] = None,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self._router = router
+        self._bridge = bridge
         self._selected_style: str = _STYLE_ORDER[0]
         self._style_cards: list[_StyleCard] = []
         self._tiles: Dict[str, _ParamTile] = {}
         self._step = 1  # 1 = style selection, 2 = parameters
         self._username: str = ""
+        # Base-tracking state — must exist before _build_ui/_connect_bridge
+        # because ble_status_changed can fire immediately once wired.
+        self._tracking_active: bool = False
+        self._ble_connected: bool = False
         self._build_ui()
+        if self._bridge is not None:
+            self._bridge.ble_status_changed.connect(self._on_ble_status)
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -615,6 +628,44 @@ class SparringConfigPage(QWidget):
         counter_box_lay.addWidget(self._counter_speed_section)
         params_lay.addWidget(counter_box)
 
+        # ── Base-tracking card ───────────────────────────────────────────
+        # Pre-configure person tracking before entering the session. The
+        # session page has the same toggle so the user can stop/restart
+        # mid-session. Safety: session end always halts tracking.
+        track_box = QWidget()
+        track_box.setStyleSheet(f"""
+            QWidget {{
+                background-color: {Color.SURFACE};
+                border: 1px solid {Color.BORDER};
+                border-radius: {Size.RADIUS}px;
+            }}
+        """)
+        track_lay = QHBoxLayout(track_box)
+        track_lay.setContentsMargins(14, 10, 14, 10)
+        track_lay.setSpacing(10)
+        track_title = QLabel("BASE TRACKING")
+        track_title.setStyleSheet(
+            f"font-size: 10px; font-weight: 700; color: {Color.TEXT_DISABLED};"
+            " letter-spacing: 0.8px; background: transparent; border: none;"
+        )
+        track_lay.addWidget(track_title)
+        self._track_status_lbl = QLabel("BLE: …")
+        self._track_status_lbl.setStyleSheet(
+            f"font-size: 11px; color: {Color.TEXT_SECONDARY};"
+            " background: transparent; border: none;"
+        )
+        track_lay.addWidget(self._track_status_lbl)
+        track_lay.addStretch()
+        self._btn_track = QPushButton("Start Tracking")
+        self._btn_track.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_track.setFixedHeight(40)
+        self._btn_track.setMinimumWidth(160)
+        self._btn_track.setEnabled(False)  # locked until BLE connects
+        self._btn_track.clicked.connect(self._on_track_toggle)
+        track_lay.addWidget(self._btn_track)
+        self._apply_track_button_style(active=False)
+        params_lay.addWidget(track_box)
+
         root.addWidget(self._params_section)
 
         # Animations
@@ -796,6 +847,7 @@ class SparringConfigPage(QWidget):
         logger.info("Starting sparring: %s", config)
         self._router.navigate(
             "sparring_session", config=config, username=self._username,
+            tracking_active=self._tracking_active,
         )
 
     def _save_as_preset(self) -> None:
@@ -835,7 +887,84 @@ class SparringConfigPage(QWidget):
         self._desc_section.setMaximumHeight(200)
         self._params_section.setMaximumHeight(0)
         self._btn_action.setText(f"{Icon.PLAY}  Choose Parameters")
+        # Refresh tracking-button state in case BLE status or tracking
+        # changed while the page was not shown.
+        self._apply_track_button_style(active=self._tracking_active)
         logger.debug("SparringConfigPage entered")
 
     def on_leave(self) -> None:
         pass
+
+    # ── Base tracking controls ──────────────────────────────────────────
+
+    def _on_ble_status(self, status: Dict[str, Any]) -> None:
+        self._ble_connected = bool(status.get("connected"))
+        self._track_status_lbl.setText(
+            "BLE: connected" if self._ble_connected else "BLE: disconnected"
+        )
+        # Sync with the bridge's authoritative tracking state — e.g. if
+        # the user already enabled it from the session page.
+        remote_tracking = bool(status.get("tracking"))
+        if self._ble_connected and remote_tracking:
+            self._tracking_active = True
+        if not self._ble_connected and self._tracking_active:
+            self._tracking_active = False
+        self._apply_track_button_style(active=self._tracking_active)
+
+    def _apply_track_button_style(self, *, active: bool) -> None:
+        self._btn_track.setEnabled(self._ble_connected)
+        if active:
+            self._btn_track.setText("Stop Tracking")
+            self._btn_track.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {Color.WARNING}; color: #FFFFFF;
+                    font-size: 13px; font-weight: 700;
+                    border: none; border-radius: {Size.RADIUS}px;
+                    padding: 0 16px;
+                }}
+                QPushButton:hover {{ background-color: {Color.WARNING_DARK}; }}
+                QPushButton:disabled {{
+                    background-color: {Color.SURFACE};
+                    color: {Color.TEXT_DISABLED};
+                }}
+            """)
+        else:
+            self._btn_track.setText("Start Tracking")
+            self._btn_track.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {Color.PRIMARY}; color: #FFFFFF;
+                    font-size: 13px; font-weight: 700;
+                    border: none; border-radius: {Size.RADIUS}px;
+                    padding: 0 16px;
+                }}
+                QPushButton:hover {{ background-color: {Color.PRIMARY_DARK}; }}
+                QPushButton:disabled {{
+                    background-color: {Color.SURFACE};
+                    color: {Color.TEXT_DISABLED};
+                }}
+            """)
+
+    def _on_track_toggle(self) -> None:
+        if self._bridge is None:
+            logger.warning("Tracking toggled but GUI bridge is offline")
+            return
+        if self._tracking_active:
+            self._bridge.call_tracking_stop(self._on_track_stop_result)
+        else:
+            self._bridge.call_tracking_start(self._on_track_start_result)
+
+    def _on_track_start_result(self, success: bool, message: str) -> None:
+        if success:
+            self._tracking_active = True
+            self._apply_track_button_style(active=True)
+            logger.info("Tracking started: %s", message)
+        else:
+            logger.warning("Tracking start failed: %s", message)
+
+    def _on_track_stop_result(self, success: bool, message: str) -> None:
+        self._tracking_active = False
+        self._apply_track_button_style(active=False)
+        if success:
+            logger.info("Tracking stopped: %s", message)
+        else:
+            logger.warning("Tracking stop reported failure: %s", message)

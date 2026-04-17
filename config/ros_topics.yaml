@@ -141,7 +141,9 @@ cv:
     # Publisher:    cv_node (or run_with_ros.py in test mode)
     # Subscriber:   robot_node, session_manager, teensy_simulator
     # Values:       "left", "right", "centre"
-    # Notes: Based on bbox_centre_x with 30% centre zone + 20px hysteresis.
+    # Notes: Based on bbox_centre_x with 10% centre dead-zone + 20px
+    #        hysteresis (tuned for responsive tracking — shrink further
+    #        in run_with_ros.py:send_direction if needed).
     #        robot_node forwards to /robot/yaw_cmd for the Teensy turning motor.
 
   status: "/boxbunny/cv/status"
